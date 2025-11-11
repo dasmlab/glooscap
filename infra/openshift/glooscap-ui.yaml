@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glooscap-ui
+  namespace: glooscap-system
+  labels:
+    app: glooscap-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glooscap-ui
+  template:
+    metadata:
+      labels:
+        app: glooscap-ui
+    spec:
+      containers:
+        - name: ui
+          image: quay.io/dasmlab/glooscap-ui:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: glooscap-ui
+  namespace: glooscap-system
+  labels:
+    app: glooscap-ui
+spec:
+  selector:
+    app: glooscap-ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: glooscap-ui
+  namespace: glooscap-system
+  labels:
+    app: glooscap-ui
+spec:
+  host: web-glooscap.apps.<cluster-domain>
+  to:
+    kind: Service
+    name: glooscap-ui
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+

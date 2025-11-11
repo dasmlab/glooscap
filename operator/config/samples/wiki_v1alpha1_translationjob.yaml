@@ -1,0 +1,9 @@
+apiVersion: wiki.glooscap.dasmlab.org/v1alpha1
+kind: TranslationJob
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: translationjob-sample
+spec:
+  # TODO(user): Add fields here
