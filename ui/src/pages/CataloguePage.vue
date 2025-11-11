@@ -105,7 +105,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
 import { useCatalogueStore } from 'src/stores/catalogue-store'
 import { useJobStore } from 'src/stores/job-store'
@@ -116,18 +116,31 @@ const catalogueStore = useCatalogueStore()
 const jobStore = useJobStore()
 const settingsStore = useSettingsStore()
 
+onMounted(() => {
+  catalogueStore.initialise().catch((err) => {
+    $q.notify({ type: 'negative', message: err.message || 'Failed to load catalogue' })
+  })
+})
+
 const targetOptions = computed(() =>
   catalogueStore.targets.map((target) => ({
-    label: target.name,
+    label: target.name || target.id,
     value: target.id,
-    caption: `${target.mode} • ${target.uri}`,
+    caption: [target.mode, target.uri].filter(Boolean).join(' • '),
   })),
 )
 
 const selectedTarget = computed({
   get: () => catalogueStore.selectedTargetId,
-  set: (value) => catalogueStore.setTarget(value),
+  set: (value) =>
+    catalogueStore.setTarget(value).catch((err) => {
+      $q.notify({ type: 'negative', message: err.message || 'Failed to load target' })
+    }),
 })
+
+const activeTarget = computed(() =>
+  catalogueStore.targets.find((target) => target.id === catalogueStore.selectedTargetId),
+)
 
 const selectedRowKeys = computed({
   get: () => Array.from(catalogueStore.selectedPages),
@@ -170,16 +183,33 @@ function statusColor(status) {
   }
 }
 
-function queueSelection() {
-  selectedRowKeys.value.forEach((pageId) => {
+async function queueSelection() {
+  const target = activeTarget.value
+  const namespace = target?.namespace || 'glooscap-system'
+  const targetRef = target?.resourceName || target?.id || ''
+  const languageTag =
+    typeof settingsStore.defaultLanguage === 'string'
+      ? settingsStore.defaultLanguage
+      : settingsStore.defaultLanguage?.value ?? 'fr-CA'
+
+  const requests = selectedRowKeys.value.map((pageId) => {
     const page = catalogueStore.pages.find((item) => item.id === pageId)
-    if (!page) return
-    jobStore.enqueueJob({
-      pageTitle: page.title,
-      targetId: page.targetId,
-      pipeline: 'TektonJob',
-    })
+    if (!page) return null
+    return jobStore
+      .submitJob({
+        namespace,
+        targetRef,
+        pageId: page.id,
+        pipeline: 'TektonJob',
+        languageTag,
+        pageTitle: page.title,
+      })
+      .catch((err) => {
+        $q.notify({ type: 'negative', message: err.message || 'Failed to queue job' })
+      })
   })
+
+  await Promise.all(requests.filter(Boolean))
   catalogueStore.clearSelection()
   $q.notify({
     type: 'positive',

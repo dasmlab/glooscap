@@ -1,39 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-
-const mockJobs = [
-  {
-    id: 'job-1001',
-    pageTitle: 'Platform Onboarding',
-    targetId: 'outline-en',
-    pipeline: 'TektonJob',
-    state: 'Queued',
-    createdAt: '2025-11-10T15:30:00Z',
-    updatedAt: '2025-11-10T15:30:00Z',
-  },
-  {
-    id: 'job-1002',
-    pageTitle: 'Disaster Recovery Playbook',
-    targetId: 'outline-en',
-    pipeline: 'TektonJob',
-    state: 'Publishing',
-    createdAt: '2025-11-09T09:32:00Z',
-    updatedAt: '2025-11-09T10:01:00Z',
-  },
-  {
-    id: 'job-1003',
-    pageTitle: 'Secure Coding Checklist',
-    targetId: 'outline-en',
-    pipeline: 'InlineLLM',
-    state: 'Failed',
-    createdAt: '2025-11-08T18:32:00Z',
-    updatedAt: '2025-11-08T18:45:00Z',
-    message: 'WikiTarget not found',
-  },
-]
+import api from 'src/services/api'
 
 export const useJobStore = defineStore('jobs', () => {
-  const jobs = ref(mockJobs)
+  const jobs = ref([])
   const loading = ref(false)
   const error = ref(null)
 
@@ -51,7 +21,21 @@ export const useJobStore = defineStore('jobs', () => {
     loading.value = true
     error.value = null
     try {
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      const { data } = await api.get('/jobs')
+      const items = data?.items ?? {}
+      jobs.value = Object.entries(items).map(([id, item]) => {
+        const status = item?.status ?? {}
+        return {
+          id,
+          pageTitle: item?.pageTitle || status?.message || id,
+          pipeline: item?.pipeline || 'TektonJob',
+          state: status?.state || 'Queued',
+          createdAt: status?.startedAt,
+          updatedAt: status?.finishedAt || status?.startedAt,
+          message: status?.message || '',
+          targetId: item?.targetRef || '',
+        }
+      })
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
     } finally {
@@ -59,17 +43,14 @@ export const useJobStore = defineStore('jobs', () => {
     }
   }
 
-  function enqueueJob(payload) {
-    const newJob = {
-      id: `job-${Math.floor(Math.random() * 10_000)}`,
-      pageTitle: payload.pageTitle,
-      targetId: payload.targetId,
-      pipeline: payload.pipeline || 'TektonJob',
-      state: 'Queued',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+  async function submitJob(payload) {
+    loading.value = true
+    try {
+      await api.post('/jobs', payload)
+      await refreshJobs()
+    } finally {
+      loading.value = false
     }
-    jobs.value = [newJob, ...jobs.value]
   }
 
   return {
@@ -79,7 +60,7 @@ export const useJobStore = defineStore('jobs', () => {
     loading,
     error,
     refreshJobs,
-    enqueueJob,
+    submitJob,
   }
 })
 

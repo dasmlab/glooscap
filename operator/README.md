@@ -74,6 +74,7 @@ make uninstall
 ## Testing
 
 - `make test` – runs API/controller/unit suites (requires envtest assets)
+- Fetch envtest binaries via `make setup-envtest` or export `KUBEBUILDER_ASSETS` before running controller tests
 - `SKIP_E2E=1 make test` – skip Docker-backed e2e for constrained environments
 - `make test-e2e` – builds the manager image and exercises end-to-end flow
 

@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
+	"github.com/dasmlab/glooscap-operator/pkg/catalog"
+	"github.com/dasmlab/glooscap-operator/pkg/vllm"
 )
 
 // TranslationJobReconciler reconciles a TranslationJob object
@@ -39,6 +41,9 @@ type TranslationJobReconciler struct {
 	Scheme *runtime.Scheme
 
 	Recorder record.EventRecorder
+
+	Dispatcher vllm.Dispatcher
+	Jobs       *catalog.JobStore
 }
 
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=translationjobs,verbs=get;list;watch;create;update;patch;delete
@@ -102,6 +107,40 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
+	if updated.State == wikiv1alpha1.TranslationJobStateQueued && r.Dispatcher != nil {
+		mode := vllm.ModeFromString(string(job.Spec.Pipeline))
+		dispatchErr := r.Dispatcher.Dispatch(ctx, vllm.Request{
+			JobName:      job.Name,
+			Namespace:    job.Namespace,
+			PageID:       job.Spec.Source.PageID,
+			LanguageTag:  languageTagForJob(&job),
+			SourceTarget: job.Spec.Source.TargetRef,
+			Mode:         mode,
+		})
+		if dispatchErr != nil {
+			meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "DispatchFailed",
+				Message:            dispatchErr.Error(),
+				LastTransitionTime: now,
+			})
+			updated.State = wikiv1alpha1.TranslationJobStateFailed
+			updated.Message = dispatchErr.Error()
+			updated.FinishedAt = &now
+		} else {
+			updated.State = wikiv1alpha1.TranslationJobStateDispatching
+			meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "Dispatching",
+				Message:            "Translation dispatched to vLLM backend",
+				LastTransitionTime: now,
+			})
+			updated.Message = "Dispatch accepted by vLLM backend"
+		}
+	}
+
 	if !jobStatusChanged(&job.Status, updated) {
 		return ctrl.Result{}, nil
 	}
@@ -114,12 +153,26 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	logger.Info("updated translation job status", "state", job.Status.State)
 	r.Recorder.Event(&job, "Normal", string(job.Status.State), job.Status.Message)
 
+	if r.Jobs != nil {
+		r.Jobs.Update(&job)
+	}
+
 	requeue := ctrl.Result{}
 	if job.Status.State == wikiv1alpha1.TranslationJobStateQueued {
 		requeue.RequeueAfter = time.Minute
 	}
 
 	return requeue, nil
+}
+
+func languageTagForJob(job *wikiv1alpha1.TranslationJob) string {
+	if job.Spec.Destination != nil && job.Spec.Destination.LanguageTag != "" {
+		return job.Spec.Destination.LanguageTag
+	}
+	if lang, ok := job.Spec.Parameters["languageTag"]; ok && lang != "" {
+		return lang
+	}
+	return "fr-CA"
 }
 
 // SetupWithManager sets up the controller with the Manager.

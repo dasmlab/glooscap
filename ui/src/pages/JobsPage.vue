@@ -61,11 +61,18 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import { useQuasar } from 'quasar'
 import { useJobStore } from 'src/stores/job-store'
 
 const $q = useQuasar()
 const jobStore = useJobStore()
+
+onMounted(() => {
+  jobStore.refreshJobs().catch((err) => {
+    $q.notify({ type: 'negative', message: err.message || 'Failed to load jobs' })
+  })
+})
 
 function formatSubtitle(job) {
   const created = new Date(job.createdAt).toLocaleString()

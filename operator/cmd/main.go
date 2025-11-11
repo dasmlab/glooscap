@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -33,12 +34,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	manager "sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
 	"github.com/dasmlab/glooscap-operator/internal/controller"
+	"github.com/dasmlab/glooscap-operator/internal/server"
+	"github.com/dasmlab/glooscap-operator/pkg/catalog"
+	"github.com/dasmlab/glooscap-operator/pkg/vllm"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -204,23 +209,69 @@ func main() {
 
 	eventRecorder := mgr.GetEventRecorderFor("glooscap-operator")
 
+	catalogStore := catalog.NewStore()
+	jobStore := catalog.NewJobStore()
+	outlineFactory := controller.DefaultOutlineClientFactory{}
+
+	tektonNamespace := os.Getenv("VLLM_JOB_NAMESPACE")
+	if tektonNamespace == "" {
+		tektonNamespace = "nanabush"
+	}
+	vllmImage := os.Getenv("VLLM_JOB_IMAGE")
+	if vllmImage == "" {
+		vllmImage = "quay.io/dasmlab/vllm-runner:latest"
+	}
+	vllmAPI := os.Getenv("VLLM_API_URL")
+	if vllmAPI == "" {
+		vllmAPI = "http://vllm.nanabush.svc:8000"
+	}
+
+	var dispatcher vllm.Dispatcher
+	if os.Getenv("VLLM_MODE") == string(vllm.ModeInline) {
+		dispatcher = &vllm.InlineDispatcher{}
+	} else {
+		dispatcher = &vllm.TektonJobDispatcher{
+			Client:       mgr.GetClient(),
+			Namespace:    tektonNamespace,
+			Image:        vllmImage,
+			APIServerURL: vllmAPI,
+		}
+	}
+
 	if err := (&controller.WikiTargetReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: eventRecorder,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Recorder:      eventRecorder,
+		Catalogue:     catalogStore,
+		OutlineClient: outlineFactory,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WikiTarget")
 		os.Exit(1)
 	}
 	if err := (&controller.TranslationJobReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: eventRecorder,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Recorder:   eventRecorder,
+		Dispatcher: dispatcher,
+		Jobs:       jobStore,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationJob")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		addr := os.Getenv("GLOOSCAP_API_ADDR")
+		return server.Start(ctx, server.Options{
+			Addr:      addr,
+			Catalogue: catalogStore,
+			Jobs:      jobStore,
+			Client:    mgr.GetClient(),
+		})
+	})); err != nil {
+		setupLog.Error(err, "unable to add API server runnable")
+		os.Exit(1)
+	}
 
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")

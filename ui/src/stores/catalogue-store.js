@@ -1,61 +1,12 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-
-const mockTargets = [
-  {
-    id: 'outline-en',
-    name: 'Outline English',
-    uri: 'https://wiki.infra.dasmlab.org',
-    mode: 'ReadOnly',
-    defaultLanguage: 'en',
-  },
-  {
-    id: 'outline-fr',
-    name: 'Outline French',
-    uri: 'https://wiki-fr.infra.dasmlab.org',
-    mode: 'ReadWrite',
-    defaultLanguage: 'fr',
-  },
-]
-
-const mockPages = [
-  {
-    id: 'page-001',
-    targetId: 'outline-en',
-    title: 'Platform Onboarding',
-    slug: 'platform-onboarding',
-    updatedAt: '2025-11-10T13:45:00Z',
-    language: 'en',
-    hasAssets: true,
-    status: 'New',
-  },
-  {
-    id: 'page-002',
-    targetId: 'outline-en',
-    title: 'Disaster Recovery Playbook',
-    slug: 'dr-playbook',
-    updatedAt: '2025-11-08T09:15:00Z',
-    language: 'en',
-    hasAssets: false,
-    status: 'Translated',
-  },
-  {
-    id: 'page-003',
-    targetId: 'outline-en',
-    title: 'Secure Coding Checklist',
-    slug: 'secure-coding-checklist',
-    updatedAt: '2025-11-05T18:05:00Z',
-    language: 'en',
-    hasAssets: true,
-    status: 'InProgress',
-  },
-]
+import api from 'src/services/api'
 
 export const useCatalogueStore = defineStore('catalogue', () => {
-  const targets = ref(mockTargets)
-  const pages = ref(mockPages)
+  const targets = ref([])
+  const pages = ref([])
 
-  const selectedTargetId = ref(targets.value[0]?.id ?? null)
+  const selectedTargetId = ref(null)
   const selectedPages = ref(new Set())
   const search = ref('')
   const loading = ref(false)
@@ -77,9 +28,10 @@ export const useCatalogueStore = defineStore('catalogue', () => {
 
   const selectionCount = computed(() => selectedPages.value.size)
 
-  function setTarget(targetId) {
+  async function setTarget(targetId) {
     selectedTargetId.value = targetId
     selectedPages.value.clear()
+    await refreshCatalogue()
   }
 
   function toggleSelection(pageId) {
@@ -100,13 +52,49 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     loading.value = true
     error.value = null
     try {
-      // TODO: replace mock with API call
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      await ensureTargets()
+      const params = {}
+      if (selectedTargetId.value) {
+        params.target = selectedTargetId.value
+      }
+      const { data } = await api.get('/catalogue', { params })
+      pages.value = Array.isArray(data)
+        ? data.map((page) => ({
+            status: page.status || 'Discovered',
+            ...page,
+            targetId: selectedTargetId.value,
+          }))
+        : []
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
     } finally {
       loading.value = false
     }
+  }
+
+  async function ensureTargets() {
+    if (targets.value.length > 0) {
+      return
+    }
+    const { data } = await api.get('/targets')
+    targets.value = Array.isArray(data)
+      ? data.map((target) => ({
+          id: target.id,
+          name: target.name || target.id,
+          uri: target.uri,
+          mode: target.mode,
+          namespace: target.namespace,
+          resourceName: target.name,
+        }))
+      : []
+    if (!selectedTargetId.value && targets.value.length > 0) {
+      selectedTargetId.value = targets.value[0].id
+    }
+  }
+
+  async function initialise() {
+    await ensureTargets()
+    await refreshCatalogue()
   }
 
   return {
@@ -119,6 +107,7 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     search,
     loading,
     error,
+    initialise,
     setTarget,
     toggleSelection,
     clearSelection,
