@@ -2,16 +2,16 @@
   <q-page padding class="jobs-page">
     <div class="row items-center q-mb-md">
       <div class="col">
-        <div class="text-h5 text-primary">Translation Queue</div>
+        <div class="text-h5 text-primary">{{ $t('jobs.title') }}</div>
         <div class="text-subtitle2 text-grey-7">
-          Monitor queued, running, and completed translation jobs.
+          {{ $t('jobs.subtitle') }}
         </div>
       </div>
       <div class="col-auto">
         <q-btn
           color="primary"
           icon="refresh"
-          label="Refresh"
+          :label="$t('jobs.refresh')"
           :loading="jobStore.loading"
           @click="refresh"
         />
@@ -25,8 +25,8 @@
 
     <q-card flat bordered>
       <q-card-section class="row items-center justify-between">
-        <div class="text-subtitle1">Active jobs: {{ jobStore.activeCount }}</div>
-        <q-btn icon="download" color="secondary" flat label="Export Audit Trail" />
+        <div class="text-subtitle1">{{ $t('jobs.activeJobs') }}: {{ jobStore.activeCount }}</div>
+        <q-btn icon="download" color="secondary" flat :label="$t('jobs.exportAudit')" />
       </q-card-section>
 
       <q-separator />
@@ -45,10 +45,10 @@
               <q-badge :color="statusColor(job.state)" text-color="white" class="q-mr-sm">
                 {{ job.state }}
               </q-badge>
-              Pipeline: {{ job.pipeline }}
+              {{ $t('jobs.pipeline') }}: {{ job.pipeline }}
             </div>
             <div class="text-caption text-grey-7">
-              Job ID: {{ job.id }} • Target: {{ job.targetId }}
+              {{ $t('jobs.jobId') }}: {{ job.id }} • {{ $t('jobs.target') }}: {{ job.targetId }}
             </div>
             <div v-if="job.message" class="text-negative q-mt-xs">
               {{ job.message }}
@@ -62,9 +62,11 @@
 
 <script setup>
 import { onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useJobStore } from 'src/stores/job-store'
 
+const { t } = useI18n()
 const $q = useQuasar()
 const jobStore = useJobStore()
 
@@ -117,7 +119,7 @@ async function refresh() {
   await jobStore.refreshJobs()
   $q.notify({
     type: 'info',
-    message: 'Job list refreshed',
+    message: t('common.refresh'),
   })
 }
 </script>

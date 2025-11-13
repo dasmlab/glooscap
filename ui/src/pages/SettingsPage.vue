@@ -2,9 +2,9 @@
   <q-page padding class="settings-page">
     <q-card flat bordered class="q-pa-lg">
       <q-card-section>
-        <div class="text-h5 text-primary">Translation Defaults</div>
+        <div class="text-h5 text-primary">{{ $t('settings.title') }}</div>
         <div class="text-subtitle2 text-grey-7">
-          Configure default destinations and language tags for queued jobs.
+          {{ $t('settings.subtitle') }}
         </div>
       </q-card-section>
 
@@ -16,7 +16,7 @@
             <div class="col-12 col-md-4">
               <q-input
                 v-model="form.destinationTarget"
-                label="Destination Wiki Target"
+                :label="$t('settings.destinationTarget')"
                 outlined
                 dense
               />
@@ -24,16 +24,16 @@
             <div class="col-12 col-md-4">
               <q-input
                 v-model="form.pathPrefix"
-                label="Destination Path Prefix"
+                :label="$t('settings.pathPrefix')"
                 outlined
                 dense
-                hint="Example: /fr"
+                :hint="$t('settings.pathPrefixHint')"
               />
             </div>
             <div class="col-12 col-md-4">
               <q-input
                 v-model="form.defaultLanguage"
-                label="Language Tag (BCP 47)"
+                :label="$t('settings.languageTag')"
                 outlined
                 dense
               />
@@ -44,17 +44,17 @@
             <div class="col-12 col-md-6">
               <q-input
                 v-model="otlpEndpoint"
-                label="Telemetry Endpoint"
+                :label="$t('settings.telemetryEndpoint')"
                 outlined
                 dense
                 disable
-                hint="Configured in operator deployment"
+                :hint="$t('settings.telemetryHint')"
               />
             </div>
             <div class="col-12 col-md-6">
               <q-input
                 v-model="securityBadge"
-                label="Security Banner"
+                :label="$t('settings.securityBanner')"
                 outlined
                 dense
                 disable
@@ -63,8 +63,8 @@
           </div>
 
           <div class="row justify-end q-gutter-sm q-mt-lg">
-            <q-btn label="Reset" color="white" text-color="primary" outline @click="reset" />
-            <q-btn label="Save" color="primary" type="submit" />
+            <q-btn :label="$t('common.cancel')" color="white" text-color="primary" outline @click="reset" />
+            <q-btn :label="$t('common.save')" color="primary" type="submit" />
           </div>
         </q-form>
       </q-card-section>
@@ -73,10 +73,12 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { reactive, ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useSettingsStore } from 'src/stores/settings-store'
 
+const { t } = useI18n()
 const $q = useQuasar()
 const settingsStore = useSettingsStore()
 
@@ -87,13 +89,13 @@ const form = reactive({
 })
 
 const otlpEndpoint = ref('otel-collector.glooscap.svc:4317')
-const securityBadge = ref(settingsStore.securityBadge)
+const securityBadge = computed(() => t('app.securityBadge'))
 
 function reset() {
   form.destinationTarget = settingsStore.destinationTarget
   form.pathPrefix = settingsStore.pathPrefix
   form.defaultLanguage = settingsStore.defaultLanguage
-  $q.notify({ type: 'info', message: 'Changes reverted' })
+  $q.notify({ type: 'info', message: t('common.cancel') })
 }
 
 function save() {
@@ -102,7 +104,7 @@ function save() {
     pathPrefix: form.pathPrefix,
     defaultLanguage: form.defaultLanguage,
   })
-  $q.notify({ type: 'positive', message: 'Defaults updated' })
+  $q.notify({ type: 'positive', message: t('common.success') })
 }
 </script>
 

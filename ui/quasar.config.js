@@ -11,7 +11,7 @@ export default defineConfig((/* ctx */) => {
     // app boot file (/src/boot)
     // --> boot files are part of "main.js"
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
-    boot: ['pinia'],
+    boot: ['pinia', 'i18n'],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#css
     css: ['app.scss'],
@@ -48,6 +48,8 @@ export default defineConfig((/* ctx */) => {
       // analyze: true,
       env: {
         VITE_API_BASE_URL: process.env.VITE_API_BASE_URL || '/api/v1',
+        VITE_BUILD_VERSION: process.env.VITE_BUILD_VERSION || 'dev',
+        VITE_BUILD_NUMBER: process.env.VITE_BUILD_NUMBER || '',
       },
       // rawDefine: {}
       // ignorePublicFolder: true,

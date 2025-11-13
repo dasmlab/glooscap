@@ -4,17 +4,86 @@
 #
 #  Assumes you have set names and vars appropraitely.
 
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-glooscap-system}"
+MAX_WAIT="${MAX_WAIT:-120}"  # Maximum seconds to wait for namespace termination
+
+echo "🔄 Cycling operator deployment..."
+
 # REMOVE OPERATOR AND BITS FIRST
-make undeploy uninstall
+echo "📦 Undeploying operator..."
+make undeploy uninstall || true
+
+# Wait for namespace to fully terminate
+echo "⏳ Waiting for namespace '${NAMESPACE}' to terminate..."
+if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+  echo "   Namespace exists, waiting for termination..."
+  timeout="${MAX_WAIT}"
+  while [ "${timeout}" -gt 0 ]; do
+    if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+      echo "   ✅ Namespace terminated"
+      break
+    fi
+    phase=$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Terminating")
+    if [ "${phase}" != "Terminating" ] && [ "${phase}" != "Active" ]; then
+      echo "   ✅ Namespace phase: ${phase}"
+      break
+    fi
+    echo "   ⏳ Still terminating... (${timeout}s remaining)"
+    sleep 2
+    timeout=$((timeout - 2))
+  done
+  
+  if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+    echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, proceeding anyway..."
+    echo "   💡 You may need to manually clean up: kubectl delete namespace ${NAMESPACE} --force --grace-period=0"
+  fi
+else
+  echo "   ✅ Namespace does not exist, proceeding..."
+fi
+
+# Small additional wait to ensure API server has processed deletions
+echo "⏳ Brief pause for API server to catch up..."
+sleep 3
+
+echo "🔧 Generating manifests..."
 make generate
 make manifests
 
-# Build a new version of the operatora nd publish it, bumpinhg SemVer
+# Build a new version of the operator and publish it, bumping SemVer
+echo "🏗️  Building operator image..."
 ./buildme.sh
+echo "📤 Pushing operator image..."
 ./pushme.sh
 
 # Deploy CRDs to the Target Cluster (Assumes Kubeconfig is set properly, perms, etc)
+echo "🚀 Deploying to cluster..."
 make install deploy
 
 # Create a Registry secret with your Token (pullSecret)
-./create-registry-secret.sh
+echo "🔐 Creating registry secret..."
+./create-registry-secret.sh || echo "⚠️  Warning: Registry secret creation failed (may already exist)"
+
+# Applying OCP Route
+echo "🔐 Aplying OCP Route for API ..."
+kubectl apply -f ../infra/openshift/operator-api-route.yaml
+
+# Building Web Ui
+echo "🏗️  Building UI image..."
+cd ../ui
+./buildme.sh
+./pushme.sh
+cd ../operator
+
+# Deploying Web Ui
+echo "🚀 Deploying UI to cluster..."
+kubectl apply -f ../infra/openshift/glooscap-ui.yaml
+
+# Deploying Wiki Target 
+echo "Sleeping 3 seconds..."
+sleep 3
+echo "🚀 Deploying Wiki Target (wiki.infra.dasmlab.org) to cluster..."
+kubectl apply -f ../infra/openshift/wikitarget-infra-dasmlab-org.yaml
+
+echo "✅ Cycle complete!"

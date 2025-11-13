@@ -4,16 +4,50 @@
       <q-toolbar>
         <q-btn flat dense round icon="menu" aria-label="Menu" @click="toggleLeftDrawer" />
 
-        <q-toolbar-title> Glooscap ETL Console </q-toolbar-title>
-        <q-chip square dense color="primary" text-color="white">
-          vLLM air-gap compliant
-        </q-chip>
+        <q-toolbar-title> {{ $t('app.title') }} </q-toolbar-title>
+        <div class="row items-center q-gutter-xs">
+          <q-chip square dense color="primary" text-color="white">
+            vLLM air-gap compliant
+          </q-chip>
+          <q-chip square dense color="grey-7" text-color="white" size="sm">
+            {{ buildInfo }}
+          </q-chip>
+          <q-select
+            v-model="currentLocale"
+            :options="localeOptions"
+            dense
+            outlined
+            emit-value
+            map-options
+            style="min-width: 120px;"
+            class="q-mr-xs"
+          >
+            <template #option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section avatar>
+                  <q-icon :name="scope.opt.icon" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+          <q-btn
+            flat
+            dense
+            round
+            :icon="consoleOpen ? 'keyboard_arrow_down' : 'keyboard_arrow_up'"
+            @click="consoleOpen = !consoleOpen"
+            :title="$t('console.title')"
+          />
+        </div>
       </q-toolbar>
     </q-header>
 
     <q-drawer v-model="leftDrawerOpen" show-if-above bordered>
       <q-list>
-        <q-item-label header> Navigation </q-item-label>
+        <q-item-label header> {{ $t('navigation.catalogue') }} </q-item-label>
         <q-item
           v-for="item in navItems"
           :key="item.to.name"
@@ -37,35 +71,109 @@
     <q-page-container>
       <router-view />
     </q-page-container>
+    
+    <ConsoleLog v-model="consoleOpen" ref="consoleRef" />
   </q-layout>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted, provide } from 'vue'
+import { useI18n } from 'vue-i18n'
+import ConsoleLog from 'src/components/ConsoleLog.vue'
+import { useCatalogueStore } from 'src/stores/catalogue-store'
+import { useSettingsStore } from 'src/stores/settings-store'
+
+const { t } = useI18n()
 const leftDrawerOpen = ref(false)
+const consoleOpen = ref(true) // Show console by default for debugging
+const consoleRef = ref(null)
+const catalogueStore = useCatalogueStore()
+const settingsStore = useSettingsStore()
+
+// Provide console ref to child components
+provide('console', consoleRef)
+
+// Build version info
+const buildVersion = import.meta.env.VITE_BUILD_VERSION || 'dev'
+const buildNumber = import.meta.env.VITE_BUILD_NUMBER || ''
+
+const buildInfo = computed(() => {
+  if (buildVersion && buildVersion !== 'dev') {
+    // Show compact version: "v0.0.5" or just build number if available
+    // Extract version number from "0.0.5-alpha" -> "0.0.5"
+    const versionNum = buildVersion.replace(/-alpha$/, '')
+    return `v${versionNum}`
+  }
+  // Fallback: show build number or dev
+  return buildNumber ? `#${buildNumber}` : 'dev'
+})
 
 const navItems = computed(() => [
   {
-    label: 'Catalogue',
-    caption: 'Discover pages',
+    label: t('navigation.catalogue'),
+    caption: t('navigation.catalogueDesc'),
     icon: 'travel_explore',
     to: { name: 'catalogue' },
   },
   {
-    label: 'Jobs',
-    caption: 'Translation queue',
+    label: t('navigation.jobs'),
+    caption: t('navigation.jobsDesc'),
     icon: 'list_alt',
     to: { name: 'jobs' },
   },
   {
-    label: 'Settings',
-    caption: 'Defaults & destinations',
+    label: t('navigation.settings'),
+    caption: t('navigation.settingsDesc'),
     icon: 'tune',
     to: { name: 'settings' },
   },
 ])
 
+const localeOptions = [
+  { label: 'English', value: 'en-US', icon: 'language' },
+  { label: 'Français', value: 'fr-CA', icon: 'language' },
+]
+
+const currentLocale = computed({
+  get: () => settingsStore.uiLocale,
+  set: (value) => settingsStore.setUILocale(value),
+})
+
 function toggleLeftDrawer() {
   leftDrawerOpen.value = !leftDrawerOpen.value
 }
+
+function logToConsole(level, message, data = null) {
+  // Also log to browser console for debugging
+  if (level === 'ERROR') {
+    console.error(`[${level}]`, message, data || '')
+  } else if (level === 'WARN') {
+    console.warn(`[${level}]`, message, data || '')
+  } else if (level === 'DEBUG') {
+    console.debug(`[${level}]`, message, data || '')
+  } else {
+    console.log(`[${level}]`, message, data || '')
+  }
+  
+  // Log to console component if available
+  if (consoleRef.value && typeof consoleRef.value.addLog === 'function') {
+    try {
+      consoleRef.value.addLog(level, message, data)
+    } catch (err) {
+      console.error('Failed to log to console component:', err)
+    }
+  }
+}
+
+onMounted(() => {
+  // Subscribe to SSE events with logging
+  catalogueStore.subscribeToEvents(logToConsole)
+  
+  // Log initial connection
+  logToConsole('INFO', 'UI initialized, connecting to operator API...')
+})
+
+onUnmounted(() => {
+  catalogueStore.unsubscribeFromEvents()
+})
 </script>

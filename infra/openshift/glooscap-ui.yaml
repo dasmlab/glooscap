@@ -22,8 +22,8 @@ spec:
           image: ghcr.io/dasmlab/glooscap-ui:latest
           imagePullPolicy: Always
           env:
-            - name: VITE_API_BASE_URL
-              value: http://glooscap-operator-api.glooscap-system.svc:3000/api/v1
+            - name: API_BASE_URL
+              value: https://api-glooscap.apps.ocp-ai-sno-2.rh.dasmlab.org/api/v1  # Update with your cluster domain
           ports:
             - containerPort: 8080
               name: http

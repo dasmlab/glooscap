@@ -37,7 +37,7 @@ docker push quay.io/dasmlab/glooscap-ui:latest
 ```
 
 Apply the OpenShift manifest in `../infra/openshift/glooscap-ui.yaml`, updating the host to `web-glooscap.apps.<cluster-domain>`.
-Ensure `VITE_API_BASE_URL` points at the operator API service (e.g. `http://glooscap-operator-api.glooscap-system.svc:3000/api/v1`).
+Ensure `VITE_API_BASE_URL` points at the operator API service (e.g. `http://glooscap-operator-api.glooscap-system.svc.cluster.local:3000/api/v1`).
 
 ## Configuration
 

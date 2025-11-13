@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,9 +46,17 @@ func (DefaultOutlineClientFactory) New(ctx context.Context, c client.Client, tar
 		return nil, fmt.Errorf("outline factory: key %q not found in secret %s", keyName, key)
 	}
 
+	// Kubernetes secrets store data as base64-encoded bytes, but the client library
+	// automatically decodes them. When using stringData, the value is stored as-is
+	// and read back as decoded bytes. Convert to string and trim whitespace.
+	token := string(tokenBytes)
+	
+	// Trim any leading/trailing whitespace or newlines
+	token = strings.TrimSpace(token)
+
 	client, err := outline.NewClient(outline.Config{
 		BaseURL: target.Spec.URI,
-		Token:   string(tokenBytes),
+		Token:   token,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("outline factory: %w", err)

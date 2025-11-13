@@ -16,7 +16,7 @@ build=$(cat "$buildfile")
 next=$((build + 1))
 echo "$next" >"$buildfile"
 
-tag="0.0.${next}-alpha"
+tag="0.1.${next}-alpha"
 
 src="${app}:${scratch}"
 dst_version="${repo}/${app}:${tag}"

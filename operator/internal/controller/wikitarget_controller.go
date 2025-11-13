@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -35,6 +36,11 @@ import (
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
 )
 
+const (
+	// DefaultRefreshInterval is the default time between catalog refreshes
+	DefaultRefreshInterval = 15 * time.Second
+)
+
 // WikiTargetReconciler reconciles a WikiTarget object
 type WikiTargetReconciler struct {
 	client.Client
@@ -49,6 +55,7 @@ type WikiTargetReconciler struct {
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=wikitargets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=wikitargets/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=wikitargets/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -73,24 +80,84 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	status := target.Status.DeepCopy()
 	now := metav1.Now()
 
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionFalse,
-		Reason:             "DiscoveryPending",
-		Message:            "Discovery worker initialising",
-		LastTransitionTime: now,
-	})
+	// Handle paused state
+	if target.Spec.IsPaused {
+		status.Paused = true
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Paused",
+			Message:            "WikiTarget reconciliation is paused",
+			LastTransitionTime: now,
+		})
+		logger.Info("WikiTarget is paused, skipping reconciliation")
+		
+		if !statusChanged(&target.Status, status) {
+			return ctrl.Result{RequeueAfter: DefaultRefreshInterval}, nil
+		}
+		target.Status = *status
+		if err := r.Status().Update(ctx, &target); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: DefaultRefreshInterval}, nil
+	}
+	status.Paused = false
+
+	// Check if we should refresh (either first time, or Ready for more than 15 seconds)
+	shouldRefresh := false
+	refreshReason := ""
+	
+	if !status.Ready || status.LastSyncTime == nil {
+		// First discovery - always refresh
+		shouldRefresh = true
+		refreshReason = "initial discovery"
+	} else if status.Ready {
+		// Check if we've been ready for more than 15 seconds
+		timeSinceLastSync := now.Time.Sub(status.LastSyncTime.Time)
+		if timeSinceLastSync >= DefaultRefreshInterval {
+			shouldRefresh = true
+			refreshReason = "periodic refresh"
+		}
+	}
+
+	if !shouldRefresh {
+		// Not time to refresh yet, requeue for the remaining time
+		timeSinceLastSync := now.Time.Sub(status.LastSyncTime.Time)
+		requeueAfter := DefaultRefreshInterval - timeSinceLastSync
+		if requeueAfter < time.Second {
+			requeueAfter = time.Second
+		}
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+
+	// Set status to "Refreshing Catalog" if we were previously Ready
+	if status.Ready {
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "RefreshingCatalog",
+			Message:            "Refreshing catalog",
+			LastTransitionTime: now,
+		})
+	} else {
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "DiscoveryPending",
+			Message:            "Discovery worker initialising",
+			LastTransitionTime: now,
+		})
+	}
 
 	if status.CatalogRevision == 0 {
 		status.CatalogRevision = 1
 	}
 
-	if status.LastSyncTime == nil {
-		status.LastSyncTime = &now
-	}
+	logger.Info("refreshing catalogue", "reason", refreshReason)
 
 	if err := r.refreshCatalogue(ctx, &target, status); err != nil {
-		logger.Error(err, "failed to refresh catalogue")
+		logger.Error(err, "failed to refresh catalogue", "uri", target.Spec.URI)
+		status.Ready = false
 		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionFalse,
@@ -98,10 +165,14 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			Message:            err.Error(),
 			LastTransitionTime: now,
 		})
+	} else {
+		status.Ready = true
+		status.LastSyncTime = &now
+		logger.Info("successfully refreshed catalogue", "uri", target.Spec.URI, "pages", status.CatalogRevision)
 	}
 
 	if !statusChanged(&target.Status, status) {
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: DefaultRefreshInterval}, nil
 	}
 
 	target.Status = *status
@@ -112,36 +183,69 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	r.Recorder.Event(&target, "Normal", "DiscoverySync", "WikiTarget discovery refreshed")
 	logger.Info("refreshed WikiTarget status")
 
-	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
+	return ctrl.Result{RequeueAfter: DefaultRefreshInterval}, nil
 }
 
 func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wikiv1alpha1.WikiTarget, status *wikiv1alpha1.WikiTargetStatus) error {
+	logger := log.FromContext(ctx).WithValues("wikitarget", fmt.Sprintf("%s/%s", target.Namespace, target.Name))
+	
 	if r.OutlineClient == nil {
 		return fmt.Errorf("outline client factory not configured")
 	}
+	
+	logger.Info("creating outline client", "uri", target.Spec.URI)
 	client, err := r.OutlineClient.New(ctx, r.Client, target)
 	if err != nil {
-		return err
+		logger.Error(err, "failed to create outline client")
+		return fmt.Errorf("create outline client: %w", err)
 	}
 
+	logger.Info("fetching pages from outline", "uri", target.Spec.URI)
 	pages, err := client.ListPages(ctx)
 	if err != nil {
-		return err
+		logger.Error(err, "failed to list pages from outline")
+		return fmt.Errorf("list pages: %w", err)
 	}
+	logger.Info("fetched pages from outline", "count", len(pages))
 
 	if r.Catalogue != nil {
 		targetID := fmt.Sprintf("%s/%s", target.Namespace, target.Name)
+		baseURI := strings.TrimSuffix(target.Spec.URI, "/")
 		catalogPages := make([]catalog.Page, 0, len(pages))
-		for _, page := range pages {
+		
+		for i, page := range pages {
+			// Build full URI for the page
+			pageURI := fmt.Sprintf("%s/doc/%s", baseURI, page.Slug)
+			
+			// Always log discovered pages with URI
+			logger.Info("discovered page", 
+				"index", i+1,
+				"title", page.Title,
+				"id", page.ID,
+				"slug", page.Slug,
+				"uri", pageURI,
+				"updatedAt", page.UpdatedAt.Format(time.RFC3339),
+			)
+			
+			// Default language to EN if not provided by Outline
+			language := page.Language
+			if language == "" {
+				language = "EN"
+			}
+			
 			catalogPages = append(catalogPages, catalog.Page{
-				ID:        page.ID,
-				Title:     page.Title,
-				Slug:      page.Slug,
-				UpdatedAt: page.UpdatedAt,
-				Language:  page.Language,
-				HasAssets: page.HasAssets,
+				ID:         page.ID,
+				Title:      page.Title,
+				Slug:       page.Slug,
+				URI:        pageURI,
+				UpdatedAt:  page.UpdatedAt,
+				Language:   language,
+				HasAssets:  page.HasAssets,
+				Collection: page.Collection,
+				Template:   page.Template,
 			})
 		}
+		
 		r.Catalogue.Update(targetID, catalog.Target{
 			ID:        targetID,
 			Namespace: target.Namespace,

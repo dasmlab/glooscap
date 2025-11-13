@@ -5,7 +5,7 @@
         <q-select
           v-model="selectedTarget"
           :options="targetOptions"
-          label="Wiki Target"
+          :label="$t('catalogue.wikiTarget')"
           emit-value
           map-options
           dense
@@ -15,7 +15,7 @@
       <div class="col-xs-12 col-sm-4">
         <q-input
           v-model="catalogueStore.search"
-          label="Search Pages"
+          :label="$t('catalogue.searchPages')"
           dense
           outlined
           clearable
@@ -30,14 +30,14 @@
         <q-btn
           color="primary"
           icon="sync"
-          label="Refresh Catalogue"
+          :label="$t('catalogue.refreshCatalogue')"
           :loading="catalogueStore.loading"
           @click="refresh"
         />
       </div>
       <div class="col-xs-12 col-sm-auto text-right">
         <q-badge color="positive" class="q-pa-sm">
-          {{ securityBadge }}
+          {{ $t('app.securityBadge') }}
         </q-badge>
       </div>
     </div>
@@ -47,10 +47,30 @@
       {{ catalogueStore.error }}
     </q-banner>
 
+    <!-- WikiTarget Status Banner -->
+    <q-banner
+      v-if="targetStatus"
+      :class="statusBannerClass"
+      class="q-mb-md"
+    >
+      <template #avatar>
+        <q-icon :name="statusIcon" size="md" />
+      </template>
+      <div class="text-weight-bold q-mb-xs">{{ $t('catalogue.wikitargetStatus') }}: {{ targetStatusReason }}</div>
+      <div class="text-body2">{{ targetStatusMessage }}</div>
+      <div v-if="targetStatusLastSync" class="text-caption q-mt-xs">
+        {{ $t('catalogue.lastSync') }}: {{ formatDate(targetStatusLastSync) }}
+      </div>
+      <div v-if="targetStatusCatalogRevision" class="text-caption">
+        {{ $t('catalogue.catalogRevision') }}: {{ targetStatusCatalogRevision }}
+      </div>
+    </q-banner>
+
     <q-table
       v-model:selected="selectedRowKeys"
       :rows="catalogueStore.filteredPages"
       :columns="columns"
+      :no-data-label="$t('catalogue.noData')"
       row-key="id"
       selection="multiple"
       flat
@@ -67,7 +87,7 @@
             @click="queueSelection"
           >
             <div class="q-ml-sm">
-              Queue Translation
+              {{ $t('catalogue.queueTranslation') }}
               <q-badge color="grey-9" text-color="white" class="q-ml-xs">
                 {{ selectedRowKeys.length }}
               </q-badge>
@@ -77,7 +97,7 @@
             color="white"
             text-color="primary"
             outline
-            label="Clear"
+            :label="$t('catalogue.clear')"
             :disable="selectedRowKeys.length === 0"
             @click="clearSelection"
           />
@@ -106,20 +126,35 @@
 
 <script setup>
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useCatalogueStore } from 'src/stores/catalogue-store'
 import { useJobStore } from 'src/stores/job-store'
 import { useSettingsStore } from 'src/stores/settings-store'
 
+const { t } = useI18n()
 const $q = useQuasar()
 const catalogueStore = useCatalogueStore()
 const jobStore = useJobStore()
 const settingsStore = useSettingsStore()
 
-onMounted(() => {
-  catalogueStore.initialise().catch((err) => {
-    $q.notify({ type: 'negative', message: err.message || 'Failed to load catalogue' })
-  })
+onMounted(async () => {
+  try {
+    console.log('[CataloguePage] Initializing...')
+    await catalogueStore.initialise()
+    console.log('[CataloguePage] Initialized', {
+      targets: catalogueStore.targets.length,
+      pages: catalogueStore.pages.length,
+      selectedTarget: catalogueStore.selectedTargetId,
+    })
+  } catch (err) {
+    console.error('[CataloguePage] Initialization error:', err)
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({ type: 'negative', message: err.message || 'Failed to load catalogue' })
+    } else {
+      console.error('Quasar notify not available:', $q)
+    }
+  }
 })
 
 const targetOptions = computed(() =>
@@ -143,26 +178,79 @@ const activeTarget = computed(() =>
 )
 
 const selectedRowKeys = computed({
-  get: () => Array.from(catalogueStore.selectedPages),
+  get: () => {
+    const pages = catalogueStore.selectedPages
+    if (!pages || typeof pages.size === 'undefined') {
+      return []
+    }
+    return Array.from(pages)
+  },
   set: (value) => catalogueStore.setSelection(value ?? []),
 })
 
-const columns = [
-  { name: 'title', label: 'Page Title', field: 'title', align: 'left', sortable: true },
-  { name: 'slug', label: 'Slug', field: 'slug', align: 'left' },
-  { name: 'language', label: 'Language', field: 'language', align: 'center', sortable: true },
-  { name: 'updatedAt', label: 'Last Updated', field: 'updatedAt', align: 'left', sortable: true },
-  { name: 'status', label: 'Status', field: 'status', align: 'left', sortable: true },
-]
+const columns = computed(() => [
+  { name: 'title', label: t('catalogue.pageTitle'), field: 'title', align: 'left', sortable: true },
+  { name: 'slug', label: t('catalogue.slug'), field: 'slug', align: 'left' },
+  { name: 'collection', label: t('catalogue.collection'), field: 'collection', align: 'left', sortable: true },
+  { name: 'template', label: t('catalogue.template'), field: 'template', align: 'left', sortable: true },
+  { name: 'language', label: t('catalogue.language'), field: 'language', align: 'center', sortable: true },
+  { name: 'updatedAt', label: t('catalogue.lastUpdated'), field: 'updatedAt', align: 'left', sortable: true },
+  { name: 'status', label: t('catalogue.status'), field: 'status', align: 'left', sortable: true },
+])
 
-const securityBadge = computed(() => settingsStore.securityBadge)
+const targetStatus = computed(() => catalogueStore.selectedWikiTargetStatus)
+
+const targetStatusCondition = computed(() => {
+  const status = targetStatus.value
+  if (!status?.conditions || status.conditions.length === 0) return null
+  return status.conditions.find((c) => c.type === 'Ready') || status.conditions[0]
+})
+
+const targetStatusReason = computed(() => {
+  const cond = targetStatusCondition.value
+  return cond?.reason || 'Unknown'
+})
+
+const targetStatusMessage = computed(() => {
+  const cond = targetStatusCondition.value
+  return cond?.message || 'Status not available'
+})
+
+const targetStatusLastSync = computed(() => {
+  return targetStatus.value?.lastSyncTime || null
+})
+
+const targetStatusCatalogRevision = computed(() => {
+  return targetStatus.value?.catalogRevision || null
+})
+
+const statusBannerClass = computed(() => {
+  const cond = targetStatusCondition.value
+  if (!cond) return 'bg-grey-3 text-dark'
+  if (cond.status === 'True') return 'bg-green-1 text-green-8'
+  if (cond.reason === 'DiscoveryFailed') return 'bg-negative text-white'
+  return 'bg-warning text-dark'
+})
+
+const statusIcon = computed(() => {
+  const cond = targetStatusCondition.value
+  if (!cond) return 'help'
+  if (cond.status === 'True') return 'check_circle'
+  if (cond.reason === 'DiscoveryFailed') return 'error'
+  return 'schedule'
+})
 
 function formatDate(value) {
   if (!value) return '—'
-  return new Date(value).toLocaleString()
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return value
+  }
 }
 
 async function refresh() {
+  await catalogueStore.fetchWikiTargets()
   await catalogueStore.refreshCatalogue()
   $q.notify({
     type: 'info',

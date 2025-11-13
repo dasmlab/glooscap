@@ -19,7 +19,7 @@ next=$((build + 1))
 echo "$next" > "$buildfile"
 
 # create version tag
-tag="0.0.${next}-alpha"
+tag="0.1.${next}-alpha"
 
 # construct full names
 src="${app}:${scratch}"

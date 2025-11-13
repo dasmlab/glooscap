@@ -5,6 +5,7 @@ import api from 'src/services/api'
 export const useCatalogueStore = defineStore('catalogue', () => {
   const targets = ref([])
   const pages = ref([])
+  const wikitargets = ref([])
 
   const selectedTargetId = ref(null)
   const selectedPages = ref(new Set())
@@ -26,18 +27,49 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     })
   })
 
-  const selectionCount = computed(() => selectedPages.value.size)
+  const selectionCount = computed(() => {
+    try {
+      if (!selectedPages.value) {
+        selectedPages.value = new Set()
+        return 0
+      }
+      // Check if it's actually a Set
+      if (typeof selectedPages.value.size === 'undefined' || typeof selectedPages.value.has !== 'function') {
+        selectedPages.value = new Set()
+        return 0
+      }
+      return selectedPages.value.size || 0
+    } catch (err) {
+      console.error('[CatalogueStore] Error getting selectionCount:', err)
+      selectedPages.value = new Set()
+      return 0
+    }
+  })
 
   async function setTarget(targetId) {
     selectedTargetId.value = targetId
-    selectedPages.value.clear()
+    // Ensure selectedPages is a Set before clearing
+    if (!selectedPages.value || typeof selectedPages.value.clear !== 'function') {
+      selectedPages.value = new Set()
+    } else {
+      selectedPages.value.clear()
+    }
     await refreshCatalogue()
   }
 
   function toggleSelection(pageId) {
-    const next = new Set(selectedPages.value)
-    next.has(pageId) ? next.delete(pageId) : next.add(pageId)
-    selectedPages.value = next
+    try {
+      // Ensure selectedPages is a Set
+      if (!selectedPages.value || typeof selectedPages.value.has !== 'function') {
+        selectedPages.value = new Set()
+      }
+      const next = new Set(selectedPages.value)
+      next.has(pageId) ? next.delete(pageId) : next.add(pageId)
+      selectedPages.value = next
+    } catch (err) {
+      console.error('[CatalogueStore] Error in toggleSelection:', err)
+      selectedPages.value = new Set()
+    }
   }
 
   function clearSelection() {
@@ -45,7 +77,12 @@ export const useCatalogueStore = defineStore('catalogue', () => {
   }
 
   function setSelection(pageIds) {
-    selectedPages.value = new Set(pageIds)
+    // Ensure we always have a Set, even if pageIds is undefined/null
+    if (!pageIds || !Array.isArray(pageIds)) {
+      selectedPages.value = new Set()
+    } else {
+      selectedPages.value = new Set(pageIds)
+    }
   }
 
   async function refreshCatalogue() {
@@ -57,7 +94,9 @@ export const useCatalogueStore = defineStore('catalogue', () => {
       if (selectedTargetId.value) {
         params.target = selectedTargetId.value
       }
+      console.log('[CatalogueStore] Fetching catalogue with params:', params)
       const { data } = await api.get('/catalogue', { params })
+      console.log('[CatalogueStore] Received pages:', data)
       pages.value = Array.isArray(data)
         ? data.map((page) => ({
             status: page.status || 'Discovered',
@@ -65,7 +104,9 @@ export const useCatalogueStore = defineStore('catalogue', () => {
             targetId: selectedTargetId.value,
           }))
         : []
+      console.log('[CatalogueStore] Processed pages:', pages.value.length)
     } catch (err) {
+      console.error('[CatalogueStore] Error refreshing catalogue:', err)
       error.value = err instanceof Error ? err.message : String(err)
     } finally {
       loading.value = false
@@ -76,31 +117,218 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     if (targets.value.length > 0) {
       return
     }
-    const { data } = await api.get('/targets')
-    targets.value = Array.isArray(data)
-      ? data.map((target) => ({
-          id: target.id,
-          name: target.name || target.id,
-          uri: target.uri,
-          mode: target.mode,
-          namespace: target.namespace,
-          resourceName: target.name,
-        }))
-      : []
-    if (!selectedTargetId.value && targets.value.length > 0) {
-      selectedTargetId.value = targets.value[0].id
+    try {
+      console.log('[CatalogueStore] Fetching targets from /api/v1/targets')
+      const { data } = await api.get('/targets')
+      console.log('[CatalogueStore] Received targets:', data)
+      targets.value = Array.isArray(data)
+        ? data.map((target) => ({
+            id: target.id,
+            name: target.name || target.id,
+            uri: target.uri,
+            mode: target.mode,
+            namespace: target.namespace,
+            resourceName: target.name,
+          }))
+        : []
+      console.log('[CatalogueStore] Processed targets:', targets.value)
+      if (!selectedTargetId.value && targets.value.length > 0) {
+        selectedTargetId.value = targets.value[0].id
+        console.log('[CatalogueStore] Auto-selected target:', selectedTargetId.value)
+      }
+    } catch (err) {
+      console.error('[CatalogueStore] Error fetching targets:', err)
+      throw err
     }
+  }
+
+  async function fetchWikiTargets() {
+    loading.value = true
+    error.value = null
+    try {
+      console.log('[CatalogueStore] Fetching WikiTargets from /api/v1/wikitargets')
+      const { data } = await api.get('/wikitargets', {
+        params: { namespace: 'glooscap-system' },
+      })
+      console.log('[CatalogueStore] Received WikiTargets:', data)
+      wikitargets.value = Array.isArray(data?.items) ? data.items : []
+      console.log('[CatalogueStore] Processed WikiTargets:', wikitargets.value.length)
+    } catch (err) {
+      console.error('[CatalogueStore] Error fetching WikiTargets:', err)
+      error.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const selectedWikiTargetStatus = computed(() => {
+    if (!selectedTargetId.value) return null
+    const target = wikitargets.value.find(
+      (wt) => `${wt.namespace}/${wt.name}` === selectedTargetId.value,
+    )
+    return target?.status || null
+  })
+
+  let eventSource = null
+  let logCallback = null
+
+  function subscribeToEvents(callback) {
+    logCallback = callback
+    
+    if (eventSource) {
+      eventSource.close()
+    }
+    
+    // Construct SSE URL properly - support both build-time and runtime config
+    const getApiBaseURL = () => {
+      if (typeof window !== 'undefined' && window.__API_BASE_URL__) {
+        return window.__API_BASE_URL__
+      }
+      return import.meta.env.VITE_API_BASE_URL || '/api/v1'
+    }
+    const apiBaseUrl = getApiBaseURL()
+    let baseUrl = apiBaseUrl
+    
+    // Remove /api/v1 suffix if present
+    if (baseUrl.endsWith('/api/v1')) {
+      baseUrl = baseUrl.slice(0, -7)
+    } else if (baseUrl.endsWith('/api/v1/')) {
+      baseUrl = baseUrl.slice(0, -8)
+    }
+    // Ensure baseUrl doesn't end with /
+    baseUrl = baseUrl.replace(/\/$/, '')
+    
+    // Construct events URL
+    const eventsUrl = `${baseUrl}/api/v1/events`
+    
+    logCallback?.('INFO', `Connecting to SSE endpoint: ${eventsUrl}`)
+    
+    try {
+      eventSource = new EventSource(eventsUrl)
+    } catch (err) {
+      logCallback?.('ERROR', `Failed to create EventSource: ${err.message}`)
+      return
+    }
+    
+    eventSource.onopen = () => {
+      logCallback?.('INFO', 'SSE connection opened')
+    }
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        logCallback?.('DEBUG', 'Received SSE event', data)
+        
+        // Process WikiTargets and pages from event
+        if (data.wikitargets && Array.isArray(data.wikitargets)) {
+          // Update targets
+          const newTargets = []
+          const newPages = []
+          
+          data.wikitargets.forEach((wt) => {
+            const targetId = wt.targetId || `${wt.namespace}/${wt.name}`
+            newTargets.push({
+              id: targetId,
+              name: wt.name || targetId,
+              uri: wt.wikitarget,
+              mode: wt.mode,
+              namespace: wt.namespace,
+              resourceName: wt.name,
+            })
+            
+            // Add pages
+            if (wt.pages && Array.isArray(wt.pages)) {
+              wt.pages.forEach((page) => {
+                newPages.push({
+                  ...page,
+                  title: page.name || page.title,
+                  targetId,
+                  status: page.state || 'Discovered',
+                })
+              })
+            }
+          })
+          
+          // Update store
+          if (newTargets.length > 0) {
+            targets.value = newTargets
+          }
+          if (newPages.length > 0) {
+            // Preserve selectedPages Set when updating pages
+            let currentSelection = new Set()
+            try {
+              if (selectedPages.value && typeof selectedPages.value.has === 'function') {
+                currentSelection = new Set(selectedPages.value)
+              }
+            } catch (err) {
+              console.error('[CatalogueStore] Error preserving selection:', err)
+            }
+            
+            pages.value = newPages
+            
+            // Restore selection for pages that still exist
+            try {
+              selectedPages.value = new Set(
+                Array.from(currentSelection).filter((id) =>
+                  newPages.some((p) => p.id === id)
+                )
+              )
+            } catch (err) {
+              console.error('[CatalogueStore] Error restoring selection:', err)
+              selectedPages.value = new Set()
+            }
+            
+            logCallback?.('INFO', `Updated ${newPages.length} pages from SSE`)
+          }
+        }
+      } catch (err) {
+        logCallback?.('ERROR', 'Failed to parse SSE event', err.message)
+        console.error('[CatalogueStore] SSE parse error:', err)
+      }
+    }
+    
+    eventSource.onerror = (err) => {
+      const state = eventSource?.readyState
+      let message = 'SSE connection error'
+      if (state === EventSource.CONNECTING) {
+        message = 'SSE connecting...'
+      } else if (state === EventSource.CLOSED) {
+        message = 'SSE connection closed'
+      }
+      logCallback?.('ERROR', message, err)
+      console.error('[CatalogueStore] SSE error:', err, 'readyState:', state)
+      
+      // If connection is closed, try to reconnect after a delay
+      if (state === EventSource.CLOSED) {
+        setTimeout(() => {
+          logCallback?.('INFO', 'Attempting to reconnect SSE...')
+          subscribeToEvents(callback)
+        }, 5000)
+      }
+    }
+  }
+  
+  function unsubscribeFromEvents() {
+    if (eventSource) {
+      eventSource.close()
+      eventSource = null
+      logCallback?.('INFO', 'SSE connection closed')
+    }
+    logCallback = null
   }
 
   async function initialise() {
     await ensureTargets()
+    await fetchWikiTargets()
     await refreshCatalogue()
+    // SSE subscription will be started by the component
   }
 
   return {
     targets,
     pages,
     filteredPages,
+    wikitargets,
     selectedTargetId,
     selectedPages,
     selectionCount,
@@ -113,6 +341,10 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     clearSelection,
     setSelection,
     refreshCatalogue,
+    fetchWikiTargets,
+    selectedWikiTargetStatus,
+    subscribeToEvents,
+    unsubscribeFromEvents,
   }
 })
 

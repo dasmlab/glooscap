@@ -1,0 +1,25 @@
+---
+# Route to expose the operator API service externally
+# This allows the UI (running in the browser) to connect to the operator API
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: glooscap-operator-api
+  namespace: glooscap-system
+  labels:
+    app: glooscap-operator
+    component: api
+  # Note: OpenShift Router passes through CORS headers from the backend service.
+  # If you have an external HAProxy in front, configure it to preserve CORS headers.
+  # See docs/haproxy-cors.md for HAProxy configuration.
+spec:
+  host: api-glooscap.apps.ocp-ai-sno-2.rh.dasmlab.org  # Update with your cluster domain
+  to:
+    kind: Service
+    name: operator-glooscap-operator-api
+  port:
+    targetPort: http-api  # Port name from the service definition
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+

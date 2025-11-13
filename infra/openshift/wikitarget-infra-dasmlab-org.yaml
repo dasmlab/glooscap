@@ -1,0 +1,60 @@
+---
+# Secret containing Outline API credentials for wiki.infra.dasmlab.org
+# 
+# NOTE: Outline uses API tokens, not username/password directly.
+# Generate an API token from Outline Settings > API > Create Token
+# Then base64 encode it and replace the placeholder below:
+#   echo -n "your-outline-api-token-here" | base64
+#
+apiVersion: v1
+kind: Secret
+metadata:
+  name: outline-infra-dasmlab-org-credentials
+  namespace: glooscap-system
+type: Opaque
+stringData:
+  # The Outline API token (Bearer token)
+  # Replace this with your actual token from Outline Settings > API
+  token: "ol_api_eyjylpP52oeyOUBqtr0NfCDat2B2VFIKm9AFla"
+---
+# WikiTarget for https://wiki.infra.dasmlab.org
+#
+# This resource tells the Glooscap operator to discover and catalog pages
+# from the specified Outline wiki instance.
+#
+apiVersion: wiki.glooscap.dasmlab.org/v1alpha1
+kind: WikiTarget
+metadata:
+  name: infra-dasmlab-org
+  namespace: glooscap-system
+  labels:
+    app: glooscap
+    target: infra-dasmlab-org
+spec:
+  # Base URL of the Outline wiki
+  uri: https://wiki.infra.dasmlab.org
+  
+  # Reference to the secret containing API credentials
+  serviceAccountSecretRef:
+    name: outline-infra-dasmlab-org-credentials
+    key: token  # Optional, defaults to "token" if omitted
+  
+  # Mode: ReadOnly (discover only), ReadWrite (can publish alongside), PushOnly (external target)
+  mode: ReadOnly
+  
+  # Optional: Configure discovery sync cadence
+  sync:
+    # How often to run incremental discovery (default: 5 minutes)
+    interval: 5m
+    # How often to run a full refresh (default: 1 hour)
+    fullRefreshInterval: 1h
+  
+  # Optional: Default translation settings for jobs created from this target
+  translationDefaults:
+    # DestinationTarget: name of another WikiTarget to publish translations to
+    # destinationTarget: ""
+    # DestinationPathPrefix: prefix for translated pages (e.g., "fr" for French)
+    destinationPathPrefix: "fr"
+    # LanguageTag: BCP 47 language code for translations
+    languageTag: "fr-CA"
+

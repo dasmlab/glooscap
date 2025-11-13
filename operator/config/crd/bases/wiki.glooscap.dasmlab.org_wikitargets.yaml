@@ -39,6 +39,10 @@ spec:
           spec:
             description: spec defines the desired state of WikiTarget
             properties:
+              isPaused:
+                default: false
+                description: IsPaused when true, stops reconciliation of this WikiTarget.
+                type: boolean
               mode:
                 description: Mode determines how this target will be used during publication.
                 enum:
@@ -167,6 +171,16 @@ spec:
                   run.
                 format: date-time
                 type: string
+              paused:
+                default: false
+                description: Paused indicates whether reconciliation is currently
+                  paused for this WikiTarget.
+                type: boolean
+              ready:
+                default: false
+                description: Ready indicates whether the WikiTarget has completed
+                  at least one successful discovery.
+                type: boolean
             type: object
         required:
         - spec

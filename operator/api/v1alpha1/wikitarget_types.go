@@ -47,6 +47,11 @@ type WikiTargetSpec struct {
 	// TranslationDefaults specifies default destination parameters when creating TranslationJobs.
 	// +optional
 	TranslationDefaults *TranslationDefaults `json:"translationDefaults,omitempty"`
+
+	// IsPaused when true, stops reconciliation of this WikiTarget.
+	// +optional
+	// +kubebuilder:default=false
+	IsPaused bool `json:"isPaused,omitempty"`
 }
 
 // WikiTargetStatus defines the observed state of WikiTarget.
@@ -62,6 +67,16 @@ type WikiTargetStatus struct {
 	// Conditions represent the latest available observations of a target's state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Ready indicates whether the WikiTarget has completed at least one successful discovery.
+	// +optional
+	// +kubebuilder:default=false
+	Ready bool `json:"ready,omitempty"`
+
+	// Paused indicates whether reconciliation is currently paused for this WikiTarget.
+	// +optional
+	// +kubebuilder:default=false
+	Paused bool `json:"paused,omitempty"`
 }
 
 // WikiTargetMode enumerates supported publication modes.
