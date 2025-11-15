@@ -97,6 +97,13 @@ spec:
           value: quay.io/dasmlab/vllm-runner:latest
         - name: VLLM_API_URL
           value: http://vllm.nanabush.svc:8000
+        # Nanabush gRPC server configuration (on ocp-sno-1050ti cluster)
+        # HAProxy endpoint provides L2 TCP forwarding from ocp-ai-sno-2 cluster
+        # Using external IP directly (internal DNS resolves to unreachable IP)
+        - name: NANABUSH_GRPC_ADDR
+          value: "209.15.95.244:50051"
+        - name: NANABUSH_SECURE
+          value: "false"  # Direct TCP connection, no TLS (HAProxy forwards raw TCP/HTTP/2)
         # TODO(user): Configure the resources accordingly based on the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:

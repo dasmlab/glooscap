@@ -15,7 +15,7 @@ type: Opaque
 stringData:
   # The Outline API token (Bearer token)
   # Replace this with your actual token from Outline Settings > API
-  token: "ol_api_eyjylpP52oeyOUBqtr0NfCDat2B2VFIKm9AFla"
+  token: "ol_api_uIvilQzELXRGkeLU3NGbvFvdt8kEk8CsXalkcB"
 ---
 # WikiTarget for https://wiki.infra.dasmlab.org
 #

@@ -254,16 +254,37 @@ func main() {
 	var nanabushClient *nanabush.Client
 	nanabushAddr := os.Getenv("NANABUSH_GRPC_ADDR")
 	if nanabushAddr != "" {
+		// Get pod namespace if available (OpenShift/Kubernetes)
+		namespace := os.Getenv("POD_NAMESPACE")
+		if namespace == "" {
+			namespace = os.Getenv("WATCH_NAMESPACE")
+		}
+		
+		// Get pod name if available
+		podName := os.Getenv("POD_NAME")
+		
+		metadata := make(map[string]string)
+		if podName != "" {
+			metadata["pod_name"] = podName
+		}
+		
 		client, err := nanabush.NewClient(nanabush.Config{
-			Address: nanabushAddr,
-			Secure:  os.Getenv("NANABUSH_SECURE") == "true",
-			Timeout: 30 * time.Second,
+			Address:      nanabushAddr,
+			Secure:       os.Getenv("NANABUSH_SECURE") == "true",
+			Timeout:      30 * time.Second,
+			ClientName:   "glooscap",
+			ClientVersion: os.Getenv("OPERATOR_VERSION"), // Could be set in deployment
+			Namespace:    namespace,
+			Metadata:     metadata,
 		})
 		if err != nil {
 			setupLog.Error(err, "failed to create Nanabush client")
 		} else {
 			nanabushClient = client
-			setupLog.Info("Nanabush gRPC client initialized", "address", nanabushAddr)
+			setupLog.Info("Nanabush gRPC client initialized and registered", 
+				"address", nanabushAddr, 
+				"client_id", client.ClientID(),
+				"namespace", namespace)
 		}
 	}
 
