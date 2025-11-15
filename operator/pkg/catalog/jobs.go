@@ -52,4 +52,3 @@ func (s *JobStore) List() map[string]Job {
 	}
 	return out
 }
-

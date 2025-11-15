@@ -74,7 +74,22 @@ make uninstall
 ## Testing
 
 - `make test` – runs API/controller/unit suites (requires envtest assets)
+- `make test-coverage` – runs tests and generates detailed coverage reports (HTML + text)
+- `./scripts/coverage.sh` – convenience script to generate and view coverage reports
 - Fetch envtest binaries via `make setup-envtest` or export `KUBEBUILDER_ASSETS` before running controller tests
+
+### Coverage Reports
+
+Coverage reports are generated automatically in CI/CD and available as artifacts:
+- **HTML Report**: `coverage.html` - Interactive browser-based coverage visualization
+- **Text Report**: `coverage.txt` - Function-level coverage breakdown
+- **Raw Data**: `coverage.out` - Go coverage profile format
+
+View coverage on [Codecov](https://codecov.io) (if configured) or download artifacts from GitHub Actions.
+
+### Coverage Badge
+
+[![codecov](https://codecov.io/gh/dasmlab/glooscap/branch/main/graph/badge.svg)](https://codecov.io/gh/dasmlab/glooscap)
 - `SKIP_E2E=1 make test` – skip Docker-backed e2e for constrained environments
 - `make test-e2e` – builds the manager image and exercises end-to-end flow
 

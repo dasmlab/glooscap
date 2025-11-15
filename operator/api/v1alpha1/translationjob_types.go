@@ -46,7 +46,7 @@ type TranslationJobSpec struct {
 // TranslationJobStatus defines the observed state of TranslationJob.
 type TranslationJobStatus struct {
 	// State reflects the high-level lifecycle phase.
-	// +kubebuilder:validation:Enum=Queued;Dispatching;Running;Publishing;Completed;Failed
+	// +kubebuilder:validation:Enum=Queued;Validating;AwaitingApproval;Dispatching;Running;Publishing;Completed;Failed
 	// +optional
 	State TranslationJobState `json:"state,omitempty"`
 
@@ -69,6 +69,22 @@ type TranslationJobStatus struct {
 	// Conditions provide granular status updates.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// DuplicateInfo contains information about a duplicate page found at destination.
+	// +optional
+	DuplicateInfo *DuplicateInfo `json:"duplicateInfo,omitempty"`
+}
+
+// DuplicateInfo describes a duplicate page found at the destination.
+type DuplicateInfo struct {
+	// PageID is the ID of the duplicate page at the destination.
+	PageID string `json:"pageId"`
+	// PageTitle is the title of the duplicate page.
+	PageTitle string `json:"pageTitle"`
+	// PageURI is the URI of the duplicate page.
+	PageURI string `json:"pageUri"`
+	// Message is a human-readable message about the duplicate.
+	Message string `json:"message"`
 }
 
 // TranslationSourceSpec identifies source wiki content.
@@ -113,15 +129,14 @@ const (
 type TranslationJobState string
 
 const (
-	TranslationJobStateQueued      TranslationJobState = "Queued"
-	TranslationJobStateDispatching TranslationJobState = "Dispatching"
-	TranslationJobStateRunning     TranslationJobState = "Running"
-)
-
-const (
-	TranslationJobStatePublishing TranslationJobState = "Publishing"
-	TranslationJobStateCompleted  TranslationJobState = "Completed"
-	TranslationJobStateFailed     TranslationJobState = "Failed"
+	TranslationJobStateQueued           TranslationJobState = "Queued"
+	TranslationJobStateValidating       TranslationJobState = "Validating"
+	TranslationJobStateAwaitingApproval TranslationJobState = "AwaitingApproval"
+	TranslationJobStateDispatching      TranslationJobState = "Dispatching"
+	TranslationJobStateRunning          TranslationJobState = "Running"
+	TranslationJobStatePublishing       TranslationJobState = "Publishing"
+	TranslationJobStateCompleted        TranslationJobState = "Completed"
+	TranslationJobStateFailed           TranslationJobState = "Failed"
 )
 
 // +kubebuilder:object:root=true

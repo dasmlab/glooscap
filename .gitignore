@@ -1,0 +1,29 @@
+# Coverage reports
+coverage.out
+coverage.html
+coverage.txt
+cover.out
+
+# Build artifacts
+*.o
+*.a
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Test artifacts
+*.test
+*.prof
+

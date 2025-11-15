@@ -50,7 +50,7 @@ func (DefaultOutlineClientFactory) New(ctx context.Context, c client.Client, tar
 	// automatically decodes them. When using stringData, the value is stored as-is
 	// and read back as decoded bytes. Convert to string and trim whitespace.
 	token := string(tokenBytes)
-	
+
 	// Trim any leading/trailing whitespace or newlines
 	token = strings.TrimSpace(token)
 
@@ -63,4 +63,3 @@ func (DefaultOutlineClientFactory) New(ctx context.Context, c client.Client, tar
 	}
 	return client, nil
 }
-

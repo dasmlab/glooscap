@@ -53,15 +53,74 @@
             <div v-if="job.message" class="text-negative q-mt-xs">
               {{ job.message }}
             </div>
+            <div v-if="job.state === 'AwaitingApproval' && job.duplicateInfo" class="q-mt-sm">
+              <q-banner class="bg-warning text-dark">
+                <template #avatar>
+                  <q-icon name="warning" color="dark" />
+                </template>
+                <div class="text-body2">
+                  {{ $t('jobs.duplicateFound') }}: {{ job.duplicateInfo.pageTitle }}
+                </div>
+                <div class="text-caption q-mt-xs">
+                  {{ job.duplicateInfo.message }}
+                </div>
+                <template #action>
+                  <q-btn
+                    flat
+                    dense
+                    :label="$t('jobs.approve')"
+                    color="primary"
+                    @click="showApprovalDialog(job)"
+                  />
+                </template>
+              </q-banner>
+            </div>
           </q-timeline-entry>
         </q-timeline>
       </q-card-section>
     </q-card>
+
+    <!-- Duplicate Approval Dialog -->
+    <q-dialog v-model="approvalDialog.show" persistent>
+      <q-card style="min-width: 400px">
+        <q-card-section class="row items-center q-pb-none">
+          <q-icon name="warning" color="warning" size="md" class="q-mr-sm" />
+          <div class="text-h6">{{ $t('jobs.duplicateApproval') }}</div>
+        </q-card-section>
+
+        <q-card-section>
+          <div class="text-body1 q-mb-md">
+            {{ $t('jobs.duplicateApprovalMessage') }}
+          </div>
+          <div v-if="approvalDialog.duplicateInfo" class="q-pa-md bg-grey-2 rounded-borders">
+            <div class="text-weight-bold q-mb-xs">{{ $t('jobs.existingPage') }}:</div>
+            <div class="text-body2">{{ approvalDialog.duplicateInfo.pageTitle }}</div>
+            <div class="text-caption text-grey-7 q-mt-xs">
+              {{ approvalDialog.duplicateInfo.pageUri }}
+            </div>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right" class="q-pa-md">
+          <q-btn
+            flat
+            :label="$t('common.cancel')"
+            color="grey-7"
+            @click="approvalDialog.show = false"
+          />
+          <q-btn
+            :label="$t('jobs.approveOverwrite')"
+            color="warning"
+            @click="handleApproval"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useJobStore } from 'src/stores/job-store'
@@ -69,6 +128,13 @@ import { useJobStore } from 'src/stores/job-store'
 const { t } = useI18n()
 const $q = useQuasar()
 const jobStore = useJobStore()
+
+const approvalDialog = ref({
+  show: false,
+  jobId: null,
+  namespace: null,
+  duplicateInfo: null,
+})
 
 onMounted(() => {
   jobStore.refreshJobs().catch((err) => {
@@ -91,6 +157,8 @@ function statusColor(state) {
     case 'Running':
     case 'Dispatching':
       return 'warning'
+    case 'AwaitingApproval':
+      return 'orange'
     case 'Failed':
       return 'negative'
     default:
@@ -108,10 +176,37 @@ function statusIcon(state) {
       return 'play_arrow'
     case 'Dispatching':
       return 'schedule'
+    case 'AwaitingApproval':
+      return 'pause_circle'
     case 'Failed':
       return 'error'
     default:
       return 'translate'
+  }
+}
+
+function showApprovalDialog(job) {
+  approvalDialog.value = {
+    show: true,
+    jobId: job.id,
+    namespace: job.namespace || 'glooscap-system',
+    duplicateInfo: job.duplicateInfo,
+  }
+}
+
+async function handleApproval() {
+  try {
+    await jobStore.approveDuplicate(approvalDialog.value.jobId, approvalDialog.value.namespace)
+    approvalDialog.value.show = false
+    $q.notify({
+      type: 'positive',
+      message: t('jobs.duplicateApproved'),
+    })
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err.message || t('jobs.approvalFailed'),
+    })
   }
 }
 

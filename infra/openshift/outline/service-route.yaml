@@ -1,0 +1,38 @@
+---
+# Service for Outline
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline
+  namespace: outline
+  labels:
+    app: outline
+spec:
+  selector:
+    app: outline
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+# Route for external access
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: outline
+  namespace: outline
+  labels:
+    app: outline
+spec:
+  to:
+    kind: Service
+    name: outline
+  port:
+    targetPort: 3000
+  tls:
+    termination: edge  # OpenShift Router terminates SSL, forwards HTTP to service
+    insecureEdgeTerminationPolicy: Redirect
+  host: wiki.infra.dasmlab.org  # Update with your domain
+

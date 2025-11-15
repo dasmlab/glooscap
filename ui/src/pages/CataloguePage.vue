@@ -77,6 +77,7 @@
       bordered
       :loading="catalogueStore.loading"
       :rows-per-page-options="[10, 25, 50]"
+      :row-class="(row) => row.isTemplate ? 'template-row' : ''"
     >
       <template #top-right>
         <div class="row items-center q-gutter-sm">
@@ -118,6 +119,14 @@
           >
             {{ props.row.status }}
           </q-chip>
+        </q-td>
+      </template>
+      <template #body-cell-title="props">
+        <q-td :props="props">
+          <div class="row items-center q-gutter-xs">
+            <span :class="{ 'text-grey-6': props.row.isTemplate }">{{ props.row.title || '—' }}</span>
+            <q-icon v-if="props.row.isTemplate" name="description" color="grey-6" size="sm" />
+          </div>
         </q-td>
       </template>
     </q-table>
@@ -280,9 +289,27 @@ async function queueSelection() {
       ? settingsStore.defaultLanguage
       : settingsStore.defaultLanguage?.value ?? 'fr-CA'
 
-  const requests = selectedRowKeys.value.map((pageId) => {
-    const page = catalogueStore.pages.find((item) => item.id === pageId)
-    if (!page) return null
+  // Filter out templates - they shouldn't be translated
+  const validPages = selectedRowKeys.value
+    .map((pageId) => catalogueStore.pages.find((item) => item.id === pageId))
+    .filter((page) => page && !page.isTemplate)
+
+  if (validPages.length === 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Templates cannot be queued for translation',
+    })
+    return
+  }
+
+  if (validPages.length < selectedRowKeys.value.length) {
+    $q.notify({
+      type: 'info',
+      message: `${selectedRowKeys.value.length - validPages.length} template(s) skipped`,
+    })
+  }
+
+  const requests = validPages.map((page) => {
     return jobStore
       .submitJob({
         namespace,
@@ -301,7 +328,7 @@ async function queueSelection() {
   catalogueStore.clearSelection()
   $q.notify({
     type: 'positive',
-    message: 'Translation jobs queued',
+    message: t('catalogue.jobsQueued'),
   })
 }
 
@@ -313,6 +340,15 @@ function clearSelection() {
 <style scoped>
 .catalogue-page {
   background: #f4f7fb;
+}
+
+.template-row {
+  opacity: 0.6;
+  background-color: #f5f5f5;
+}
+
+.template-row:hover {
+  opacity: 0.8;
 }
 </style>
 

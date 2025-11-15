@@ -1,0 +1,38 @@
+---
+# Service for Keycloak
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: keycloak
+  labels:
+    app: keycloak
+spec:
+  selector:
+    app: keycloak
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+# Route for external access
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: keycloak
+  namespace: keycloak
+  labels:
+    app: keycloak
+spec:
+  to:
+    kind: Service
+    name: keycloak
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge  # OpenShift Router terminates SSL, forwards HTTP to service
+    insecureEdgeTerminationPolicy: Redirect
+  host: keycloak.infra.dasmlab.org  # Update with your domain
+

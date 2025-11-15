@@ -34,6 +34,8 @@ export const useJobStore = defineStore('jobs', () => {
           updatedAt: status?.finishedAt || status?.startedAt,
           message: status?.message || '',
           targetId: item?.targetRef || '',
+          namespace: item?.namespace || 'glooscap-system',
+          duplicateInfo: status?.duplicateInfo || null,
         }
       })
     } catch (err) {
@@ -53,6 +55,18 @@ export const useJobStore = defineStore('jobs', () => {
     }
   }
 
+  async function approveDuplicate(jobId, namespace) {
+    loading.value = true
+    try {
+      // Patch the TranslationJob to add the approval annotation
+      // Note: This requires a PATCH endpoint on the operator API
+      await api.patch(`/jobs/${namespace}/${jobId}/approve-duplicate`, {})
+      await refreshJobs()
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     jobs,
     recentJobs,
@@ -61,6 +75,7 @@ export const useJobStore = defineStore('jobs', () => {
     error,
     refreshJobs,
     submitJob,
+    approveDuplicate,
   }
 })
 

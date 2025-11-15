@@ -9,35 +9,36 @@ import (
 // Page represents a discovered wiki page with full tracking information.
 type Page struct {
 	// Core identification
-	ID        string    `json:"id"`        // Outline page ID
-	Title     string    `json:"title"`    // Page title
-	Slug      string    `json:"slug"`     // URL slug
-	URI       string    `json:"uri"`      // Full URI to the page
-	WikiTarget string   `json:"wikiTarget"` // WikiTarget name (namespace/name format)
-	
+	ID         string `json:"id"`         // Outline page ID
+	Title      string `json:"title"`      // Page title
+	Slug       string `json:"slug"`       // URL slug
+	URI        string `json:"uri"`        // Full URI to the page
+	WikiTarget string `json:"wikiTarget"` // WikiTarget name (namespace/name format)
+
 	// State tracking
-	State     string    `json:"state"`     // State: discovered, translated, failed, etc.
+	State       string    `json:"state"`       // State: discovered, translated, failed, etc.
 	LastChecked time.Time `json:"lastChecked"` // When we last checked this page
-	UpdatedAt time.Time `json:"updatedAt"` // When the page was last updated in the wiki (from Outline)
-	
+	UpdatedAt   time.Time `json:"updatedAt"`   // When the page was last updated in the wiki (from Outline)
+
 	// Translation tracking
-	AutoTranslated bool   `json:"autoTranslated"` // Whether translation has been done
+	AutoTranslated bool   `json:"autoTranslated"`           // Whether translation has been done
 	TranslationURI string `json:"translationURI,omitempty"` // URI to translated page if exists
-	
+
 	// Metadata
-	Language  string    `json:"language"`  // Language code (EN, FR, ES, etc.)
-	HasAssets bool      `json:"hasAssets"` // Whether page has embedded assets
-	Collection string   `json:"collection,omitempty"` // Collection name the page belongs to
-	Template   string   `json:"template,omitempty"`  // Template type (e.g., "Feature Completion Template")
+	Language   string `json:"language"`             // Language code (EN, FR, ES, etc.)
+	HasAssets  bool   `json:"hasAssets"`            // Whether page has embedded assets
+	Collection string `json:"collection,omitempty"` // Collection name the page belongs to
+	Template   string `json:"template,omitempty"`   // Template type (e.g., "Feature Completion Template")
+	IsTemplate bool   `json:"isTemplate,omitempty"` // True if this is a template definition
 }
 
 // Store maintains in-memory catalogues of wiki targets with CRUD operations.
 type Store struct {
-	mu          sync.RWMutex
-	pages       map[string]*Page  // Keyed by page URI for fast lookup
-	targets     map[string][]*Page // Grouped by target ID
-	meta        map[string]Target  // Target metadata
-	updateNotifier chan struct{}  // Channel to notify of updates (non-blocking)
+	mu             sync.RWMutex
+	pages          map[string]*Page   // Keyed by page URI for fast lookup
+	targets        map[string][]*Page // Grouped by target ID
+	meta           map[string]Target  // Target metadata
+	updateNotifier chan struct{}      // Channel to notify of updates (non-blocking)
 }
 
 // NewStore creates a new catalogue store.
@@ -69,17 +70,17 @@ type Target struct {
 func (s *Store) Update(target string, info Target, pages []Page) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	now := time.Now()
 	s.meta[target] = info
-	
+
 	// Clear existing pages for this target
 	if existing, ok := s.targets[target]; ok {
 		for _, page := range existing {
 			delete(s.pages, page.URI)
 		}
 	}
-	
+
 	// Add new pages, indexed by URI
 	targetPages := make([]*Page, 0, len(pages))
 	for _, page := range pages {
@@ -94,31 +95,33 @@ func (s *Store) Update(target string, info Target, pages []Page) {
 			existing.HasAssets = page.HasAssets
 			existing.Collection = page.Collection
 			existing.Template = page.Template
+			existing.IsTemplate = page.IsTemplate
 			existing.State = "discovered"
 			targetPages = append(targetPages, existing)
 		} else {
 			// Create new page entry
 			newPage := &Page{
-				ID:            page.ID,
-				Title:         page.Title,
-				Slug:          page.Slug,
-				URI:           page.URI,
-				WikiTarget:    target,
-				State:         "discovered",
-				LastChecked:   now,
-				UpdatedAt:     page.UpdatedAt,
+				ID:             page.ID,
+				Title:          page.Title,
+				Slug:           page.Slug,
+				URI:            page.URI,
+				WikiTarget:     target,
+				State:          "discovered",
+				LastChecked:    now,
+				UpdatedAt:      page.UpdatedAt,
 				AutoTranslated: false,
-				Language:      page.Language,
-				HasAssets:     page.HasAssets,
-				Collection:    page.Collection,
-				Template:      page.Template,
+				Language:       page.Language,
+				HasAssets:      page.HasAssets,
+				Collection:     page.Collection,
+				Template:       page.Template,
+				IsTemplate:     page.IsTemplate,
 			}
 			s.pages[page.URI] = newPage
 			targetPages = append(targetPages, newPage)
 		}
 	}
 	s.targets[target] = targetPages
-	
+
 	// Notify listeners of update (non-blocking)
 	select {
 	case s.updateNotifier <- struct{}{}:
@@ -218,4 +221,3 @@ func FromContext(ctx context.Context) *Store {
 }
 
 type storeKey struct{}
-

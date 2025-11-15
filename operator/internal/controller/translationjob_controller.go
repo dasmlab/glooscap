@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -32,6 +34,8 @@ import (
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
+	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
+	"github.com/dasmlab/glooscap-operator/pkg/outline"
 	"github.com/dasmlab/glooscap-operator/pkg/vllm"
 )
 
@@ -42,8 +46,11 @@ type TranslationJobReconciler struct {
 
 	Recorder record.EventRecorder
 
-	Dispatcher vllm.Dispatcher
-	Jobs       *catalog.JobStore
+	Dispatcher    vllm.Dispatcher
+	Jobs          *catalog.JobStore
+	Catalogue     *catalog.Store
+	OutlineClient OutlineClientFactory
+	Nanabush      *nanabush.Client
 }
 
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=translationjobs,verbs=get;list;watch;create;update;patch;delete
@@ -86,10 +93,32 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		})
 	}
 
-	// Validate referenced WikiTarget exists to surface immediate feedback.
+	// Validation phase: check template, destination, and duplicates
+	// Only validate if we're in Queued state (first time through)
+	if updated.State == wikiv1alpha1.TranslationJobStateQueued {
+		updated.State = wikiv1alpha1.TranslationJobStateValidating
+		meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Validating",
+			Message:            "Validating translation request",
+			LastTransitionTime: now,
+		})
+		// Update status immediately to transition to Validating
+		if !jobStatusChanged(&job.Status, updated) {
+			return ctrl.Result{}, nil
+		}
+		job.Status = *updated
+		if err := r.Status().Update(ctx, &job); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Get source target for use in validation and dispatch
+	var sourceTarget wikiv1alpha1.WikiTarget
 	if job.Spec.Source.TargetRef != "" {
-		var target wikiv1alpha1.WikiTarget
-		if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: job.Spec.Source.TargetRef}, &target); err != nil {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: job.Spec.Source.TargetRef}, &sourceTarget); err != nil {
 			if errors.IsNotFound(err) {
 				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
 					Type:               "Ready",
@@ -101,43 +130,418 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				updated.State = wikiv1alpha1.TranslationJobStateFailed
 				updated.Message = "WikiTarget not found"
 				updated.FinishedAt = &now
-			} else {
-				return ctrl.Result{}, err
+				job.Status = *updated
+				if err := r.Status().Update(ctx, &job); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
 			}
+			return ctrl.Result{}, err
 		}
+	} else {
+		updated.State = wikiv1alpha1.TranslationJobStateFailed
+		updated.Message = "Source TargetRef is required"
+		updated.FinishedAt = &now
+		job.Status = *updated
+		if err := r.Status().Update(ctx, &job); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
-	if updated.State == wikiv1alpha1.TranslationJobStateQueued && r.Dispatcher != nil {
-		mode := vllm.ModeFromString(string(job.Spec.Pipeline))
-		dispatchErr := r.Dispatcher.Dispatch(ctx, vllm.Request{
-			JobName:      job.Name,
-			Namespace:    job.Namespace,
-			PageID:       job.Spec.Source.PageID,
-			LanguageTag:  languageTagForJob(&job),
-			SourceTarget: job.Spec.Source.TargetRef,
-			Mode:         mode,
-		})
-		if dispatchErr != nil {
+	// Run validation only if we're in Validating state
+	if updated.State == wikiv1alpha1.TranslationJobStateValidating {
+		// Perform validation checks
+
+		// Check if page is a template (should not be translated)
+		if r.Catalogue != nil {
+			targetID := fmt.Sprintf("%s/%s", sourceTarget.Namespace, sourceTarget.Name)
+			pages := r.Catalogue.List(targetID)
+			for _, page := range pages {
+				if page.ID == job.Spec.Source.PageID {
+					if page.IsTemplate {
+						meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+							Type:               "Ready",
+							Status:             metav1.ConditionFalse,
+							Reason:             "TemplateRejected",
+							Message:            "Templates cannot be translated",
+							LastTransitionTime: now,
+						})
+						updated.State = wikiv1alpha1.TranslationJobStateFailed
+						updated.Message = "Page is a template and cannot be translated"
+						updated.FinishedAt = &now
+						job.Status = *updated
+						if err := r.Status().Update(ctx, &job); err != nil {
+							return ctrl.Result{}, err
+						}
+						return ctrl.Result{}, nil
+					}
+					break
+				}
+			}
+		}
+
+		// Validate destination
+		destTargetRef := job.Spec.Source.TargetRef
+		if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
+			destTargetRef = job.Spec.Destination.TargetRef
+		}
+
+		var destTarget wikiv1alpha1.WikiTarget
+		if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: destTargetRef}, &destTarget); err != nil {
+			if errors.IsNotFound(err) {
+				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "DestinationMissing",
+					Message:            "Destination WikiTarget does not exist",
+					LastTransitionTime: now,
+				})
+				updated.State = wikiv1alpha1.TranslationJobStateFailed
+				updated.Message = "Destination WikiTarget not found"
+				updated.FinishedAt = &now
+				job.Status = *updated
+				if err := r.Status().Update(ctx, &job); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{}, err
+		}
+
+		// Check if destination allows writes
+		if destTarget.Spec.Mode == wikiv1alpha1.WikiTargetModeReadOnly {
 			meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
 				Type:               "Ready",
 				Status:             metav1.ConditionFalse,
-				Reason:             "DispatchFailed",
-				Message:            dispatchErr.Error(),
+				Reason:             "DestinationReadOnly",
+				Message:            "Destination WikiTarget is read-only",
 				LastTransitionTime: now,
 			})
 			updated.State = wikiv1alpha1.TranslationJobStateFailed
-			updated.Message = dispatchErr.Error()
+			updated.Message = "Destination WikiTarget is read-only and cannot accept translations"
 			updated.FinishedAt = &now
+			job.Status = *updated
+			if err := r.Status().Update(ctx, &job); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+
+		// Check for duplicate page at destination
+		if r.OutlineClient != nil && r.Catalogue != nil {
+			destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
+			if err == nil {
+				destPages, err := destClient.ListPages(ctx)
+				if err == nil {
+					// Get source page title from catalog
+					sourcePageTitle := ""
+					targetID := fmt.Sprintf("%s/%s", sourceTarget.Namespace, sourceTarget.Name)
+					sourcePages := r.Catalogue.List(targetID)
+					for _, page := range sourcePages {
+						if page.ID == job.Spec.Source.PageID {
+							sourcePageTitle = page.Title
+							break
+						}
+					}
+
+					// Check for duplicate by title (simplified - could be improved)
+					for _, destPage := range destPages {
+						if destPage.Title == sourcePageTitle {
+							// Found duplicate - set to AwaitingApproval
+							updated.State = wikiv1alpha1.TranslationJobStateAwaitingApproval
+							updated.DuplicateInfo = &wikiv1alpha1.DuplicateInfo{
+								PageID:    destPage.ID,
+								PageTitle: destPage.Title,
+								PageURI:   fmt.Sprintf("%s/doc/%s", strings.TrimSuffix(destTarget.Spec.URI, "/"), destPage.Slug),
+								Message:   fmt.Sprintf("Page with title '%s' already exists at destination", destPage.Title),
+							}
+							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "DuplicateFound",
+								Message:            updated.DuplicateInfo.Message,
+								LastTransitionTime: now,
+							})
+							updated.Message = "Duplicate page found - awaiting approval"
+							job.Status = *updated
+							if err := r.Status().Update(ctx, &job); err != nil {
+								return ctrl.Result{}, err
+							}
+							logger.Info("duplicate page found, awaiting approval", "duplicate", updated.DuplicateInfo.PageURI)
+							return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+						}
+					}
+				}
+			}
+		}
+
+		// If we reach here, validation passed - transition to Queued
+		updated.State = wikiv1alpha1.TranslationJobStateQueued
+		meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "ValidationPassed",
+			Message:            "Validation passed, ready for dispatch",
+			LastTransitionTime: now,
+		})
+		// Update status and continue to dispatch
+		if !jobStatusChanged(&job.Status, updated) {
+			// Status unchanged, proceed to dispatch logic below
 		} else {
-			updated.State = wikiv1alpha1.TranslationJobStateDispatching
+			job.Status = *updated
+			if err := r.Status().Update(ctx, &job); err != nil {
+				return ctrl.Result{}, err
+			}
+			// Re-read job to get updated status
+			if err := r.Get(ctx, req.NamespacedName, &job); err != nil {
+				return ctrl.Result{}, err
+			}
+			updated = job.Status.DeepCopy()
+		}
+	}
+	// Handle approval for duplicates (check if user approved via annotation)
+	if updated.State == wikiv1alpha1.TranslationJobStateAwaitingApproval {
+		if approved, ok := job.Annotations["glooscap.dasmlab.org/duplicate-approved"]; ok && approved == "true" {
+			// User approved, clear duplicate info and proceed
+			updated.DuplicateInfo = nil
+			updated.State = wikiv1alpha1.TranslationJobStateQueued
 			meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
 				Type:               "Ready",
 				Status:             metav1.ConditionFalse,
-				Reason:             "Dispatching",
-				Message:            "Translation dispatched to vLLM backend",
+				Reason:             "Approved",
+				Message:            "Duplicate overwrite approved by user",
 				LastTransitionTime: now,
 			})
-			updated.Message = "Dispatch accepted by vLLM backend"
+		} else {
+			// Still awaiting approval, requeue
+			if !jobStatusChanged(&job.Status, updated) {
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			job.Status = *updated
+			if err := r.Status().Update(ctx, &job); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+	}
+
+	if updated.State == wikiv1alpha1.TranslationJobStateQueued {
+		// Use gRPC to Nanabush if available, otherwise fall back to old dispatcher
+		if r.Nanabush != nil {
+			// Get source page content on-the-fly
+			var sourcePage *catalog.Page
+			var sourceClient *outline.Client
+			if r.Catalogue != nil && r.OutlineClient != nil {
+				targetID := fmt.Sprintf("%s/%s", sourceTarget.Namespace, sourceTarget.Name)
+				pages := r.Catalogue.List(targetID)
+				for _, page := range pages {
+					if page.ID == job.Spec.Source.PageID {
+						sourcePage = page
+						break
+					}
+				}
+
+				// Create Outline client for source target
+				client, err := r.OutlineClient.New(ctx, r.Client, &sourceTarget)
+				if err != nil {
+					logger.Error(err, "failed to create Outline client for source")
+				} else {
+					sourceClient = client
+				}
+			}
+
+			// Pre-flight: Check title only first
+			if sourcePage != nil && r.Nanabush != nil {
+				checkResp, err := r.Nanabush.CheckTitle(ctx, nanabush.CheckTitleRequest{
+					Title:          sourcePage.Title,
+					LanguageTag:    languageTagForJob(&job),
+					SourceLanguage: sourcePage.Language,
+				})
+				if err != nil {
+					logger.Error(err, "title check failed", "title", sourcePage.Title)
+					meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+						Type:               "Ready",
+						Status:             metav1.ConditionFalse,
+						Reason:             "PreflightFailed",
+						Message:            fmt.Sprintf("Title check failed: %v", err),
+						LastTransitionTime: now,
+					})
+					updated.State = wikiv1alpha1.TranslationJobStateFailed
+					updated.Message = fmt.Sprintf("Pre-flight check failed: %v", err)
+					updated.FinishedAt = &now
+				} else if !checkResp.Ready {
+					meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+						Type:               "Ready",
+						Status:             metav1.ConditionFalse,
+						Reason:             "NotReady",
+						Message:            checkResp.Message,
+						LastTransitionTime: now,
+					})
+					updated.State = wikiv1alpha1.TranslationJobStateFailed
+					updated.Message = checkResp.Message
+					updated.FinishedAt = &now
+				} else {
+					// Pre-flight passed, now fetch full content and translate
+					logger.Info("pre-flight check passed", "estimated_time", checkResp.EstimatedTimeSeconds)
+
+					// Fetch page content on-the-fly
+					var pageContent *outline.PageContent
+					var templateContent *outline.PageContent
+					if sourceClient != nil {
+						content, err := sourceClient.GetPageContent(ctx, job.Spec.Source.PageID)
+						if err != nil {
+							logger.Error(err, "failed to fetch page content")
+							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "ContentFetchFailed",
+								Message:            fmt.Sprintf("Failed to fetch page content: %v", err),
+								LastTransitionTime: now,
+							})
+							updated.State = wikiv1alpha1.TranslationJobStateFailed
+							updated.Message = fmt.Sprintf("Failed to fetch page content: %v", err)
+							updated.FinishedAt = &now
+						} else {
+							pageContent = content
+
+							// Fetch template if available
+							if sourcePage.Template != "" {
+								template, err := sourceClient.GetTemplate(ctx, sourcePage.Template)
+								if err == nil {
+									templateContent = template
+								}
+							}
+						}
+					}
+
+					if pageContent != nil {
+						// Build gRPC request
+						grpcReq := nanabush.TranslateRequest{
+							JobID:     job.Name,
+							Namespace: job.Namespace,
+							Primitive: "doc-translate",
+							Document: &nanabush.DocumentContent{
+								Title:    pageContent.Title,
+								Markdown: pageContent.Markdown,
+								Slug:     pageContent.Slug,
+								Metadata: map[string]string{
+									"collection": sourcePage.Collection,
+									"template":   sourcePage.Template,
+								},
+							},
+							SourceLanguage: sourcePage.Language,
+							TargetLanguage: languageTagForJob(&job),
+							SourceWikiURI:  sourceTarget.Spec.URI,
+							PageID:         job.Spec.Source.PageID,
+							PageSlug:       sourcePage.Slug,
+						}
+
+						if templateContent != nil {
+							grpcReq.TemplateHelper = &nanabush.DocumentContent{
+								Title:    templateContent.Title,
+								Markdown: templateContent.Markdown,
+								Slug:     templateContent.Slug,
+							}
+						}
+
+						// Call Nanabush via gRPC
+						updated.State = wikiv1alpha1.TranslationJobStateDispatching
+						meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+							Type:               "Ready",
+							Status:             metav1.ConditionFalse,
+							Reason:             "Translating",
+							Message:            "Translation in progress via Nanabush",
+							LastTransitionTime: now,
+						})
+
+						// TODO: This should be async, but for now we'll do it synchronously
+						// In production, this should dispatch to a Tekton job or async worker
+						translateResp, err := r.Nanabush.Translate(ctx, grpcReq)
+						if err != nil {
+							logger.Error(err, "translation failed")
+							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "TranslationFailed",
+								Message:            fmt.Sprintf("Translation failed: %v", err),
+								LastTransitionTime: now,
+							})
+							updated.State = wikiv1alpha1.TranslationJobStateFailed
+							updated.Message = fmt.Sprintf("Translation failed: %v", err)
+							updated.FinishedAt = &now
+						} else if !translateResp.Success {
+							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "TranslationFailed",
+								Message:            translateResp.ErrorMessage,
+								LastTransitionTime: now,
+							})
+							updated.State = wikiv1alpha1.TranslationJobStateFailed
+							updated.Message = translateResp.ErrorMessage
+							updated.FinishedAt = &now
+						} else {
+							// Translation succeeded - update status
+							updated.State = wikiv1alpha1.TranslationJobStatePublishing
+							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "TranslationComplete",
+								Message:            "Translation completed, publishing to destination",
+								LastTransitionTime: now,
+							})
+							updated.Message = fmt.Sprintf("Translation completed (tokens: %d, time: %.2fs)", translateResp.TokensUsed, translateResp.InferenceTimeSeconds)
+							logger.Info("translation completed", "tokens", translateResp.TokensUsed, "time", translateResp.InferenceTimeSeconds)
+
+							// TODO: Publish translated content to destination wiki
+							// For now, mark as completed
+							updated.State = wikiv1alpha1.TranslationJobStateCompleted
+							updated.FinishedAt = &now
+							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionTrue,
+								Reason:             "Completed",
+								Message:            "Translation job completed successfully",
+								LastTransitionTime: now,
+							})
+						}
+					}
+				}
+			}
+		} else if r.Dispatcher != nil {
+			// Fall back to old dispatcher
+			mode := vllm.ModeFromString(string(job.Spec.Pipeline))
+			dispatchErr := r.Dispatcher.Dispatch(ctx, vllm.Request{
+				JobName:      job.Name,
+				Namespace:    job.Namespace,
+				PageID:       job.Spec.Source.PageID,
+				LanguageTag:  languageTagForJob(&job),
+				SourceTarget: job.Spec.Source.TargetRef,
+				Mode:         mode,
+			})
+			if dispatchErr != nil {
+				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "DispatchFailed",
+					Message:            dispatchErr.Error(),
+					LastTransitionTime: now,
+				})
+				updated.State = wikiv1alpha1.TranslationJobStateFailed
+				updated.Message = dispatchErr.Error()
+				updated.FinishedAt = &now
+			} else {
+				updated.State = wikiv1alpha1.TranslationJobStateDispatching
+				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "Dispatching",
+					Message:            "Translation dispatched to vLLM backend",
+					LastTransitionTime: now,
+				})
+				updated.Message = "Dispatch accepted by vLLM backend"
+			}
 		}
 	}
 

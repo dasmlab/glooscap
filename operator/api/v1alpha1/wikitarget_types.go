@@ -83,7 +83,7 @@ type WikiTargetStatus struct {
 type WikiTargetMode string
 
 const (
-	WikiTargetModeReadOnly WikiTargetMode = "ReadOnly"
+	WikiTargetModeReadOnly  WikiTargetMode = "ReadOnly"
 	WikiTargetModeReadWrite WikiTargetMode = "ReadWrite"
 	WikiTargetModePushOnly  WikiTargetMode = "PushOnly"
 )

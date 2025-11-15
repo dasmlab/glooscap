@@ -22,6 +22,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -43,6 +44,7 @@ import (
 	"github.com/dasmlab/glooscap-operator/internal/controller"
 	"github.com/dasmlab/glooscap-operator/internal/server"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
+	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
 	"github.com/dasmlab/glooscap-operator/pkg/vllm"
 	// +kubebuilder:scaffold:imports
 )
@@ -248,12 +250,32 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "WikiTarget")
 		os.Exit(1)
 	}
+	// Initialize Nanabush gRPC client if configured
+	var nanabushClient *nanabush.Client
+	nanabushAddr := os.Getenv("NANABUSH_GRPC_ADDR")
+	if nanabushAddr != "" {
+		client, err := nanabush.NewClient(nanabush.Config{
+			Address: nanabushAddr,
+			Secure:  os.Getenv("NANABUSH_SECURE") == "true",
+			Timeout: 30 * time.Second,
+		})
+		if err != nil {
+			setupLog.Error(err, "failed to create Nanabush client")
+		} else {
+			nanabushClient = client
+			setupLog.Info("Nanabush gRPC client initialized", "address", nanabushAddr)
+		}
+	}
+
 	if err := (&controller.TranslationJobReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Recorder:   eventRecorder,
-		Dispatcher: dispatcher,
-		Jobs:       jobStore,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Recorder:      eventRecorder,
+		Dispatcher:    dispatcher,
+		Jobs:          jobStore,
+		Catalogue:     catalogStore,
+		OutlineClient: outlineFactory,
+		Nanabush:      nanabushClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationJob")
 		os.Exit(1)

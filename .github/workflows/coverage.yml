@@ -1,0 +1,102 @@
+name: Coverage Report
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    name: Generate Coverage Report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better coverage tracking
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('operator/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        working-directory: operator
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Setup envtest
+        working-directory: operator
+        run: |
+          make setup-envtest
+
+      - name: Generate manifests
+        working-directory: operator
+        run: |
+          make manifests generate
+
+      - name: Run tests with coverage
+        working-directory: operator
+        run: |
+          KUBEBUILDER_ASSETS="$(make -s setup-envtest | grep KUBEBUILDER_ASSETS | cut -d'=' -f2 | tr -d '"')" \
+          go test $$(go list ./... | grep -v /e2e) \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            -v
+
+      - name: Generate coverage reports
+        working-directory: operator
+        run: |
+          go tool cover -html=coverage.out -o coverage.html
+          go tool cover -func=coverage.out > coverage.txt
+          echo "## 📊 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 1 coverage.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📈 Package Coverage" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "^github.com/dasmlab/glooscap-operator" coverage.txt | head -20 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./operator/coverage.out
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          slug: dasmlab/glooscap
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            operator/coverage.out
+            operator/coverage.html
+            operator/coverage.txt
+          retention-days: 30
+
+      - name: Coverage Comment (PR)
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COVERAGE_JSON_PATH: operator/coverage.out
+          MINIMUM_GREEN: 60
+          MINIMUM_ORANGE: 40
+

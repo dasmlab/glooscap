@@ -91,7 +91,7 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			LastTransitionTime: now,
 		})
 		logger.Info("WikiTarget is paused, skipping reconciliation")
-		
+
 		if !statusChanged(&target.Status, status) {
 			return ctrl.Result{RequeueAfter: DefaultRefreshInterval}, nil
 		}
@@ -106,7 +106,7 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Check if we should refresh (either first time, or Ready for more than 15 seconds)
 	shouldRefresh := false
 	refreshReason := ""
-	
+
 	if !status.Ready || status.LastSyncTime == nil {
 		// First discovery - always refresh
 		shouldRefresh = true
@@ -188,11 +188,11 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wikiv1alpha1.WikiTarget, status *wikiv1alpha1.WikiTargetStatus) error {
 	logger := log.FromContext(ctx).WithValues("wikitarget", fmt.Sprintf("%s/%s", target.Namespace, target.Name))
-	
+
 	if r.OutlineClient == nil {
 		return fmt.Errorf("outline client factory not configured")
 	}
-	
+
 	logger.Info("creating outline client", "uri", target.Spec.URI)
 	client, err := r.OutlineClient.New(ctx, r.Client, target)
 	if err != nil {
@@ -212,13 +212,13 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		targetID := fmt.Sprintf("%s/%s", target.Namespace, target.Name)
 		baseURI := strings.TrimSuffix(target.Spec.URI, "/")
 		catalogPages := make([]catalog.Page, 0, len(pages))
-		
+
 		for i, page := range pages {
 			// Build full URI for the page
 			pageURI := fmt.Sprintf("%s/doc/%s", baseURI, page.Slug)
-			
+
 			// Always log discovered pages with URI
-			logger.Info("discovered page", 
+			logger.Info("discovered page",
 				"index", i+1,
 				"title", page.Title,
 				"id", page.ID,
@@ -226,13 +226,13 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				"uri", pageURI,
 				"updatedAt", page.UpdatedAt.Format(time.RFC3339),
 			)
-			
+
 			// Default language to EN if not provided by Outline
 			language := page.Language
 			if language == "" {
 				language = "EN"
 			}
-			
+
 			catalogPages = append(catalogPages, catalog.Page{
 				ID:         page.ID,
 				Title:      page.Title,
@@ -243,9 +243,10 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				HasAssets:  page.HasAssets,
 				Collection: page.Collection,
 				Template:   page.Template,
+				IsTemplate: page.IsTemplate,
 			})
 		}
-		
+
 		r.Catalogue.Update(targetID, catalog.Target{
 			ID:        targetID,
 			Namespace: target.Namespace,

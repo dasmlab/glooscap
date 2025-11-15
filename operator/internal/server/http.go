@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -80,17 +81,17 @@ func Start(ctx context.Context, opts Options) error {
 	}
 
 	broadcaster := newEventBroadcaster()
-	
+
 	// Start background goroutine to send periodic events and listen for store updates
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		
+
 		var updateCh <-chan struct{}
 		if opts.Catalogue != nil {
 			updateCh = opts.Catalogue.NotifyUpdate()
 		}
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -107,12 +108,12 @@ func Start(ctx context.Context, opts Options) error {
 	}()
 
 	router := chi.NewRouter()
-	
+
 	// CORS headers for UI
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			
+
 			// Allow specific origins or all origins in development
 			allowedOrigins := []string{
 				"https://web-glooscap.apps.ocp-ai-sno-2.rh.dasmlab.org",
@@ -120,7 +121,7 @@ func Start(ctx context.Context, opts Options) error {
 				"http://localhost:9000",
 				"http://localhost:8080",
 			}
-			
+
 			// When using credentials, we MUST use a specific origin, not "*"
 			allowOrigin := ""
 			if origin != "" {
@@ -135,7 +136,7 @@ func Start(ctx context.Context, opts Options) error {
 					allowOrigin = origin
 				}
 			}
-			
+
 			// If no origin header, default to wildcard (but can't use credentials then)
 			if allowOrigin == "" {
 				allowOrigin = "*"
@@ -143,12 +144,12 @@ func Start(ctx context.Context, opts Options) error {
 			} else {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
-			
+
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept")
 			w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Content-Length")
-			
+
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
@@ -156,7 +157,7 @@ func Start(ctx context.Context, opts Options) error {
 			next.ServeHTTP(w, r)
 		})
 	})
-	
+
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -242,7 +243,7 @@ func Start(ctx context.Context, opts Options) error {
 			writeJSON(w, map[string]any{"error": "catalogue not available"})
 			return
 		}
-		
+
 		state := buildStateResponse(opts)
 		writeJSON(w, state)
 	})
@@ -271,42 +272,42 @@ func Start(ctx context.Context, opts Options) error {
 				allowOrigin = origin
 			}
 		}
-		
+
 		// If no origin header, default to wildcard (but can't use credentials then)
 		if allowOrigin == "" {
 			allowOrigin = "*"
 		} else {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
-		
+
 		// Set up SSE headers - MUST be set before any writes
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
-		
+
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "SSE not supported", http.StatusInternalServerError)
 			return
 		}
-		
+
 		// Subscribe to events
 		eventCh := broadcaster.subscribe()
 		defer broadcaster.unsubscribe(eventCh)
-		
+
 		// Send initial state immediately
 		initialState := buildStateResponse(opts)
 		if data, err := json.Marshal(initialState); err == nil {
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		}
-		
+
 		// Keepalive ticker to send periodic pings
 		keepaliveTicker := time.NewTicker(15 * time.Second)
 		defer keepaliveTicker.Stop()
-		
+
 		// Listen for events
 		for {
 			select {
@@ -327,6 +328,43 @@ func Start(ctx context.Context, opts Options) error {
 	router.Post("/api/v1/events/refresh", func(w http.ResponseWriter, r *http.Request) {
 		broadcaster.triggerBroadcast()
 		writeJSON(w, map[string]string{"status": "refresh triggered"})
+	})
+
+	// API endpoint to approve duplicate overwrite
+	router.Patch("/api/v1/jobs/{namespace}/{jobId}/approve-duplicate", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "job approval not configured", http.StatusServiceUnavailable)
+			return
+		}
+		namespace := chi.URLParam(r, "namespace")
+		jobId := chi.URLParam(r, "jobId")
+		if namespace == "" || jobId == "" {
+			http.Error(w, "namespace and jobId are required", http.StatusBadRequest)
+			return
+		}
+
+		var job wikiv1alpha1.TranslationJob
+		if err := opts.Client.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: jobId}, &job); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "translation job not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Add approval annotation
+		if job.Annotations == nil {
+			job.Annotations = make(map[string]string)
+		}
+		job.Annotations["glooscap.dasmlab.org/duplicate-approved"] = "true"
+
+		if err := opts.Client.Update(r.Context(), &job); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"status": "approved"})
 	})
 
 	router.Post("/api/v1/jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -427,20 +465,20 @@ func buildStateResponse(opts Options) map[string]any {
 	result := map[string]any{
 		"wikitargets": []map[string]any{},
 	}
-	
+
 	if opts.Catalogue == nil {
 		return result
 	}
-	
+
 	// Get all targets
 	targets := opts.Catalogue.Targets()
 	wikitargets := make([]map[string]any, 0, len(targets))
-	
+
 	for _, target := range targets {
 		// Get pages for this target
 		pages := opts.Catalogue.List(target.ID)
 		pageList := make([]map[string]any, 0, len(pages))
-		
+
 		for _, page := range pages {
 			pageList = append(pageList, map[string]any{
 				"name":           page.Title,
@@ -456,9 +494,10 @@ func buildStateResponse(opts Options) map[string]any {
 				"hasAssets":      page.HasAssets,
 				"collection":     page.Collection,
 				"template":       page.Template,
+				"isTemplate":     page.IsTemplate,
 			})
 		}
-		
+
 		wikitargets = append(wikitargets, map[string]any{
 			"wikitarget": target.URI,
 			"targetId":   target.ID,
@@ -468,7 +507,7 @@ func buildStateResponse(opts Options) map[string]any {
 			"pages":      pageList,
 		})
 	}
-	
+
 	result["wikitargets"] = wikitargets
 	return result
 }

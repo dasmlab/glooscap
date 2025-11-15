@@ -151,6 +151,28 @@ spec:
                   - type
                   type: object
                 type: array
+              duplicateInfo:
+                description: DuplicateInfo contains information about a duplicate
+                  page found at destination.
+                properties:
+                  message:
+                    description: Message is a human-readable message about the duplicate.
+                    type: string
+                  pageId:
+                    description: PageID is the ID of the duplicate page at the destination.
+                    type: string
+                  pageTitle:
+                    description: PageTitle is the title of the duplicate page.
+                    type: string
+                  pageUri:
+                    description: PageURI is the URI of the duplicate page.
+                    type: string
+                required:
+                - message
+                - pageId
+                - pageTitle
+                - pageUri
+                type: object
               finishedAt:
                 description: FinishedAt records when processing completed.
                 format: date-time
@@ -167,6 +189,8 @@ spec:
                 description: State reflects the high-level lifecycle phase.
                 enum:
                 - Queued
+                - Validating
+                - AwaitingApproval
                 - Dispatching
                 - Running
                 - Publishing

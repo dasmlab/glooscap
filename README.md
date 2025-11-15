@@ -1,4 +1,7 @@
-## Glooscap Wiki Translation Operator
+# Glooscap Wiki Translation Operator
+
+[![codecov](https://codecov.io/gh/dasmlab/glooscap/branch/main/graph/badge.svg)](https://codecov.io/gh/dasmlab/glooscap)
+[![Tests](https://github.com/dasmlab/glooscap/actions/workflows/test.yml/badge.svg)](https://github.com/dasmlab/glooscap/actions/workflows/test.yml)
 
 This repository tracks the design and scaffolding plan for the Wiki translation operator that synchronises Outline wikis, translates English content to French through an on-cluster vLLM, and exposes a Quasar/Vue front-end for operator-driven ETL workflows.
 

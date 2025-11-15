@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	defaultTimeout    = 15 * time.Second
-	documentsListPath = "/api/documents.list"
+	defaultTimeout      = 15 * time.Second
+	documentsListPath   = "/api/documents.list"
+	documentsExportPath = "/api/documents.export"
 )
 
 // Client interacts with an Outline instance.
@@ -66,17 +67,18 @@ type PageSummary struct {
 	HasAssets  bool      `json:"hasAssets"`
 	Collection string    `json:"collection,omitempty"`
 	Template   string    `json:"template,omitempty"`
+	IsTemplate bool      `json:"isTemplate,omitempty"` // True if this is a template definition
 }
 
 type documentsListResponse struct {
 	Data []struct {
-		ID        string    `json:"id"`
-		Title     string    `json:"title"`
-		Slug      string    `json:"urlId"`
-		UpdatedAt time.Time `json:"updatedAt"`
-		IsDraft   bool      `json:"isDraft"`
-		CollectionID string `json:"collectionId,omitempty"`
-		TemplateID   string `json:"templateId,omitempty"`
+		ID           string    `json:"id"`
+		Title        string    `json:"title"`
+		Slug         string    `json:"urlId"`
+		UpdatedAt    time.Time `json:"updatedAt"`
+		IsDraft      bool      `json:"isDraft"`
+		CollectionID string    `json:"collectionId,omitempty"`
+		TemplateID   string    `json:"templateId,omitempty"`
 	} `json:"data"`
 }
 
@@ -103,10 +105,10 @@ func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("outline: new request: %w", err)
 	}
-	
+
 	// Ensure token is trimmed of any whitespace
 	token := strings.TrimSpace(c.token)
-	
+
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -132,7 +134,7 @@ func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
 	}
 
 	pages := make([]PageSummary, 0, len(list.Data))
-	
+
 	// Fetch collections map if we have collection IDs
 	collectionsMap := make(map[string]string)
 	if len(list.Data) > 0 {
@@ -146,37 +148,42 @@ func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
 			}
 		}
 	}
-	
+
 	for _, item := range list.Data {
 		if item.IsDraft {
 			continue
 		}
-		
+
 		collectionName := ""
 		if item.CollectionID != "" {
 			collectionName = collectionsMap[item.CollectionID]
 		}
-		
+
 		// Try to detect template from title (e.g., "Feature Completion Template (EN)")
 		template := ""
+		isTemplate := false
 		if strings.Contains(item.Title, "Template") {
 			// Extract template name (e.g., "Feature Completion Template" from "Feature Completion Template (EN)")
 			parts := strings.Split(item.Title, "(")
 			if len(parts) > 0 {
 				template = strings.TrimSpace(parts[0])
 			}
+			// Mark as template if title contains "Template" - this is a heuristic
+			// TODO: Check Outline API for actual template metadata if available
+			isTemplate = true
 		}
-		
+
 		pages = append(pages, PageSummary{
 			ID:        item.ID,
 			Title:     item.Title,
 			Slug:      item.Slug,
 			UpdatedAt: item.UpdatedAt,
 			// Outline does not expose language directly; try to extract from title
-			Language:  extractLanguageFromTitle(item.Title),
-			HasAssets: false,
+			Language:   extractLanguageFromTitle(item.Title),
+			HasAssets:  false,
 			Collection: collectionName,
 			Template:   template,
+			IsTemplate: isTemplate,
 		})
 	}
 
@@ -194,7 +201,7 @@ func extractLanguageFromTitle(title string) string {
 	langPart := strings.TrimSpace(parts[len(parts)-1])
 	langPart = strings.TrimSuffix(langPart, ")")
 	langPart = strings.TrimSpace(langPart)
-	
+
 	// Validate it's a language code (2-3 uppercase letters)
 	if len(langPart) >= 2 && len(langPart) <= 3 {
 		for _, r := range langPart {
@@ -207,3 +214,71 @@ func extractLanguageFromTitle(title string) string {
 	return ""
 }
 
+// PageContent represents the full content of a page.
+type PageContent struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Slug     string `json:"slug"`
+	Markdown string `json:"markdown"`
+}
+
+type documentsExportResponse struct {
+	Data string `json:"data"` // Markdown content
+}
+
+// GetPageContent fetches the full content of a page as Markdown.
+// Uses POST /api/documents.export endpoint.
+func (c *Client) GetPageContent(ctx context.Context, pageID string) (*PageContent, error) {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsExportPath})
+
+	payload := map[string]string{
+		"id": pageID,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("outline: marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		bodyStr := ""
+		if readErr == nil {
+			bodyStr = string(bodyBytes)
+		}
+		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	var exportResp documentsExportResponse
+	if err := json.NewDecoder(resp.Body).Decode(&exportResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w", err)
+	}
+
+	// We need to get page metadata separately to get title and slug
+	// For now, we'll return what we have and the caller can enrich it
+	return &PageContent{
+		ID:       pageID,
+		Markdown: exportResp.Data,
+		// Title and Slug will need to be populated from PageSummary if available
+	}, nil
+}
+
+// GetTemplate fetches a template document by ID.
+// This is the same as GetPageContent but semantically indicates it's a template.
+func (c *Client) GetTemplate(ctx context.Context, templateID string) (*PageContent, error) {
+	return c.GetPageContent(ctx, templateID)
+}

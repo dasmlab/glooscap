@@ -1,0 +1,15 @@
+---
+# Persistent storage for Outline uploads
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: outline-uploads
+  namespace: outline
+spec:
+  accessModes:
+  - ReadWriteOnce  # lvms-vg1 may not support ReadWriteMany, adjust if needed
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: lvms-vg1  # Using lvms-vg1 (ReadWriteMany may not be supported, fallback to ReadWriteOnce if needed)
+

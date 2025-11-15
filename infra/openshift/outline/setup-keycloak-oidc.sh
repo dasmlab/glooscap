@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Script to help configure Outline with Keycloak OIDC
+set -euo pipefail
+
+KEYCLOAK_URL="https://keycloak.infra.dasmlab.org"
+REALM_NAME="dasmlab"
+CLIENT_ID="outline"
+OUTLINE_URL="https://wiki.infra.dasmlab.org"
+
+echo "=========================================="
+echo "Outline + Keycloak OIDC Setup Guide"
+echo "=========================================="
+echo ""
+echo "This script will help you configure Outline to use Keycloak as the IDP."
+echo ""
+echo "Prerequisites:"
+echo "  1. Keycloak is running and accessible"
+echo "  2. You have admin access to Keycloak"
+echo "  3. The 'dasmlab' realm exists in Keycloak"
+echo ""
+echo "Keycloak Admin Console: ${KEYCLOAK_URL}/admin"
+echo "Keycloak Realm: ${REALM_NAME}"
+echo "Outline URL: ${OUTLINE_URL}"
+echo ""
+read -p "Press Enter to continue or Ctrl+C to exit..."
+
+echo ""
+echo "=========================================="
+echo "Step 1: Create Keycloak Client"
+echo "=========================================="
+echo ""
+echo "1. Go to: ${KEYCLOAK_URL}/admin"
+echo "2. Select realm: ${REALM_NAME}"
+echo "3. Navigate to: Clients → Create client"
+echo "4. Configure:"
+echo "   - Client type: OpenID Connect"
+echo "   - Client ID: ${CLIENT_ID}"
+echo "   - Click 'Next'"
+echo "5. Capability config:"
+echo "   - Client authentication: ON"
+echo "   - Standard flow: ON"
+echo "   - Direct access grants: ON (for API access)"
+echo "   - Click 'Next'"
+echo "6. Login settings:"
+echo "   - Root URL: ${OUTLINE_URL}"
+echo "   - Home URL: ${OUTLINE_URL}"
+echo "   - Valid redirect URIs:"
+echo "     * ${OUTLINE_URL}/*"
+echo "     * ${OUTLINE_URL}/auth/oidc/callback"
+echo "   - Web origins: ${OUTLINE_URL}"
+echo "   - Click 'Save'"
+echo ""
+read -p "Press Enter after you've created the client..."
+
+echo ""
+echo "=========================================="
+echo "Step 2: Get Client Secret"
+echo "=========================================="
+echo ""
+echo "1. In the Outline client settings, go to: Credentials tab"
+echo "2. Copy the 'Client secret' value"
+echo ""
+read -p "Paste the Client Secret here (or press Enter to skip and set manually): " CLIENT_SECRET
+
+if [ -z "$CLIENT_SECRET" ]; then
+    echo ""
+    echo "You'll need to set the client secret manually in the secret."
+    echo "Run: oc create secret generic outline-oidc -n outline --from-literal=client-secret='YOUR_SECRET'"
+    exit 0
+fi
+
+echo ""
+echo "Creating Kubernetes secret for OIDC client secret..."
+oc create secret generic outline-oidc \
+  --namespace=outline \
+  --from-literal=client-secret="${CLIENT_SECRET}" \
+  --dry-run=client -o yaml | oc apply -f -
+
+echo ""
+echo "✅ Secret created: outline-oidc"
+echo ""
+echo "=========================================="
+echo "Step 3: Update Outline Deployment"
+echo "=========================================="
+echo ""
+echo "The Outline deployment will be updated with OIDC environment variables."
+echo "OIDC Endpoints:"
+echo "  Auth: ${KEYCLOAK_URL}/realms/${REALM_NAME}/protocol/openid-connect/auth"
+echo "  Token: ${KEYCLOAK_URL}/realms/${REALM_NAME}/protocol/openid-connect/token"
+echo "  UserInfo: ${KEYCLOAK_URL}/realms/${REALM_NAME}/protocol/openid-connect/userinfo"
+echo ""
+read -p "Press Enter to update the Outline deployment..."
+
+echo ""
+echo "Updating Outline deployment..."
+oc apply -f /home/dasm/org-dasmlab/tools/glooscap/infra/openshift/outline/outline-deployment.yaml
+
+echo ""
+echo "✅ Outline deployment updated!"
+echo ""
+echo "=========================================="
+echo "Setup Complete!"
+echo "=========================================="
+echo ""
+echo "Next steps:"
+echo "  1. Wait for Outline pods to restart (oc get pods -n outline -w)"
+echo "  2. Access Outline: ${OUTLINE_URL}"
+echo "  3. You should see a 'Sign in with Keycloak' button"
+echo "  4. Test login with a Keycloak user"
+echo ""
+echo "Troubleshooting:"
+echo "  - Check Outline logs: oc logs -n outline -l app=outline"
+echo "  - Verify Keycloak client redirect URIs match exactly"
+echo "  - Ensure Keycloak realm is accessible from Outline pods"
+echo ""
+

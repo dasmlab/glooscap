@@ -1,0 +1,142 @@
+---
+# Keycloak Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: keycloak
+  labels:
+    app: keycloak
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:latest
+        args:
+        - start
+        - --hostname-strict=false
+        - --proxy-headers=xforwarded
+        - --http-enabled=true
+        - --http-port=8080
+        env:
+        # Database
+        - name: KC_DB
+          value: postgres
+        - name: KC_DB_URL_HOST
+          value: postgresql.keycloak.svc
+        - name: KC_DB_URL_PORT
+          value: "5432"
+        - name: KC_DB_URL_DATABASE
+          value: keycloak
+        - name: KC_DB_USERNAME
+          value: keycloak
+        - name: KC_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: password
+        # Admin credentials
+        - name: KC_HOSTNAME
+          value: "keycloak.infra.dasmlab.org"  # Update with your domain
+        - name: KC_HOSTNAME_STRICT
+          value: "false"
+        - name: KC_HOSTNAME_STRICT_HTTPS
+          value: "false"
+        - name: KC_HTTP_ENABLED
+          value: "true"
+        - name: KC_HTTP_PORT
+          value: "8080"
+        - name: KC_PROXY
+          value: "edge"  # HAProxy is edge proxy
+        - name: KC_PROXY_HEADERS
+          value: "xforwarded"
+        - name: KC_HEALTH_ENABLED
+          value: "true"
+        - name: KC_METRICS_ENABLED
+          value: "true"
+        - name: KC_HTTP_MANAGEMENT_ENABLED
+          value: "true"
+        - name: KC_HTTP_MANAGEMENT_PORT
+          value: "9000"
+        # Admin user
+        - name: KEYCLOAK_ADMIN
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-admin
+              key: username
+        - name: KEYCLOAK_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-admin
+              key: password
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: keycloak-data
+          mountPath: /opt/keycloak/data
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        startupProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 50
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 9000
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 180
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 10
+      volumes:
+      - name: keycloak-data
+        persistentVolumeClaim:
+          claimName: keycloak-data
+      initContainers:
+      - name: wait-for-db
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          until nc -z postgresql.keycloak.svc 5432; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready"
+          # Test actual connection with retries
+          for i in 1 2 3 4 5; do
+            if nc -z postgresql.keycloak.svc 5432; then
+              echo "PostgreSQL connection verified"
+              break
+            fi
+            echo "Retry $i/5..."
+            sleep 3
+          done
+          sleep 5
+

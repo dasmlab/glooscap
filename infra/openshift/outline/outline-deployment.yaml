@@ -1,0 +1,186 @@
+---
+# Outline v0.83 Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline
+  namespace: outline
+  labels:
+    app: outline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: outline
+  template:
+    metadata:
+      labels:
+        app: outline
+    spec:
+      containers:
+      - name: outline
+        image: outlinewiki/outline:0.83.0
+        env:
+        # Database
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: database-url
+        - name: DATABASE_URL_SSL
+          value: "disable"  # Internal cluster, SSL not required
+        - name: PGSSLMODE
+          value: "disable"  # Disable SSL for PostgreSQL connection
+        - name: DATABASE_CONNECTION_POOL_MIN
+          value: "2"
+        - name: DATABASE_CONNECTION_POOL_MAX
+          value: "10"
+        - name: NODE_ENV
+          value: "production"
+        # Redis
+        - name: REDIS_URL
+          value: "redis://redis.outline.svc:6379"
+        # Application Secrets
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: outline-config
+              key: SECRET_KEY
+        - name: UTILS_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: outline-config
+              key: UTILS_SECRET
+        # Application URL (update with your domain)
+        # Use HTTPS for OIDC redirect URIs to match Keycloak client configuration
+        - name: URL
+          value: "https://wiki.infra.dasmlab.org"
+        # Storage - using local filesystem for now
+        - name: FILE_STORAGE
+          value: "local"
+        - name: FILE_STORAGE_LOCAL_ROOT_DIR
+          value: "/var/lib/outline/uploads"
+        # Email (optional - configure if needed)
+        # - name: SMTP_HOST
+        #   value: "smtp.example.com"
+        # - name: SMTP_PORT
+        #   value: "587"
+        # - name: SMTP_USERNAME
+        #   value: "..."
+        # - name: SMTP_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: outline-config
+        #       key: SMTP_PASSWORD
+        # - name: SMTP_FROM_EMAIL
+        #   value: "noreply@example.com"
+        # Additional Options
+        # Force HTTPS for OIDC redirect URIs (HAProxy handles SSL termination)
+        - name: FORCE_HTTPS
+          value: "true"
+        - name: TRUST_PROXY
+          value: "true"  # Trust proxy headers from HAProxy
+        - name: PORT
+          value: "3000"
+        # OIDC Configuration for Keycloak
+        - name: OIDC_CLIENT_ID
+          value: "outline"
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: outline-oidc
+              key: client-secret
+        - name: OIDC_AUTH_URI
+          value: "https://keycloak.infra.dasmlab.org/realms/dasmlab/protocol/openid-connect/auth"
+        - name: OIDC_TOKEN_URI
+          value: "https://keycloak.infra.dasmlab.org/realms/dasmlab/protocol/openid-connect/token"
+        - name: OIDC_USERINFO_URI
+          value: "https://keycloak.infra.dasmlab.org/realms/dasmlab/protocol/openid-connect/userinfo"
+        - name: OIDC_SCOPES
+          value: "openid profile email"
+        - name: OIDC_DISPLAY_NAME
+          value: "Keycloak"
+        # OIDC Callback configuration
+        - name: OIDC_REDIRECT_URI
+          value: "https://wiki.infra.dasmlab.org/auth/oidc/callback"
+        # OIDC Logout configuration
+        # Include post_logout_redirect_uri to redirect back to Outline after logout
+        - name: OIDC_LOGOUT_URI
+          value: "https://keycloak.infra.dasmlab.org/realms/dasmlab/protocol/openid-connect/logout?post_logout_redirect_uri=https://wiki.infra.dasmlab.org"
+        ports:
+        - containerPort: 3000
+          name: http
+        volumeMounts:
+        - name: uploads
+          mountPath: /var/lib/outline/uploads
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        # Simplified health checks - just check if the port responds
+        # Outline can take a while to fully initialize, so we're very forgiving
+        startupProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60  # Allow up to 5 minutes for startup
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+      volumes:
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: outline-uploads
+      initContainers:
+      - name: wait-for-db
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          until nc -z postgresql.outline.svc 5432; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready"
+          # Test actual connection with retries
+          for i in 1 2 3 4 5; do
+            if nc -z postgresql.outline.svc 5432; then
+              echo "PostgreSQL connection verified"
+              break
+            fi
+            echo "Retry $i/5..."
+            sleep 3
+          done
+          sleep 5
+      - name: wait-for-redis
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          until nc -z redis.outline.svc 6379; do
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+          echo "Redis is ready"
+
