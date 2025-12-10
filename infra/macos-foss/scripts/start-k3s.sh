@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # start-k3s.sh
-# Starts a k3s cluster for local Glooscap development
+# NOTE: k3s is NOT recommended on macOS (requires systemd/openrc)
+# This script is kept for reference but will warn and suggest k0s instead
 
 set -euo pipefail
 
@@ -10,9 +11,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Functions
 log_info() {
@@ -30,6 +28,23 @@ log_warn() {
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+log_error "k3s is NOT recommended on macOS!"
+log_warn "k3s requires systemd or openrc, which are not available on macOS."
+log_warn "This will likely fail or have issues."
+echo ""
+log_info "RECOMMENDED: Use k0s instead (single binary, works on macOS)"
+log_info "Run: ./scripts/start-k0s.sh"
+echo ""
+read -p "Do you want to continue with k3s anyway? (y/N) " -n 1 -r
+echo ""
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    log_info "Aborted. Please use: ./scripts/start-k0s.sh"
+    exit 0
+fi
+
+# Original k3s start logic (may not work on macOS)
+log_warn "Attempting to start k3s (this may fail on macOS)..."
 
 # Check if k3s is installed
 if ! command -v k3s &> /dev/null; then
@@ -94,6 +109,7 @@ echo ""
 if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
     log_error "k3s failed to start within ${MAX_WAIT} seconds"
     log_info "Check logs: ${K3S_DATA_DIR}/k3s.log"
+    log_warn "This is expected on macOS. Please use k0s instead: ./scripts/start-k0s.sh"
     kill $K3S_PID 2>/dev/null || true
     exit 1
 fi
@@ -126,4 +142,4 @@ kubectl get nodes
 echo ""
 log_info "To stop k3s, run: ./scripts/stop-k3s.sh"
 log_info "To view logs: tail -f ${K3S_DATA_DIR}/k3s.log"
-
+log_warn "Note: k3s on macOS may have issues. Consider using k0s for better compatibility."

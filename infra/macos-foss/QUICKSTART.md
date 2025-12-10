@@ -28,23 +28,22 @@ This will install:
 export PATH="${HOME}/.local/bin:$PATH"
 ```
 
-## Step 2: Start k3s Cluster
+## Step 2: Start k0s Cluster
 
-Start a local k3s cluster:
+**Important**: k3s is NOT recommended on macOS (requires systemd/openrc which macOS doesn't have). Use k0s instead.
 
-```bash
-./scripts/start-k3s.sh
-```
+Start a local k0s cluster:
 
-This will:
-- Start k3s server on port 6443
-- Configure kubectl to use the cluster
-- Wait for the cluster to be ready
-
-**Alternative**: If you prefer k0s (single binary Kubernetes):
 ```bash
 ./scripts/start-k0s.sh
 ```
+
+This will:
+- Start k0s server (single binary, no systemd required)
+- Configure kubectl to use the cluster
+- Wait for the cluster to be ready
+
+**Note**: k0s is the recommended option for macOS as it's a single binary that doesn't require systemd.
 
 ## Step 3: Prepare CRDs
 

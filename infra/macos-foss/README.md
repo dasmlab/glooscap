@@ -7,7 +7,8 @@ This directory contains everything needed to run Glooscap on macOS using Podman 
 This setup provides a fully FOSS (Free and Open Source Software) stack for running Glooscap locally on macOS:
 
 - **Podman**: Container runtime (Docker alternative)
-- **k3s/k0s**: Lightweight Kubernetes distribution
+- **k0s**: Single binary Kubernetes distribution (recommended for macOS)
+- **k3s**: Alternative Kubernetes (not recommended on macOS - requires systemd/openrc)
 - **kubectl**: Kubernetes CLI
 - **Glooscap Operator**: Deployed via Kubernetes manifests
 - **Glooscap UI**: Deployed via Kubernetes manifests
@@ -25,10 +26,12 @@ This setup provides a fully FOSS (Free and Open Source Software) stack for runni
    ./scripts/setup-macos-env.sh
    ```
 
-2. **Start the k3s cluster:**
+2. **Start the k0s cluster (recommended for macOS):**
    ```bash
-   ./scripts/start-k3s.sh
+   ./scripts/start-k0s.sh
    ```
+   
+   **Note**: k3s is not recommended on macOS as it requires systemd/openrc which macOS doesn't provide.
 
 3. **Deploy Glooscap:**
    ```bash

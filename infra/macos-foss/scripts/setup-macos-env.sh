@@ -53,7 +53,39 @@ log_info "Starting macOS environment setup for Glooscap FOSS development..."
 if ! check_command brew; then
     log_warn "Homebrew not found. Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    log_success "Homebrew installed"
+    
+    # Setup Homebrew shellenv for Apple Silicon or Intel
+    CURRENT_USER=$(whoami)
+    if [[ -d "/opt/homebrew" ]]; then
+        # Apple Silicon
+        BREW_PREFIX="/opt/homebrew"
+    else
+        # Intel
+        BREW_PREFIX="/usr/local"
+    fi
+    
+    log_info "Setting up Homebrew shell environment..."
+    if [[ -f "${HOME}/.zprofile" ]]; then
+        if ! grep -q "brew shellenv" "${HOME}/.zprofile"; then
+            echo "" >> "${HOME}/.zprofile"
+            echo 'eval "$('"${BREW_PREFIX}"'/bin/brew shellenv)"' >> "${HOME}/.zprofile"
+        fi
+    else
+        echo 'eval "$('"${BREW_PREFIX}"'/bin/brew shellenv)"' > "${HOME}/.zprofile"
+    fi
+    
+    # Also add to .zshrc if it exists
+    if [[ -f "${HOME}/.zshrc" ]]; then
+        if ! grep -q "brew shellenv" "${HOME}/.zshrc"; then
+            echo "" >> "${HOME}/.zshrc"
+            echo 'eval "$('"${BREW_PREFIX}"'/bin/brew shellenv)"' >> "${HOME}/.zshrc"
+        fi
+    fi
+    
+    # Evaluate shellenv for current session
+    eval "$(${BREW_PREFIX}/bin/brew shellenv)"
+    
+    log_success "Homebrew installed and configured"
 else
     log_info "Homebrew already installed: $(brew --version | head -n1)"
 fi
@@ -103,39 +135,54 @@ else
     log_info "kubectl already installed: $(kubectl version --client --short 2>/dev/null || echo 'installed')"
 fi
 
-# Install k3s (we'll download and install it)
-if ! check_command k3s; then
-    log_info "Installing k3s..."
+# Note: k3s doesn't work well on macOS (requires systemd/openrc)
+# We'll use k0s instead, which is a single binary that works on macOS
+log_info "Note: k3s is not recommended on macOS (requires systemd/openrc)"
+log_info "We'll install k0s instead, which is a single binary Kubernetes distribution"
+
+# Install k0s (single binary, works on macOS)
+if ! check_command k0s; then
+    log_info "Installing k0s..."
+    K0S_VERSION="${K0S_VERSION:-latest}"
+    K0S_DIR="${HOME}/.local/bin"
+    mkdir -p "${K0S_DIR}"
     
-    # Create k3s directory
-    K3S_DIR="${HOME}/.local/bin"
-    mkdir -p "${K3S_DIR}"
-    
-    # Download k3s
-    K3S_VERSION="${K3S_VERSION:-latest}"
-    if [[ "${K3S_VERSION}" == "latest" ]]; then
-        K3S_URL="https://get.k3s.io"
+    # Detect architecture
+    ARCH=$(uname -m)
+    if [[ "${ARCH}" == "arm64" ]]; then
+        K0S_ARCH="arm64"
     else
-        K3S_URL="https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s"
+        K0S_ARCH="amd64"
     fi
     
-    # For macOS, we'll use the install script which handles everything
-    curl -sfL https://get.k3s.io | INSTALL_K3S_BIN_DIR="${K3S_DIR}" sh -s -
+    if [[ "${K0S_VERSION}" == "latest" ]]; then
+        # Get latest release URL
+        K0S_URL=$(curl -s https://api.github.com/repos/k0sproject/k0s/releases/latest | \
+            grep "browser_download_url.*darwin-${K0S_ARCH}" | cut -d '"' -f 4)
+    else
+        K0S_URL="https://github.com/k0sproject/k0s/releases/download/v${K0S_VERSION}/k0s-v${K0S_VERSION}-darwin-${K0S_ARCH}"
+    fi
+    
+    log_info "Downloading k0s from ${K0S_URL}..."
+    curl -L "${K0S_URL}" -o "${K0S_DIR}/k0s"
+    chmod +x "${K0S_DIR}/k0s"
     
     # Add to PATH if not already there
-    if [[ ":$PATH:" != *":${K3S_DIR}:"* ]]; then
-        log_info "Adding ${K3S_DIR} to PATH in ~/.zshrc (or ~/.bash_profile)"
-        if [[ -f "${HOME}/.zshrc" ]]; then
-            echo "export PATH=\"${K3S_DIR}:\$PATH\"" >> "${HOME}/.zshrc"
-        elif [[ -f "${HOME}/.bash_profile" ]]; then
-            echo "export PATH=\"${K3S_DIR}:\$PATH\"" >> "${HOME}/.bash_profile"
+    if [[ ":$PATH:" != *":${K0S_DIR}:"* ]]; then
+        log_info "Adding ${K0S_DIR} to PATH in ~/.zprofile"
+        if [[ -f "${HOME}/.zprofile" ]]; then
+            if ! grep -q "${K0S_DIR}" "${HOME}/.zprofile"; then
+                echo "export PATH=\"${K0S_DIR}:\$PATH\"" >> "${HOME}/.zprofile"
+            fi
+        else
+            echo "export PATH=\"${K0S_DIR}:\$PATH\"" > "${HOME}/.zprofile"
         fi
-        export PATH="${K3S_DIR}:${PATH}"
+        export PATH="${K0S_DIR}:${PATH}"
     fi
     
-    log_success "k3s installed"
+    log_success "k0s installed"
 else
-    log_info "k3s already installed: $(k3s --version 2>/dev/null || echo 'installed')"
+    log_info "k0s already installed: $(k0s version 2>/dev/null || echo 'installed')"
 fi
 
 # Install Helm (optional, for future use)
@@ -149,28 +196,7 @@ if [[ "${INSTALL_HELM:-false}" == "true" ]]; then
     fi
 fi
 
-# Install k0s (alternative to k3s, single binary)
-if [[ "${INSTALL_K0S:-false}" == "true" ]]; then
-    if ! check_command k0s; then
-        log_info "Installing k0s..."
-        K0S_VERSION="${K0S_VERSION:-latest}"
-        K0S_DIR="${HOME}/.local/bin"
-        mkdir -p "${K0S_DIR}"
-        
-        if [[ "${K0S_VERSION}" == "latest" ]]; then
-            K0S_URL=$(curl -s https://api.github.com/repos/k0sproject/k0s/releases/latest | grep "browser_download_url.*darwin" | cut -d '"' -f 4)
-        else
-            K0S_URL="https://github.com/k0sproject/k0s/releases/download/v${K0S_VERSION}/k0s-v${K0S_VERSION}-darwin-amd64"
-        fi
-        
-        curl -L "${K0S_URL}" -o "${K0S_DIR}/k0s"
-        chmod +x "${K0S_DIR}/k0s"
-        
-        log_success "k0s installed"
-    else
-        log_info "k0s already installed: $(k0s version 2>/dev/null || echo 'installed')"
-    fi
-fi
+# k0s is now the default for macOS (installed above)
 
 # Verify installations
 log_info "Verifying installations..."
@@ -188,10 +214,10 @@ else
     log_error "✗ kubectl not found"
 fi
 
-if check_command k3s; then
-    log_success "✓ k3s: $(k3s --version 2>/dev/null || echo 'installed')"
+if check_command k0s; then
+    log_success "✓ k0s: $(k0s version 2>/dev/null || echo 'installed')"
 else
-    log_warn "⚠ k3s not found (may need to add to PATH)"
+    log_warn "⚠ k0s not found (may need to add to PATH)"
 fi
 
 # Create kubeconfig directory
@@ -201,9 +227,9 @@ mkdir -p "${HOME}/.kube"
 log_success "macOS environment setup complete!"
 echo ""
 log_info "Next steps:"
-echo "  1. Run './scripts/start-k3s.sh' to start the k3s cluster"
-echo "  2. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
+echo "  1. Restart your terminal or run: source ~/.zprofile"
+echo "  2. Run './scripts/start-k0s.sh' to start the k0s cluster (recommended for macOS)"
+echo "  3. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_info "Note: If you installed k3s, you may need to restart your terminal or run:"
-echo "  export PATH=\"\${HOME}/.local/bin:\$PATH\""
+log_warn "Note: k3s is not recommended on macOS. Use k0s instead (single binary, no systemd required)."
 

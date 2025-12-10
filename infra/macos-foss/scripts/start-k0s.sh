@@ -30,7 +30,7 @@ log_error() {
 
 # Check if k0s is installed
 if ! command -v k0s &> /dev/null; then
-    log_error "k0s not found. Please run ./scripts/setup-macos-env.sh with INSTALL_K0S=true"
+    log_error "k0s not found. Please run ./scripts/setup-macos-env.sh first"
     exit 1
 fi
 
