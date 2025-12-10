@@ -39,12 +39,59 @@ fi
 
 # Check if Podman or Docker is available
 CONTAINER_RUNTIME=""
+DOCKER_HOST=""
+
 if command -v podman &> /dev/null && podman info &> /dev/null; then
     CONTAINER_RUNTIME="podman"
     log_info "Using Podman as container runtime"
+    
+    # k3d needs DOCKER_HOST to point to Podman socket
+    # On macOS, Podman machine socket is typically at ~/.local/share/containers/podman/machine/podman-machine-default/podman.sock
+    # Or we can use podman machine inspect to find it
+    PODMAN_SOCKET=""
+    
+    # Try to find Podman socket
+    if [[ -S "${HOME}/.local/share/containers/podman/machine/podman-machine-default/podman.sock" ]]; then
+        PODMAN_SOCKET="${HOME}/.local/share/containers/podman/machine/podman-machine-default/podman.sock"
+    elif [[ -S "/run/user/$(id -u)/podman/podman.sock" ]]; then
+        PODMAN_SOCKET="/run/user/$(id -u)/podman/podman.sock"
+    else
+        # Try to get socket from podman machine inspect
+        PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "${PODMAN_SOCKET}" && -S "${PODMAN_SOCKET}" ]]; then
+        DOCKER_HOST="unix://${PODMAN_SOCKET}"
+        export DOCKER_HOST
+        log_info "Configured DOCKER_HOST for Podman: ${DOCKER_HOST}"
+    else
+        log_warn "Could not find Podman socket automatically"
+        log_info "Trying default Podman socket locations..."
+        # Try common locations
+        for sock in \
+            "${HOME}/.local/share/containers/podman/machine/podman-machine-default/podman.sock" \
+            "/run/user/$(id -u)/podman/podman.sock" \
+            "/var/run/podman/podman.sock"; do
+            if [[ -S "${sock}" ]]; then
+                DOCKER_HOST="unix://${sock}"
+                export DOCKER_HOST
+                log_info "Found Podman socket: ${DOCKER_HOST}"
+                break
+            fi
+        done
+        
+        if [[ -z "${DOCKER_HOST}" ]]; then
+            log_error "Could not find Podman socket. Please ensure Podman machine is running."
+            log_info "Try: podman machine start"
+            log_info "Or set DOCKER_HOST manually: export DOCKER_HOST=unix://<path-to-podman.sock>"
+            exit 1
+        fi
+    fi
+    
 elif command -v docker &> /dev/null && docker info &> /dev/null; then
     CONTAINER_RUNTIME="docker"
     log_info "Using Docker as container runtime"
+    # Docker uses default socket, no need to set DOCKER_HOST
 else
     log_error "Neither Podman nor Docker is available or running"
     log_info "Please ensure Podman machine is started: podman machine start"
@@ -66,28 +113,16 @@ if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
 else
     log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
     
-    # Create cluster with appropriate runtime
-    if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
-        # k3d with Podman
-        k3d cluster create "${CLUSTER_NAME}" \
-            --api-port 6443 \
-            --port "8080:80@loadbalancer" \
-            --port "8443:443@loadbalancer" \
-            --port "3000:3000@loadbalancer" \
-            --agents 1 \
-            --k3s-arg "--disable=traefik@server:0" \
-            --k3s-arg "--disable=servicelb@server:0"
-    else
-        # k3d with Docker
-        k3d cluster create "${CLUSTER_NAME}" \
-            --api-port 6443 \
-            --port "8080:80@loadbalancer" \
-            --port "8443:443@loadbalancer" \
-            --port "3000:3000@loadbalancer" \
-            --agents 1 \
-            --k3s-arg "--disable=traefik@server:0" \
-            --k3s-arg "--disable=servicelb@server:0"
-    fi
+    # Create cluster (DOCKER_HOST is already set for Podman if needed)
+    log_info "Creating k3d cluster with ${CONTAINER_RUNTIME}..."
+    k3d cluster create "${CLUSTER_NAME}" \
+        --api-port 6443 \
+        --port "8080:80@loadbalancer" \
+        --port "8443:443@loadbalancer" \
+        --port "3000:3000@loadbalancer" \
+        --agents 1 \
+        --k3s-arg "--disable=traefik@server:0" \
+        --k3s-arg "--disable=servicelb@server:0"
     
     log_success "k3d cluster created"
 fi

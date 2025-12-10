@@ -34,6 +34,21 @@ if ! command -v k3d &> /dev/null; then
     exit 1
 fi
 
+# Set DOCKER_HOST for Podman if needed
+if command -v podman &> /dev/null && podman info &> /dev/null; then
+    # Try to find Podman socket
+    PODMAN_SOCKET=""
+    for sock in \
+        "${HOME}/.local/share/containers/podman/machine/podman-machine-default/podman.sock" \
+        "/run/user/$(id -u)/podman/podman.sock" \
+        "/var/run/podman/podman.sock"; do
+        if [[ -S "${sock}" ]]; then
+            export DOCKER_HOST="unix://${sock}"
+            break
+        fi
+    done
+fi
+
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
 
 log_info "Stopping k3d cluster '${CLUSTER_NAME}'..."
