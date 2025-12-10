@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # stop-k3s.sh
-# Stops the k3s cluster
+# NOTE: This script is kept for reference but k3s doesn't work natively on macOS
+# Use stop-k3d.sh instead for macOS
 
 set -euo pipefail
 
