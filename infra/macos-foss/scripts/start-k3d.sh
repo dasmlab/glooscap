@@ -137,6 +137,16 @@ else
     # Create cluster (DOCKER_HOST is already set for Podman if needed)
     log_info "Creating k3d cluster with ${CONTAINER_RUNTIME}..."
     
+    # Note: k3d has known issues with Podman on macOS (especially rootless)
+    # If this hangs, consider using minikube instead (see start-minikube.sh)
+    if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
+        log_warn "Note: k3d has known compatibility issues with Podman on macOS"
+        log_info "If cluster creation hangs, consider using minikube instead:"
+        log_info "  ./scripts/start-minikube.sh"
+        log_info ""
+        log_info "Continuing with k3d (this may take longer or hang)..."
+    fi
+    
     # Build k3d command with appropriate flags
     K3D_CMD="k3d cluster create ${CLUSTER_NAME}"
     K3D_CMD="${K3D_CMD} --api-port 6443"
@@ -150,26 +160,37 @@ else
     # Add Podman-specific flags if using Podman
     if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
         log_info "Adding Podman-specific configuration..."
-        # Use network host mode for better compatibility with Podman
-        K3D_CMD="${K3D_CMD} --network host"
         # Increase timeout for Podman (can be slower)
         K3D_CMD="${K3D_CMD} --timeout 300s"
-        # Use specific image registry that works better with Podman
-        K3D_CMD="${K3D_CMD} --image rancher/k3s:latest"
+        # Use wait flag to ensure proper startup
+        K3D_CMD="${K3D_CMD} --wait"
     fi
     
     log_info "Running: ${K3D_CMD}"
     log_info "This may take a few minutes, especially on first run (pulling images)..."
+    log_info "If it hangs at 'starting node', press Ctrl+C and try minikube instead"
     
-    # Execute the command
-    eval "${K3D_CMD}" || {
-        log_error "Failed to create k3d cluster"
-        log_info "If it hung, try:"
+    # Execute the command with timeout
+    if timeout 600 bash -c "${K3D_CMD}" 2>&1 | tee /tmp/k3d-create.log; then
+        log_success "Cluster creation completed"
+    else
+        EXIT_CODE=$?
+        if [[ ${EXIT_CODE} -eq 124 ]]; then
+            log_error "Cluster creation timed out after 10 minutes"
+        else
+            log_error "Failed to create k3d cluster (exit code: ${EXIT_CODE})"
+        fi
+        log_info ""
+        log_info "Troubleshooting:"
         log_info "  1. Check Podman is running: podman machine list"
         log_info "  2. Check DOCKER_HOST: echo \$DOCKER_HOST"
-        log_info "  3. Try with verbose output: k3d cluster create ${CLUSTER_NAME} --verbose"
+        log_info "  3. Check k3d logs: cat /tmp/k3d-create.log"
+        log_info "  4. Try with verbose: k3d cluster create ${CLUSTER_NAME} --verbose"
+        log_info ""
+        log_warn "RECOMMENDED: Use minikube instead (works better with Podman):"
+        log_info "  ./scripts/start-minikube.sh"
         exit 1
-    }
+    fi
     
     log_success "k3d cluster created"
 fi

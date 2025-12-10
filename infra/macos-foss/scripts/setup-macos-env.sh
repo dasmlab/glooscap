@@ -141,12 +141,24 @@ log_info "Note: k3s doesn't work natively on macOS (requires systemd/openrc)"
 log_info "We'll install k3d instead, which runs k3s inside containers (works on macOS)"
 
 # Install k3d (k3s in Docker/Podman)
+# Note: k3d has known issues with Podman on macOS, minikube is recommended
 if ! check_command k3d; then
     log_info "Installing k3d..."
     brew install k3d
     log_success "k3d installed"
+    log_warn "Note: k3d has known compatibility issues with Podman on macOS"
+    log_info "If k3d hangs, consider using minikube instead (see below)"
 else
     log_info "k3d already installed: $(k3d version 2>/dev/null || echo 'installed')"
+fi
+
+# Install minikube (recommended alternative for Podman on macOS)
+if ! check_command minikube; then
+    log_info "Installing minikube (recommended for Podman on macOS)..."
+    brew install minikube
+    log_success "minikube installed"
+else
+    log_info "minikube already installed: $(minikube version --short 2>/dev/null || echo 'installed')"
 fi
 
 # Install Helm (optional, for future use)
@@ -184,6 +196,12 @@ else
     log_warn "⚠ k3d not found"
 fi
 
+if check_command minikube; then
+    log_success "✓ minikube: $(minikube version --short 2>/dev/null || echo 'installed')"
+else
+    log_warn "⚠ minikube not found"
+fi
+
 # Create kubeconfig directory
 mkdir -p "${HOME}/.kube"
 
@@ -192,8 +210,12 @@ log_success "macOS environment setup complete!"
 echo ""
 log_info "Next steps:"
 echo "  1. Restart your terminal or run: source ~/.zprofile"
-echo "  2. Run './scripts/start-k3d.sh' to start the k3d cluster (k3s in containers)"
+echo "  2. Start Kubernetes cluster:"
+echo "     - RECOMMENDED (Podman): ./scripts/start-minikube.sh"
+echo "     - Alternative: ./scripts/start-k3d.sh (may hang with Podman)"
 echo "  3. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_info "Note: k3d runs k3s inside Podman/Docker containers, avoiding the systemd requirement."
+log_warn "IMPORTANT: k3d has known issues with Podman on macOS and may hang."
+log_info "RECOMMENDED: Use minikube instead (works reliably with Podman):"
+log_info "  ./scripts/start-minikube.sh"
 

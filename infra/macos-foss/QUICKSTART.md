@@ -28,32 +28,38 @@ This will install:
 export PATH="${HOME}/.local/bin:$PATH"
 ```
 
-## Step 2: Start k3d Cluster
+## Step 2: Start Kubernetes Cluster
 
-**Important**: k3s doesn't work natively on macOS (requires systemd/openrc). Use k3d instead, which runs k3s inside containers.
+**IMPORTANT**: k3d has known compatibility issues with Podman on macOS and may hang.
 
-Start a local k3d cluster:
+**RECOMMENDED: Use minikube (works reliably with Podman):**
+
+```bash
+./scripts/start-minikube.sh
+```
+
+This will:
+- Start minikube with Podman driver
+- Configure kubectl to use the cluster
+- Wait for the cluster to be ready
+- Install ingress and metrics-server addons
+
+**Alternative: k3d (may hang with Podman):**
 
 ```bash
 ./scripts/start-k3d.sh
 ```
 
-This will:
-- Create a k3d cluster (k3s running in Podman/Docker containers)
-- Configure kubectl to use the cluster
-- Wait for the cluster to be ready
-- Set up port mappings for services
+**Note**: If k3d hangs at "starting node", press Ctrl+C and use minikube instead.
 
-**Note**: k3d is the recommended option for macOS as it runs k3s inside containers, avoiding the systemd requirement.
-
-**To stop k3d later:**
+**To stop minikube:**
 ```bash
-./scripts/stop-k3d.sh
+./scripts/stop-minikube.sh
 ```
 
-**To delete the cluster completely:**
+**To delete minikube cluster:**
 ```bash
-DELETE_CLUSTER=true ./scripts/stop-k3d.sh
+DELETE_CLUSTER=true ./scripts/stop-minikube.sh
 ```
 
 ## Step 3: Prepare CRDs
