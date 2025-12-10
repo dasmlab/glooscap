@@ -45,6 +45,11 @@ This will:
 
 **Note**: k0s is the recommended option for macOS as it's a single binary that doesn't require systemd.
 
+**To stop k0s later:**
+```bash
+./scripts/stop-k0s.sh
+```
+
 ## Step 3: Prepare CRDs
 
 Copy the Custom Resource Definitions from the operator:
