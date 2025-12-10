@@ -98,7 +98,7 @@ Edit `ui/deployment.yaml` to customize:
 If pods fail with `ImagePullBackOff`:
 1. Ensure images are built and available
 2. Check `imagePullPolicy` is set correctly
-3. For k3s, ensure images are imported into containerd
+3. For k3d, import images: `k3d image import <image> -c <cluster-name>`
 
 ### CRDs not found
 
