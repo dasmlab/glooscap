@@ -50,6 +50,7 @@ export default defineConfig((/* ctx */) => {
         VITE_API_BASE_URL: process.env.VITE_API_BASE_URL || '/api/v1',
         VITE_BUILD_VERSION: process.env.VITE_BUILD_VERSION || 'dev',
         VITE_BUILD_NUMBER: process.env.VITE_BUILD_NUMBER || '',
+        VITE_BUILD_SHA: process.env.VITE_BUILD_SHA || '',
       },
       // rawDefine: {}
       // ignorePublicFolder: true,

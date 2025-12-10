@@ -219,6 +219,17 @@ export const useCatalogueStore = defineStore('catalogue', () => {
         const data = JSON.parse(event.data)
         logCallback?.('DEBUG', 'Received SSE event', data)
         
+        // Process nanabush status from event
+        if (data.nanabush && typeof data.nanabush === 'object') {
+          logCallback?.('DEBUG', 'Received nanabush status from SSE', data.nanabush)
+          // Emit nanabush status event for SettingsPage to consume
+          // We'll use a custom event or store the status in a reactive ref
+          // For now, emit a custom event
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('nanabush-status', { detail: data.nanabush }))
+          }
+        }
+        
         // Process WikiTargets and pages from event
         if (data.wikitargets && Array.isArray(data.wikitargets)) {
           // Update targets

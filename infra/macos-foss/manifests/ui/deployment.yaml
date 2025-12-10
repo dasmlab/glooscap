@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glooscap-ui
+  namespace: glooscap-system
+  labels:
+    app: glooscap-ui
+    app.kubernetes.io/name: glooscap-ui
+    app.kubernetes.io/managed-by: manual
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glooscap-ui
+  template:
+    metadata:
+      labels:
+        app: glooscap-ui
+    spec:
+      containers:
+      - name: ui
+        image: ghcr.io/dasmlab/glooscap-ui:latest
+        # For local development, use imagePullPolicy: Never or IfNotPresent
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: API_BASE_URL
+          # For local development, use port-forward or NodePort/Ingress
+          # This will be the operator service
+          value: http://glooscap-operator.glooscap-system.svc:3000/api/v1
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+

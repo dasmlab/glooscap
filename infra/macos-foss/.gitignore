@@ -1,0 +1,16 @@
+# k3s data
+.k3s/
+*.log
+
+# k0s data
+.k0s/
+
+# kubeconfig backups
+config-*.tmp
+config-k3s
+config-k0s
+
+# Temporary files
+*.tmp
+*.tar
+

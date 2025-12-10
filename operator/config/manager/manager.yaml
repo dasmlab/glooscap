@@ -97,6 +97,41 @@ spec:
           value: quay.io/dasmlab/vllm-runner:latest
         - name: VLLM_API_URL
           value: http://vllm.nanabush.svc:8000
+        # ====================================================================
+        # Translation Service Configuration
+        # ====================================================================
+        # Glooscap supports two translation service backends:
+        #   1. Nanabush - Heavy vLLM-based service (GPU required)
+        #   2. Iskoces  - Lightweight MT service (CPU-only, LibreTranslate/Argos)
+        #
+        # Both use the same gRPC proto interface, so switching is seamless.
+        # ====================================================================
+        
+        # --------------------------------------------------------------------
+        # OPTION 1: Use Iskoces (Lightweight MT - Recommended for development)
+        # --------------------------------------------------------------------
+        # Uncomment these lines to use Iskoces:
+        # - name: TRANSLATION_SERVICE_ADDR
+        #   value: "iskoces-service.iskoces.svc:50051"  # Kubernetes service address
+        #   # Or for local testing: "localhost:50051"
+        # - name: TRANSLATION_SERVICE_TYPE
+        #   value: "iskoces"  # Optional, auto-detected from address if contains "iskoces"
+        # - name: TRANSLATION_SERVICE_SECURE
+        #   value: "false"  # Set to "true" if using TLS/mTLS
+        
+        # --------------------------------------------------------------------
+        # OPTION 2: Use Nanabush (vLLM-based - Production/GPU workloads)
+        # --------------------------------------------------------------------
+        # Option 2a: Use generic environment variables (recommended)
+        # - name: TRANSLATION_SERVICE_ADDR
+        #   value: "nanabush-service.nanabush.svc:50051"  # Kubernetes service
+        #   # Or external: "209.15.95.244:50051"  # HAProxy endpoint
+        # - name: TRANSLATION_SERVICE_TYPE
+        #   value: "nanabush"  # Optional, auto-detected from address
+        # - name: TRANSLATION_SERVICE_SECURE
+        #   value: "false"
+        
+        # Option 2b: Use Nanabush-specific variables (backward compatible)
         # Nanabush gRPC server configuration (on ocp-sno-1050ti cluster)
         # HAProxy endpoint provides L2 TCP forwarding from ocp-ai-sno-2 cluster
         # Using external IP directly (internal DNS resolves to unreachable IP)
@@ -104,6 +139,12 @@ spec:
           value: "209.15.95.244:50051"
         - name: NANABUSH_SECURE
           value: "false"  # Direct TCP connection, no TLS (HAProxy forwards raw TCP/HTTP/2)
+        
+        # ====================================================================
+        # Configuration Priority:
+        #   1. TRANSLATION_SERVICE_ADDR (if set, takes precedence)
+        #   2. NANABUSH_GRPC_ADDR (fallback for backward compatibility)
+        # ====================================================================
         # TODO(user): Configure the resources accordingly based on the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:

@@ -1,14 +1,16 @@
 FROM node:22-alpine AS build
 ARG BUILD_VERSION
 ARG BUILD_NUMBER
+ARG BUILD_SHA
 WORKDIR /app
 COPY package*.json ./
 RUN npm install -g npm@11.6.2
 COPY . .
 RUN npm install
-# Inject build version into Vite env
+# Inject build version and SHA into Vite env
 ENV VITE_BUILD_VERSION=${BUILD_VERSION}
 ENV VITE_BUILD_NUMBER=${BUILD_NUMBER}
+ENV VITE_BUILD_SHA=${BUILD_SHA}
 RUN npm run build
 
 # Stage 2: Serve the app with Node.js serve

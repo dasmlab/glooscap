@@ -16,7 +16,8 @@ build=$(cat "$buildfile")
 next=$((build + 1))
 echo "$next" >"$buildfile"
 
-tag="0.1.${next}-alpha"
+# Version bumped to 0.2.x-alpha to match operator release (increments with each build)
+tag="0.2.${next}-alpha"
 
 src="${app}:${scratch}"
 dst_version="${repo}/${app}:${tag}"

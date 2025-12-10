@@ -21,5 +21,7 @@ spec:
     targetPort: http-api  # Port name from the service definition
   tls:
     termination: edge
+    # Redirect HTTP to HTTPS for security
+    # Since UI connects via HTTPS, API calls will already be HTTPS and won't be redirected
     insecureEdgeTerminationPolicy: Redirect
 
