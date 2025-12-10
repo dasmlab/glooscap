@@ -170,16 +170,13 @@ else
     log_info "This may take a few minutes, especially on first run (pulling images)..."
     log_info "If it hangs at 'starting node', press Ctrl+C and try minikube instead"
     
-    # Execute the command with timeout
-    if timeout 600 bash -c "${K3D_CMD}" 2>&1 | tee /tmp/k3d-create.log; then
+    # Execute the command (with logging)
+    log_info "Cluster creation output will be logged to /tmp/k3d-create.log"
+    if eval "${K3D_CMD}" 2>&1 | tee /tmp/k3d-create.log; then
         log_success "Cluster creation completed"
     else
         EXIT_CODE=$?
-        if [[ ${EXIT_CODE} -eq 124 ]]; then
-            log_error "Cluster creation timed out after 10 minutes"
-        else
-            log_error "Failed to create k3d cluster (exit code: ${EXIT_CODE})"
-        fi
+        log_error "Failed to create k3d cluster (exit code: ${EXIT_CODE})"
         log_info ""
         log_info "Troubleshooting:"
         log_info "  1. Check Podman is running: podman machine list"
@@ -187,7 +184,7 @@ else
         log_info "  3. Check k3d logs: cat /tmp/k3d-create.log"
         log_info "  4. Try with verbose: k3d cluster create ${CLUSTER_NAME} --verbose"
         log_info ""
-        log_warn "RECOMMENDED: Use minikube instead (works better with Podman):"
+        log_warn "If k3d hung or timed out, RECOMMENDED: Use minikube instead (works better with Podman):"
         log_info "  ./scripts/start-minikube.sh"
         exit 1
     fi
