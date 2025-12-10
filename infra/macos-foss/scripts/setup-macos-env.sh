@@ -135,54 +135,18 @@ else
     log_info "kubectl already installed: $(kubectl version --client --short 2>/dev/null || echo 'installed')"
 fi
 
-# Note: k3s doesn't work well on macOS (requires systemd/openrc)
-# We'll use k0s instead, which is a single binary that works on macOS
-log_info "Note: k3s is not recommended on macOS (requires systemd/openrc)"
-log_info "We'll install k0s instead, which is a single binary Kubernetes distribution"
+# Note: k3s doesn't work natively on macOS (requires systemd/openrc)
+# We'll use k3d instead, which runs k3s inside Docker/Podman containers
+log_info "Note: k3s doesn't work natively on macOS (requires systemd/openrc)"
+log_info "We'll install k3d instead, which runs k3s inside containers (works on macOS)"
 
-# Install k0s (single binary, works on macOS)
-if ! check_command k0s; then
-    log_info "Installing k0s..."
-    K0S_VERSION="${K0S_VERSION:-latest}"
-    K0S_DIR="${HOME}/.local/bin"
-    mkdir -p "${K0S_DIR}"
-    
-    # Detect architecture
-    ARCH=$(uname -m)
-    if [[ "${ARCH}" == "arm64" ]]; then
-        K0S_ARCH="arm64"
-    else
-        K0S_ARCH="amd64"
-    fi
-    
-    if [[ "${K0S_VERSION}" == "latest" ]]; then
-        # Get latest release URL
-        K0S_URL=$(curl -s https://api.github.com/repos/k0sproject/k0s/releases/latest | \
-            grep "browser_download_url.*darwin-${K0S_ARCH}" | cut -d '"' -f 4)
-    else
-        K0S_URL="https://github.com/k0sproject/k0s/releases/download/v${K0S_VERSION}/k0s-v${K0S_VERSION}-darwin-${K0S_ARCH}"
-    fi
-    
-    log_info "Downloading k0s from ${K0S_URL}..."
-    curl -L "${K0S_URL}" -o "${K0S_DIR}/k0s"
-    chmod +x "${K0S_DIR}/k0s"
-    
-    # Add to PATH if not already there
-    if [[ ":$PATH:" != *":${K0S_DIR}:"* ]]; then
-        log_info "Adding ${K0S_DIR} to PATH in ~/.zprofile"
-        if [[ -f "${HOME}/.zprofile" ]]; then
-            if ! grep -q "${K0S_DIR}" "${HOME}/.zprofile"; then
-                echo "export PATH=\"${K0S_DIR}:\$PATH\"" >> "${HOME}/.zprofile"
-            fi
-        else
-            echo "export PATH=\"${K0S_DIR}:\$PATH\"" > "${HOME}/.zprofile"
-        fi
-        export PATH="${K0S_DIR}:${PATH}"
-    fi
-    
-    log_success "k0s installed"
+# Install k3d (k3s in Docker/Podman)
+if ! check_command k3d; then
+    log_info "Installing k3d..."
+    brew install k3d
+    log_success "k3d installed"
 else
-    log_info "k0s already installed: $(k0s version 2>/dev/null || echo 'installed')"
+    log_info "k3d already installed: $(k3d version 2>/dev/null || echo 'installed')"
 fi
 
 # Install Helm (optional, for future use)
@@ -214,10 +178,10 @@ else
     log_error "✗ kubectl not found"
 fi
 
-if check_command k0s; then
-    log_success "✓ k0s: $(k0s version 2>/dev/null || echo 'installed')"
+if check_command k3d; then
+    log_success "✓ k3d: $(k3d version 2>/dev/null || echo 'installed')"
 else
-    log_warn "⚠ k0s not found (may need to add to PATH)"
+    log_warn "⚠ k3d not found"
 fi
 
 # Create kubeconfig directory
@@ -228,8 +192,8 @@ log_success "macOS environment setup complete!"
 echo ""
 log_info "Next steps:"
 echo "  1. Restart your terminal or run: source ~/.zprofile"
-echo "  2. Run './scripts/start-k0s.sh' to start the k0s cluster (recommended for macOS)"
+echo "  2. Run './scripts/start-k3d.sh' to start the k3d cluster (k3s in containers)"
 echo "  3. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_warn "Note: k3s is not recommended on macOS. Use k0s instead (single binary, no systemd required)."
+log_info "Note: k3d runs k3s inside Podman/Docker containers, avoiding the systemd requirement."
 

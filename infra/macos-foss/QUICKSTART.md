@@ -28,26 +28,32 @@ This will install:
 export PATH="${HOME}/.local/bin:$PATH"
 ```
 
-## Step 2: Start k0s Cluster
+## Step 2: Start k3d Cluster
 
-**Important**: k3s is NOT recommended on macOS (requires systemd/openrc which macOS doesn't have). Use k0s instead.
+**Important**: k3s doesn't work natively on macOS (requires systemd/openrc). Use k3d instead, which runs k3s inside containers.
 
-Start a local k0s cluster:
+Start a local k3d cluster:
 
 ```bash
-./scripts/start-k0s.sh
+./scripts/start-k3d.sh
 ```
 
 This will:
-- Start k0s server (single binary, no systemd required)
+- Create a k3d cluster (k3s running in Podman/Docker containers)
 - Configure kubectl to use the cluster
 - Wait for the cluster to be ready
+- Set up port mappings for services
 
-**Note**: k0s is the recommended option for macOS as it's a single binary that doesn't require systemd.
+**Note**: k3d is the recommended option for macOS as it runs k3s inside containers, avoiding the systemd requirement.
 
-**To stop k0s later:**
+**To stop k3d later:**
 ```bash
-./scripts/stop-k0s.sh
+./scripts/stop-k3d.sh
+```
+
+**To delete the cluster completely:**
+```bash
+DELETE_CLUSTER=true ./scripts/stop-k3d.sh
 ```
 
 ## Step 3: Prepare CRDs
@@ -149,11 +155,13 @@ Then open http://localhost:8080 in your browser.
 
 ## Troubleshooting
 
-### k3s won't start
+### k3d won't start
 
-- Check if port 6443 is in use: `lsof -i :6443`
-- Check k3s logs: `tail -f ~/.k3s/k3s.log`
-- Try stopping and restarting: `./scripts/stop-k3s.sh && ./scripts/start-k3s.sh`
+- Ensure Podman machine is running: `podman machine start`
+- Check if ports are in use: `lsof -i :6443`
+- Check k3d cluster status: `k3d cluster list`
+- Check container logs: `podman logs k3d-${CLUSTER_NAME}-server-0` (replace CLUSTER_NAME)
+- Try stopping and restarting: `./scripts/stop-k3d.sh && ./scripts/start-k3d.sh`
 
 ### Pods stuck in ImagePullBackOff
 
