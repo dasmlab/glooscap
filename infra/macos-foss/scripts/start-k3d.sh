@@ -136,14 +136,40 @@ else
     
     # Create cluster (DOCKER_HOST is already set for Podman if needed)
     log_info "Creating k3d cluster with ${CONTAINER_RUNTIME}..."
-    k3d cluster create "${CLUSTER_NAME}" \
-        --api-port 6443 \
-        --port "8080:80@loadbalancer" \
-        --port "8443:443@loadbalancer" \
-        --port "3000:3000@loadbalancer" \
-        --agents 1 \
-        --k3s-arg "--disable=traefik@server:0" \
-        --k3s-arg "--disable=servicelb@server:0"
+    
+    # Build k3d command with appropriate flags
+    K3D_CMD="k3d cluster create ${CLUSTER_NAME}"
+    K3D_CMD="${K3D_CMD} --api-port 6443"
+    K3D_CMD="${K3D_CMD} --port '8080:80@loadbalancer'"
+    K3D_CMD="${K3D_CMD} --port '8443:443@loadbalancer'"
+    K3D_CMD="${K3D_CMD} --port '3000:3000@loadbalancer'"
+    K3D_CMD="${K3D_CMD} --agents 1"
+    K3D_CMD="${K3D_CMD} --k3s-arg '--disable=traefik@server:0'"
+    K3D_CMD="${K3D_CMD} --k3s-arg '--disable=servicelb@server:0'"
+    
+    # Add Podman-specific flags if using Podman
+    if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
+        log_info "Adding Podman-specific configuration..."
+        # Use network host mode for better compatibility with Podman
+        K3D_CMD="${K3D_CMD} --network host"
+        # Increase timeout for Podman (can be slower)
+        K3D_CMD="${K3D_CMD} --timeout 300s"
+        # Use specific image registry that works better with Podman
+        K3D_CMD="${K3D_CMD} --image rancher/k3s:latest"
+    fi
+    
+    log_info "Running: ${K3D_CMD}"
+    log_info "This may take a few minutes, especially on first run (pulling images)..."
+    
+    # Execute the command
+    eval "${K3D_CMD}" || {
+        log_error "Failed to create k3d cluster"
+        log_info "If it hung, try:"
+        log_info "  1. Check Podman is running: podman machine list"
+        log_info "  2. Check DOCKER_HOST: echo \$DOCKER_HOST"
+        log_info "  3. Try with verbose output: k3d cluster create ${CLUSTER_NAME} --verbose"
+        exit 1
+    }
     
     log_success "k3d cluster created"
 fi
