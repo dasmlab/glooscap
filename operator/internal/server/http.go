@@ -15,14 +15,22 @@ import (
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
+	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
 )
 
 // Options controls the API server.
 type Options struct {
-	Addr      string
-	Catalogue *catalog.Store
-	Jobs      *catalog.JobStore
-	Client    client.Client
+	Addr        string
+	Catalogue   *catalog.Store
+	Jobs        *catalog.JobStore
+	Client      client.Client
+	Nanabush    *nanabush.Client
+	// NanabushStatusCh is a channel that receives nanabush status updates to trigger SSE broadcasts
+	NanabushStatusCh <-chan struct{}
+	// ConfigStore manages runtime configuration
+	ConfigStore *ConfigStore
+	// ReconfigureTranslationService is a callback to reconfigure the translation service client
+	ReconfigureTranslationService func(cfg TranslationServiceConfig) error
 }
 
 // eventBroadcaster manages SSE connections and broadcasts events.
@@ -103,6 +111,9 @@ func Start(ctx context.Context, opts Options) error {
 			case <-updateCh:
 				// Store was updated, send event immediately
 				sendStateEvent(broadcaster, opts)
+			case <-opts.NanabushStatusCh:
+				// Nanabush status changed, send event immediately
+				sendStateEvent(broadcaster, opts)
 			}
 		}
 	}()
@@ -146,7 +157,7 @@ func Start(ctx context.Context, opts Options) error {
 			}
 
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept")
 			w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Content-Length")
 
@@ -160,6 +171,35 @@ func Start(ctx context.Context, opts Options) error {
 
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
+	})
+
+	// Status endpoint for translation service connection
+	// Supports both Nanabush and Iskoces (backward compatible with /status/nanabush)
+	router.Get("/api/v1/status/nanabush", func(w http.ResponseWriter, _ *http.Request) {
+		if opts.Nanabush == nil {
+			writeJSON(w, nanabush.Status{
+				Connected: false,
+				Registered: false,
+				Status: "error",
+			})
+			return
+		}
+		status := opts.Nanabush.Status()
+		writeJSON(w, status)
+	})
+	
+	// Generic translation service status endpoint (alias for backward compatibility)
+	router.Get("/api/v1/status/translation", func(w http.ResponseWriter, _ *http.Request) {
+		if opts.Nanabush == nil {
+			writeJSON(w, nanabush.Status{
+				Connected: false,
+				Registered: false,
+				Status: "error",
+			})
+			return
+		}
+		status := opts.Nanabush.Status()
+		writeJSON(w, status)
 	})
 
 	router.Get("/api/v1/catalogue", func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +325,11 @@ func Start(ctx context.Context, opts Options) error {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
 		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+		// Additional headers to help with HTTP/2 SSE compatibility
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -410,6 +454,243 @@ func Start(ctx context.Context, opts Options) error {
 		writeJSON(w, map[string]string{"name": job.Name})
 	})
 
+	// Translation Service Configuration CRUD endpoints
+	router.Get("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
+		if opts.ConfigStore == nil {
+			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
+			return
+		}
+		config := opts.ConfigStore.GetTranslationServiceConfig()
+		if config == nil {
+			// Return empty config if not set
+			writeJSON(w, TranslationServiceConfig{})
+			return
+		}
+		writeJSON(w, config)
+	})
+
+	router.Post("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
+		if opts.ConfigStore == nil {
+			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.ReconfigureTranslationService == nil {
+			http.Error(w, "translation service reconfiguration not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		var config TranslationServiceConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate required fields
+		if config.Address == "" {
+			http.Error(w, "address is required", http.StatusBadRequest)
+			return
+		}
+		if config.Type == "" {
+			// Default to nanabush if not specified
+			config.Type = "nanabush"
+		}
+
+		// Store configuration
+		opts.ConfigStore.SetTranslationServiceConfig(&config)
+
+		// Reconfigure the translation service client
+		if err := opts.ReconfigureTranslationService(config); err != nil {
+			http.Error(w, fmt.Sprintf("failed to reconfigure translation service: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"status": "configured", "address": config.Address, "type": config.Type})
+	})
+
+	router.Put("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
+		// PUT is same as POST for this resource - reuse POST handler logic
+		if opts.ConfigStore == nil {
+			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.ReconfigureTranslationService == nil {
+			http.Error(w, "translation service reconfiguration not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		var config TranslationServiceConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate required fields
+		if config.Address == "" {
+			http.Error(w, "address is required", http.StatusBadRequest)
+			return
+		}
+		if config.Type == "" {
+			// Default to nanabush if not specified
+			config.Type = "nanabush"
+		}
+
+		// Store configuration
+		opts.ConfigStore.SetTranslationServiceConfig(&config)
+
+		// Reconfigure the translation service client
+		if err := opts.ReconfigureTranslationService(config); err != nil {
+			http.Error(w, fmt.Sprintf("failed to reconfigure translation service: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"status": "configured", "address": config.Address, "type": config.Type})
+	})
+
+	router.Delete("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
+		if opts.ConfigStore == nil {
+			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.ReconfigureTranslationService == nil {
+			http.Error(w, "translation service reconfiguration not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Clear configuration
+		opts.ConfigStore.SetTranslationServiceConfig(nil)
+
+		// Close existing client (by setting empty config)
+		emptyConfig := TranslationServiceConfig{
+			Address: "",
+			Type:    "",
+			Secure:  false,
+		}
+		if err := opts.ReconfigureTranslationService(emptyConfig); err != nil {
+			// Log but don't fail - client might already be closed
+			fmt.Printf("[http] Error clearing translation service: %v\n", err)
+		}
+
+		writeJSON(w, map[string]string{"status": "deleted"})
+	})
+
+	// WikiTarget CRUD endpoints (POST, PUT, DELETE)
+	router.Post("/api/v1/wikitargets", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		var target wikiv1alpha1.WikiTarget
+		if err := json.NewDecoder(r.Body).Decode(&target); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Set default namespace if not provided
+		if target.Namespace == "" {
+			target.Namespace = "glooscap-system"
+		}
+
+		// Validate required fields
+		if target.Spec.URI == "" {
+			http.Error(w, "spec.uri is required", http.StatusBadRequest)
+			return
+		}
+		if target.Spec.ServiceAccountSecretRef.Name == "" {
+			http.Error(w, "spec.serviceAccountSecretRef.name is required", http.StatusBadRequest)
+			return
+		}
+		if target.Spec.Mode == "" {
+			http.Error(w, "spec.mode is required", http.StatusBadRequest)
+			return
+		}
+
+		if err := opts.Client.Create(r.Context(), &target); err != nil {
+			if errors.IsAlreadyExists(err) {
+				http.Error(w, "WikiTarget already exists", http.StatusConflict)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"name": target.Name, "namespace": target.Namespace})
+	})
+
+	router.Put("/api/v1/wikitargets/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		if namespace == "" || name == "" {
+			http.Error(w, "namespace and name are required", http.StatusBadRequest)
+			return
+		}
+
+		var target wikiv1alpha1.WikiTarget
+		if err := json.NewDecoder(r.Body).Decode(&target); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Ensure name and namespace match URL params
+		target.Name = name
+		target.Namespace = namespace
+
+		// Get existing target to preserve metadata
+		var existing wikiv1alpha1.WikiTarget
+		if err := opts.Client.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, &existing); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "WikiTarget not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Preserve resource version for optimistic concurrency
+		target.ResourceVersion = existing.ResourceVersion
+
+		if err := opts.Client.Update(r.Context(), &target); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"name": target.Name, "namespace": target.Namespace})
+	})
+
+	router.Delete("/api/v1/wikitargets/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		if namespace == "" || name == "" {
+			http.Error(w, "namespace and name are required", http.StatusBadRequest)
+			return
+		}
+
+		var target wikiv1alpha1.WikiTarget
+		target.Name = name
+		target.Namespace = namespace
+
+		if err := opts.Client.Delete(r.Context(), &target); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "WikiTarget not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"status": "deleted", "name": name, "namespace": namespace})
+	})
+
 	server := &http.Server{
 		Addr:              opts.Addr,
 		Handler:           router,
@@ -460,10 +741,31 @@ func (r *createJobRequest) validate() error {
 	return nil
 }
 
-// buildStateResponse constructs the full state response with WikiTargets and pages.
+// buildStateResponse constructs the full state response with WikiTargets, pages, and nanabush status.
 func buildStateResponse(opts Options) map[string]any {
 	result := map[string]any{
 		"wikitargets": []map[string]any{},
+	}
+
+	// Add nanabush status if client is available
+	if opts.Nanabush != nil {
+		status := opts.Nanabush.Status()
+		result["nanabush"] = map[string]any{
+			"connected":        status.Connected,
+			"registered":       status.Registered,
+			"clientId":         status.ClientID,
+			"lastHeartbeat":    status.LastHeartbeat,
+			"missedHeartbeats": status.MissedHeartbeats,
+			"heartbeatIntervalSeconds": status.HeartbeatInterval,
+			"status":           status.Status,
+		}
+	} else {
+		// No nanabush client configured
+		result["nanabush"] = map[string]any{
+			"connected":  false,
+			"registered": false,
+			"status":     "error",
+		}
 	}
 
 	if opts.Catalogue == nil {

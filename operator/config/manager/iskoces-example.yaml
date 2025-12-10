@@ -1,0 +1,29 @@
+# Example configuration for using Iskoces instead of Nanabush
+# This is a patch/overlay that can be applied to switch to Iskoces
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        env:
+        # Switch to Iskoces by setting TRANSLATION_SERVICE_ADDR
+        # Comment out or remove NANABUSH_GRPC_ADDR when using this
+        - name: TRANSLATION_SERVICE_ADDR
+          value: "iskoces-service.iskoces.svc:50051"  # Kubernetes service
+          # For local testing: "localhost:50051"
+        - name: TRANSLATION_SERVICE_TYPE
+          value: "iskoces"  # Optional, helps with logging
+        - name: TRANSLATION_SERVICE_SECURE
+          value: "false"  # Set to "true" if using TLS/mTLS
+        
+        # Comment out or remove these when using Iskoces:
+        # - name: NANABUSH_GRPC_ADDR
+        #   value: "209.15.95.244:50051"
+        # - name: NANABUSH_SECURE
+        #   value: "false"
+

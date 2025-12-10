@@ -22,6 +22,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -46,6 +47,7 @@ import (
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
 	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
 	"github.com/dasmlab/glooscap-operator/pkg/vllm"
+	"sync"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -250,10 +252,45 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "WikiTarget")
 		os.Exit(1)
 	}
-	// Initialize Nanabush gRPC client if configured
+	// Initialize translation service gRPC client if configured
+	// Supports both Nanabush and Iskoces (they use the same gRPC proto interface)
 	var nanabushClient *nanabush.Client
-	nanabushAddr := os.Getenv("NANABUSH_GRPC_ADDR")
-	if nanabushAddr != "" {
+	var nanabushStatusCh chan struct{}
+	var nanabushClientMu sync.Mutex // Protects nanabushClient during reconfiguration
+	
+	// Create config store for runtime configuration
+	configStore := server.NewConfigStore()
+	
+	// Initialize from environment variables if set
+	translationServiceAddr := os.Getenv("TRANSLATION_SERVICE_ADDR")
+	if translationServiceAddr == "" {
+		translationServiceAddr = os.Getenv("NANABUSH_GRPC_ADDR")
+	}
+	
+	// Determine service type for logging (nanabush or iskoces)
+	serviceType := os.Getenv("TRANSLATION_SERVICE_TYPE")
+	if serviceType == "" {
+		// Try to infer from address (contains "iskoces" or "nanabush")
+		if translationServiceAddr != "" {
+			if strings.Contains(strings.ToLower(translationServiceAddr), "iskoces") {
+				serviceType = "iskoces"
+			} else {
+				serviceType = "nanabush" // default
+			}
+		}
+	}
+	
+	// Helper function to create/update translation service client
+	createTranslationServiceClient := func(addr string, svcType string, secure bool) (*nanabush.Client, error) {
+		if addr == "" {
+			return nil, nil
+		}
+		
+		// Create channel for nanabush status updates to trigger SSE broadcasts
+		if nanabushStatusCh == nil {
+			nanabushStatusCh = make(chan struct{}, 10) // Buffered to avoid blocking
+		}
+		
 		// Get pod namespace if available (OpenShift/Kubernetes)
 		namespace := os.Getenv("POD_NAMESPACE")
 		if namespace == "" {
@@ -269,23 +306,94 @@ func main() {
 		}
 		
 		client, err := nanabush.NewClient(nanabush.Config{
-			Address:      nanabushAddr,
-			Secure:       os.Getenv("NANABUSH_SECURE") == "true",
+			Address:      addr,
+			Secure:       secure,
 			Timeout:      30 * time.Second,
 			ClientName:   "glooscap",
 			ClientVersion: os.Getenv("OPERATOR_VERSION"), // Could be set in deployment
 			Namespace:    namespace,
 			Metadata:     metadata,
+			// Set callback to trigger SSE broadcast on status changes
+			OnStatusChange: func(status nanabush.Status) {
+				select {
+				case nanabushStatusCh <- struct{}{}:
+				default:
+					// Channel full, skip (non-blocking)
+				}
+			},
 		})
 		if err != nil {
-			setupLog.Error(err, "failed to create Nanabush client")
+			return nil, err
+		}
+		
+		setupLog.Info("Translation service gRPC client initialized and registered", 
+			"service_type", svcType,
+			"address", addr, 
+			"client_id", client.ClientID(),
+			"namespace", namespace)
+		
+		return client, nil
+	}
+	
+	// Getter function for current nanabush client (for reconciler)
+	getNanabushClient := func() *nanabush.Client {
+		nanabushClientMu.Lock()
+		defer nanabushClientMu.Unlock()
+		return nanabushClient
+	}
+	
+	// Reconfiguration function for runtime updates
+	reconfigureTranslationService := func(cfg server.TranslationServiceConfig) error {
+		nanabushClientMu.Lock()
+		defer nanabushClientMu.Unlock()
+		
+		// Close existing client if any
+		if nanabushClient != nil {
+			if err := nanabushClient.Close(); err != nil {
+				setupLog.Error(err, "error closing old translation service client")
+			}
+			nanabushClient = nil
+		}
+		
+		// If address is empty, just clear the client
+		if cfg.Address == "" {
+			setupLog.Info("Translation service configuration cleared")
+			return nil
+		}
+		
+		// Create new client
+		client, err := createTranslationServiceClient(cfg.Address, cfg.Type, cfg.Secure)
+		if err != nil {
+			return fmt.Errorf("failed to create translation service client: %w", err)
+		}
+		
+		nanabushClient = client
+		
+		setupLog.Info("Translation service reconfigured", 
+			"address", cfg.Address,
+			"type", cfg.Type,
+			"secure", cfg.Secure)
+		
+		return nil
+	}
+	
+	// Initialize from environment if configured
+	if translationServiceAddr != "" {
+		secure := os.Getenv("TRANSLATION_SERVICE_SECURE") == "true" || os.Getenv("NANABUSH_SECURE") == "true"
+		client, err := createTranslationServiceClient(translationServiceAddr, serviceType, secure)
+		if err != nil {
+			setupLog.Error(err, "failed to create translation service client", "service_type", serviceType)
 		} else {
 			nanabushClient = client
-			setupLog.Info("Nanabush gRPC client initialized and registered", 
-				"address", nanabushAddr, 
-				"client_id", client.ClientID(),
-				"namespace", namespace)
+			// Store initial config
+			configStore.SetTranslationServiceConfig(&server.TranslationServiceConfig{
+				Address: translationServiceAddr,
+				Type:    serviceType,
+				Secure:  secure,
+			})
 		}
+	} else {
+		setupLog.Info("No translation service configured (TRANSLATION_SERVICE_ADDR or NANABUSH_GRPC_ADDR not set)")
 	}
 
 	if err := (&controller.TranslationJobReconciler{
@@ -296,7 +404,8 @@ func main() {
 		Jobs:          jobStore,
 		Catalogue:     catalogStore,
 		OutlineClient: outlineFactory,
-		Nanabush:      nanabushClient,
+		Nanabush:      nanabushClient, // Initial client (for backward compatibility)
+		GetNanabushClient: getNanabushClient, // Getter function for runtime updates
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationJob")
 		os.Exit(1)
@@ -305,11 +414,22 @@ func main() {
 
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		addr := os.Getenv("GLOOSCAP_API_ADDR")
+		
+		// Create a wrapper function that uses the current nanabushClient
+		// This allows runtime reconfiguration
+		reconfigureFn := func(cfg server.TranslationServiceConfig) error {
+			return reconfigureTranslationService(cfg)
+		}
+		
 		return server.Start(ctx, server.Options{
-			Addr:      addr,
-			Catalogue: catalogStore,
-			Jobs:      jobStore,
-			Client:    mgr.GetClient(),
+			Addr:            addr,
+			Catalogue:       catalogStore,
+			Jobs:            jobStore,
+			Client:          mgr.GetClient(),
+			Nanabush:        nanabushClient,
+			NanabushStatusCh: nanabushStatusCh,
+			ConfigStore:     configStore,
+			ReconfigureTranslationService: reconfigureFn,
 		})
 	})); err != nil {
 		setupLog.Error(err, "unable to add API server runnable")

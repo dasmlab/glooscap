@@ -50,7 +50,9 @@ type TranslationJobReconciler struct {
 	Jobs          *catalog.JobStore
 	Catalogue     *catalog.Store
 	OutlineClient OutlineClientFactory
-	Nanabush      *nanabush.Client
+	Nanabush      *nanabush.Client // Direct reference (for backward compatibility)
+	// GetNanabushClient is a function that returns the current nanabush client (for runtime updates)
+	GetNanabushClient func() *nanabush.Client
 }
 
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=translationjobs,verbs=get;list;watch;create;update;patch;delete
@@ -327,8 +329,16 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if updated.State == wikiv1alpha1.TranslationJobStateQueued {
+		// Get current nanabush client (supports runtime reconfiguration)
+		var currentNanabush *nanabush.Client
+		if r.GetNanabushClient != nil {
+			currentNanabush = r.GetNanabushClient()
+		} else {
+			currentNanabush = r.Nanabush // Fallback to direct reference
+		}
+		
 		// Use gRPC to Nanabush if available, otherwise fall back to old dispatcher
-		if r.Nanabush != nil {
+		if currentNanabush != nil {
 			// Get source page content on-the-fly
 			var sourcePage *catalog.Page
 			var sourceClient *outline.Client
@@ -352,8 +362,8 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 
 			// Pre-flight: Check title only first
-			if sourcePage != nil && r.Nanabush != nil {
-				checkResp, err := r.Nanabush.CheckTitle(ctx, nanabush.CheckTitleRequest{
+			if sourcePage != nil && currentNanabush != nil {
+				checkResp, err := currentNanabush.CheckTitle(ctx, nanabush.CheckTitleRequest{
 					Title:          sourcePage.Title,
 					LanguageTag:    languageTagForJob(&job),
 					SourceLanguage: sourcePage.Language,
@@ -445,19 +455,19 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 							}
 						}
 
-						// Call Nanabush via gRPC
+						// Call translation service via gRPC (supports both Nanabush and Iskoces)
 						updated.State = wikiv1alpha1.TranslationJobStateDispatching
 						meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
 							Type:               "Ready",
 							Status:             metav1.ConditionFalse,
 							Reason:             "Translating",
-							Message:            "Translation in progress via Nanabush",
+							Message:            "Translation in progress",
 							LastTransitionTime: now,
 						})
 
 						// TODO: This should be async, but for now we'll do it synchronously
 						// In production, this should dispatch to a Tekton job or async worker
-						translateResp, err := r.Nanabush.Translate(ctx, grpcReq)
+						translateResp, err := currentNanabush.Translate(ctx, grpcReq)
 						if err != nil {
 							logger.Error(err, "translation failed")
 							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{

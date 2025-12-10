@@ -96,12 +96,16 @@ provide('console', consoleRef)
 // Build version info
 const buildVersion = import.meta.env.VITE_BUILD_VERSION || 'dev'
 const buildNumber = import.meta.env.VITE_BUILD_NUMBER || ''
+const buildSha = import.meta.env.VITE_BUILD_SHA || ''
 
 const buildInfo = computed(() => {
   if (buildVersion && buildVersion !== 'dev') {
-    // Show compact version: "v0.0.5" or just build number if available
-    // Extract version number from "0.0.5-alpha" -> "0.0.5"
+    // Show compact version: "v0.2.1-a1b2c3" or "v0.2.1" if no SHA
+    // Extract version number from "0.2.1-alpha" -> "0.2.1"
     const versionNum = buildVersion.replace(/-alpha$/, '')
+    if (buildSha && buildSha !== 'unknown') {
+      return `v${versionNum}-${buildSha}`
+    }
     return `v${versionNum}`
   }
   // Fallback: show build number or dev

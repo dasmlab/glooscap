@@ -15,14 +15,25 @@ build=$(cat "$buildfile")
 next=$((build + 1))
 
 # Create version tag that will match pushme.sh
-tag="0.1.${next}-alpha"
+# Version bumped to 0.2.x-alpha to match operator release
+tag="0.2.${next}-alpha"
+
+# Get git SHA (first 6 characters) for build identification
+# Use HEAD commit if in git repo, otherwise use "unknown"
+if git rev-parse --git-dir > /dev/null 2>&1; then
+  git_sha=$(git rev-parse --short=6 HEAD)
+else
+  git_sha="unknown"
+fi
 
 echo "[buildme] docker build -t ${app}:${version} ."
 echo "  Build number: ${next}"
 echo "  Version tag: ${tag}"
+echo "  Git SHA: ${git_sha}"
 
 docker build \
   --build-arg BUILD_VERSION="${tag}" \
   --build-arg BUILD_NUMBER="${next}" \
+  --build-arg BUILD_SHA="${git_sha}" \
   -t "${app}:${version}" .
 

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glooscap-operator
+  namespace: glooscap-system
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: manual
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: operator
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: operator
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - command:
+        - /manager
+        args:
+          - --leader-elect
+          - --health-probe-bind-address=:8081
+        image: ghcr.io/dasmlab/glooscap-operator:latest
+        # For local development, use imagePullPolicy: Never or IfNotPresent
+        imagePullPolicy: IfNotPresent
+        name: manager
+        ports:
+        - containerPort: 3000
+          name: http-api
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        env:
+        - name: GLOOSCAP_API_ADDR
+          value: ":3000"
+        - name: VLLM_JOB_NAMESPACE
+          value: nanabush
+        - name: VLLM_JOB_IMAGE
+          value: quay.io/dasmlab/vllm-runner:latest
+        - name: VLLM_API_URL
+          value: http://vllm.nanabush.svc:8000
+        # Translation service configuration (can be set via UI at runtime)
+        # - name: TRANSLATION_SERVICE_ADDR
+        #   value: "iskoces-service.iskoces.svc:50051"
+        # - name: TRANSLATION_SERVICE_TYPE
+        #   value: "iskoces"
+        # - name: TRANSLATION_SERVICE_SECURE
+        #   value: "false"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      serviceAccountName: glooscap-operator
+      terminationGracePeriodSeconds: 10
+
