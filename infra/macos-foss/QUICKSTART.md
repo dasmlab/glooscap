@@ -1,6 +1,6 @@
 # Glooscap macOS FOSS Quick Start Guide
 
-This guide will help you get Glooscap running on macOS using Podman and k3s in just a few steps.
+This guide will help you get Glooscap running on macOS using Podman and k3d (k3s in containers) in just a few steps.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ This will install:
 - Homebrew (if not already installed)
 - Podman (container runtime)
 - kubectl (Kubernetes CLI)
-- k3s (lightweight Kubernetes)
+- k3d (runs k3s in containers)
 
 **Note**: After installation, you may need to restart your terminal or run:
 ```bash
@@ -84,18 +84,22 @@ cd ../ui
 podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
 ```
 
-### Load Images into k3s
+### Load Images into k3d
 
-k3s uses containerd, so you need to import images. The easiest way is to use a local registry or import directly:
+k3d uses the container runtime (Podman/Docker) directly, so images are automatically available:
 
 ```bash
-# Save images
-podman save ghcr.io/dasmlab/glooscap-operator:latest -o /tmp/operator.tar
-podman save ghcr.io/dasmlab/glooscap-ui:latest -o /tmp/ui.tar
+# Build images (they'll be available to k3d automatically)
+cd ../../operator
+podman build -t ghcr.io/dasmlab/glooscap-operator:latest .
 
-# Import into k3s (k3s must be running)
-sudo k3s ctr images import /tmp/operator.tar
-sudo k3s ctr images import /tmp/ui.tar
+cd ../ui
+podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
+
+# k3d will use these images from Podman/Docker
+# Or import into k3d cluster:
+k3d image import ghcr.io/dasmlab/glooscap-operator:latest -c glooscap
+k3d image import ghcr.io/dasmlab/glooscap-ui:latest -c glooscap
 ```
 
 **Note**: For development, you can also set `imagePullPolicy: Never` in the deployment manifests to use local images.
@@ -171,7 +175,7 @@ Then open http://localhost:8080 in your browser.
 
 ### Can't connect to cluster
 
-- Verify k3s is running: `kubectl cluster-info`
+- Verify k3d cluster is running: `k3d cluster list` and `kubectl cluster-info`
 - Check kubeconfig: `kubectl config view`
 - Ensure kubectl is using the correct context: `kubectl config current-context`
 
@@ -189,16 +193,16 @@ To remove Glooscap from the cluster:
 ./scripts/undeploy-glooscap.sh
 ```
 
-To stop k3s:
+To stop k3d:
 
 ```bash
-./scripts/stop-k3s.sh
+./scripts/stop-k3d.sh
 ```
 
-To completely clean up (including data):
+To completely clean up (including cluster):
 
 ```bash
-CLEAN_DATA=true ./scripts/stop-k3s.sh
+DELETE_CLUSTER=true ./scripts/stop-k3d.sh
 ```
 
 ## Next Steps

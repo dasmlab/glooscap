@@ -1,6 +1,6 @@
 # Glooscap Kubernetes Manifests
 
-This directory contains Kubernetes manifests for deploying Glooscap on k3s/k0s.
+This directory contains Kubernetes manifests for deploying Glooscap on k3d (k3s in containers for macOS) or k3s (for Linux).
 
 ## Directory Structure
 
@@ -62,14 +62,12 @@ For local development, you may need to:
    podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
    ```
 
-2. **Load images into k3s**:
+2. **Load images into k3d**:
    ```bash
-   # k3s uses containerd, so we need to import images
-   # Option 1: Use k3s's image import
-   sudo k3s ctr images import operator-image.tar
-   
-   # Option 2: Use a local registry
-   # Start a local registry and push images there
+   # k3d uses Podman/Docker directly, so images are automatically available
+   # Or import explicitly:
+   k3d image import ghcr.io/dasmlab/glooscap-operator:latest -c glooscap
+   k3d image import ghcr.io/dasmlab/glooscap-ui:latest -c glooscap
    ```
 
 3. **Update imagePullPolicy** in the deployment manifests:

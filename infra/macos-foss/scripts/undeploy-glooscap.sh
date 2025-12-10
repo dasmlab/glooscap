@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # undeploy-glooscap.sh
-# Removes Glooscap from the k3s cluster
+# Removes Glooscap from the Kubernetes cluster
 
 set -euo pipefail
 
@@ -38,7 +38,7 @@ if ! command -v kubectl &> /dev/null; then
     exit 1
 fi
 
-log_info "Removing Glooscap from k3s cluster..."
+log_info "Removing Glooscap from Kubernetes cluster..."
 
 # Delete UI
 log_info "Deleting UI..."

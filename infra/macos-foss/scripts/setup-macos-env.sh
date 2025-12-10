@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup-macos-env.sh
 # Sets up macOS environment for Glooscap FOSS development
-# Installs Podman, k3s/k0s, kubectl, and other dependencies
+# Installs Podman, k3d, kubectl, and other dependencies
 
 set -euo pipefail
 
@@ -160,7 +160,7 @@ if [[ "${INSTALL_HELM:-false}" == "true" ]]; then
     fi
 fi
 
-# k0s is now the default for macOS (installed above)
+# k3d is now the default for macOS (installed above)
 
 # Verify installations
 log_info "Verifying installations..."

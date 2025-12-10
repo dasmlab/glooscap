@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy-glooscap.sh
-# Deploys Glooscap operator and UI to the k3s cluster
+# Deploys Glooscap operator and UI to the Kubernetes cluster (k3d for macOS)
 
 set -euo pipefail
 
@@ -41,11 +41,11 @@ fi
 # Check if cluster is accessible
 if ! kubectl cluster-info &> /dev/null; then
     log_error "Cannot connect to Kubernetes cluster"
-    log_info "Please ensure k3s is running: ./scripts/start-k3s.sh"
+    log_info "Please ensure k3d cluster is running: ./scripts/start-k3d.sh"
     exit 1
 fi
 
-log_info "Deploying Glooscap to k3s cluster..."
+log_info "Deploying Glooscap to Kubernetes cluster..."
 
 # Create namespace
 log_info "Creating namespace..."

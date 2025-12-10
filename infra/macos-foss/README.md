@@ -1,6 +1,6 @@
 # Glooscap macOS FOSS Setup
 
-This directory contains everything needed to run Glooscap on macOS using Podman and k3s/k0s (lightweight Kubernetes).
+This directory contains everything needed to run Glooscap on macOS using Podman and k3d (k3s in containers).
 
 ## Overview
 
@@ -84,20 +84,22 @@ macos-foss/
 │   └── rbac/                # RBAC resources
 └── scripts/                 # Setup and deployment scripts
     ├── setup-macos-env.sh   # macOS environment setup
-    ├── start-k3s.sh         # Start k3s cluster
-    ├── stop-k3s.sh          # Stop k3s cluster
+    ├── start-k3d.sh         # Start k3d cluster (k3s in containers)
+    ├── stop-k3d.sh          # Stop k3d cluster
     ├── deploy-glooscap.sh   # Deploy Glooscap
     └── undeploy-glooscap.sh # Remove Glooscap
 ```
 
 ## Configuration
 
-### k3s Configuration
+### k3d Configuration
 
-k3s configuration is stored in `~/.k3s/` by default. The kubeconfig file is at:
+k3d stores cluster data in Docker/Podman containers. The kubeconfig file is at:
 ```
 ~/.kube/config
 ```
+
+k3d automatically manages the kubeconfig when you create/start clusters.
 
 ### Podman Configuration
 
@@ -108,10 +110,11 @@ Podman stores images and containers in:
 
 ## Troubleshooting
 
-### k3s won't start
+### k3d won't start
+- Ensure Podman machine is running: `podman machine start`
 - Check if port 6443 is already in use
-- Ensure you have sufficient disk space
-- Check logs: `journalctl -u k3s` (if using systemd) or `k3s server --debug`
+- Check cluster status: `k3d cluster list`
+- Check container logs: `podman logs k3d-glooscap-server-0`
 
 ### Podman issues
 - Ensure Podman machine is running: `podman machine start`
@@ -122,9 +125,13 @@ Podman stores images and containers in:
 - Check image pull secrets if using private registries
 - For local development, use `imagePullPolicy: Never` or `IfNotPresent`
 
-## Alternative: k0s
+## Why k3d?
 
-k0s is a single-binary Kubernetes distribution that can also be used. See `scripts/start-k0s.sh` for k0s setup.
+k3d is the recommended solution for macOS because:
+- k3s doesn't work natively on macOS (requires systemd/openrc)
+- k0s doesn't support macOS (darwin)
+- k3d runs k3s inside containers, avoiding these limitations
+- Works seamlessly with Podman (FOSS-compliant)
 
 ## Next Steps
 
