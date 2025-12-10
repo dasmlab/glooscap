@@ -67,23 +67,44 @@ if command -v podman &> /dev/null && podman info &> /dev/null; then
     else
         log_warn "Could not find Podman socket automatically"
         log_info "Trying default Podman socket locations..."
-        # Try common locations
+        
+        # Try common locations for macOS Podman
+        PODMAN_SOCKET_FOUND=false
         for sock in \
             "${HOME}/.local/share/containers/podman/machine/podman-machine-default/podman.sock" \
+            "${HOME}/.local/share/containers/podman/machine/qemu/podman.sock" \
             "/run/user/$(id -u)/podman/podman.sock" \
             "/var/run/podman/podman.sock"; do
             if [[ -S "${sock}" ]]; then
                 DOCKER_HOST="unix://${sock}"
                 export DOCKER_HOST
                 log_info "Found Podman socket: ${DOCKER_HOST}"
+                PODMAN_SOCKET_FOUND=true
                 break
             fi
         done
         
-        if [[ -z "${DOCKER_HOST}" ]]; then
+        # If still not found, try to get from podman context
+        if [[ "${PODMAN_SOCKET_FOUND}" == "false" ]]; then
+            # Try podman context
+            PODMAN_CONTEXT=$(podman context ls --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+            if [[ -n "${PODMAN_CONTEXT}" ]]; then
+                PODMAN_SOCKET=$(podman context inspect "${PODMAN_CONTEXT}" --format '{{.Docker.SocketPath}}' 2>/dev/null || echo "")
+                if [[ -n "${PODMAN_SOCKET}" && -S "${PODMAN_SOCKET}" ]]; then
+                    DOCKER_HOST="unix://${PODMAN_SOCKET}"
+                    export DOCKER_HOST
+                    log_info "Found Podman socket via context: ${DOCKER_HOST}"
+                    PODMAN_SOCKET_FOUND=true
+                fi
+            fi
+        fi
+        
+        if [[ "${PODMAN_SOCKET_FOUND}" == "false" ]]; then
             log_error "Could not find Podman socket. Please ensure Podman machine is running."
             log_info "Try: podman machine start"
-            log_info "Or set DOCKER_HOST manually: export DOCKER_HOST=unix://<path-to-podman.sock>"
+            log_info "Check Podman machine status: podman machine list"
+            log_info "Or set DOCKER_HOST manually:"
+            log_info "  export DOCKER_HOST=unix://\$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
             exit 1
         fi
     fi
