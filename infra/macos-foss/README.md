@@ -54,13 +54,12 @@ The `setup-macos-env.sh` script will install:
 - kubectl (Kubernetes CLI)
 - Helm (optional, for future use)
 
-### Step 2: Start k3s Cluster
+### Step 2: Start k3d Cluster
 
-k3s can run in two modes:
-- **Embedded mode**: Single binary with built-in containerd
-- **External mode**: Use Podman as the container runtime
-
-We recommend starting with embedded mode for simplicity.
+k3d runs k3s inside Docker/Podman containers, which:
+- Works on macOS (no systemd requirement)
+- Uses Podman automatically if available (or Docker as fallback)
+- Creates a lightweight Kubernetes cluster in containers
 
 ### Step 3: Deploy Glooscap
 
