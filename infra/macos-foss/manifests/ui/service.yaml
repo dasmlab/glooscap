@@ -13,8 +13,7 @@ spec:
   - name: http
     port: 80
     targetPort: http
-    nodePort: 30081  # Maps to host port 8081 via k3d port mapping
     protocol: TCP
-  type: NodePort
-  # k3d port mapping: --port "8081:30081@loadbalancer" routes host:8081 -> nodePort:30081 -> service:80
+  type: LoadBalancer
+  # k3d port mapping: --port "8081:80@loadbalancer" routes host:8081 -> service:80
 
