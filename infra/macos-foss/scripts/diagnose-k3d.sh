@@ -23,27 +23,53 @@ echo ""
 
 # Check container runtime
 log_info "Container Runtime Status:"
-if [ -n "${DOCKER_HOST:-}" ]; then
-    echo "  DOCKER_HOST: ${DOCKER_HOST}"
-    if echo "${DOCKER_HOST}" | grep -q "podman\|unix://"; then
-        log_info "  Using Podman backend"
-    fi
+
+# Determine if we're using Podman or Docker
+USING_PODMAN=false
+if command -v podman &> /dev/null && podman machine list 2>/dev/null | grep -q "running"; then
+    USING_PODMAN=true
+    log_info "  Detected Podman (machine is running)"
+elif [ -n "${DOCKER_HOST:-}" ] && echo "${DOCKER_HOST}" | grep -q "podman\|unix://"; then
+    USING_PODMAN=true
+    log_info "  DOCKER_HOST points to Podman: ${DOCKER_HOST}"
 else
-    log_warn "  DOCKER_HOST not set (using default)"
+    log_info "  Using Docker (or DOCKER_HOST not set for Podman)"
+    if [ -n "${DOCKER_HOST:-}" ]; then
+        echo "  DOCKER_HOST: ${DOCKER_HOST}"
+    fi
 fi
 
-if command -v docker &> /dev/null; then
-    if docker ps &> /dev/null; then
-        log_success "  Docker CLI can access container runtime"
-        echo ""
-        log_info "  Running containers:"
-        docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | head -10
+# Use the appropriate command based on what's available
+if [ "${USING_PODMAN}" = "true" ]; then
+    # Use Podman commands directly
+    if command -v podman &> /dev/null; then
+        if podman ps &> /dev/null; then
+            log_success "  Podman can access container runtime"
+            echo ""
+            log_info "  Running containers (via Podman):"
+            podman ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | head -10
+        else
+            log_error "  Podman cannot access container runtime"
+            podman ps 2>&1 | head -5
+        fi
     else
-        log_error "  Docker CLI cannot access container runtime"
-        docker ps 2>&1 | head -5
+        log_error "  Podman not found"
     fi
 else
-    log_error "  Docker CLI not found"
+    # Use Docker commands
+    if command -v docker &> /dev/null; then
+        if docker ps &> /dev/null; then
+            log_success "  Docker CLI can access container runtime"
+            echo ""
+            log_info "  Running containers (via Docker):"
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | head -10
+        else
+            log_error "  Docker CLI cannot access container runtime"
+            docker ps 2>&1 | head -5
+        fi
+    else
+        log_error "  Docker CLI not found"
+    fi
 fi
 
 echo ""
@@ -82,20 +108,34 @@ if command -v k3d &> /dev/null; then
         # Check cluster containers
         echo ""
         log_info "  Cluster containers:"
-        if docker ps 2>/dev/null | grep -q "k3d"; then
-            docker ps --filter "name=k3d" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
-        elif podman ps 2>/dev/null | grep -q "k3d"; then
-            podman ps --filter "name=k3d" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+        if [ "${USING_PODMAN}" = "true" ]; then
+            if podman ps 2>/dev/null | grep -q "k3d"; then
+                podman ps --filter "name=k3d" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+            else
+                log_warn "  No running k3d containers found"
+            fi
+            
+            # Check for hanging containers
+            echo ""
+            log_info "  Checking for hanging/stopped containers:"
+            if podman ps -a 2>/dev/null | grep -q "k3d"; then
+                log_warn "  Found k3d containers (including stopped):"
+                podman ps -a --filter "name=k3d" --format "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}"
+            fi
         else
-            log_warn "  No k3d containers found"
-        fi
-        
-        # Check for hanging containers
-        echo ""
-        log_info "  Checking for hanging/stopped containers:"
-        if docker ps -a 2>/dev/null | grep "k3d.*Exited\|k3d.*Created"; then
-            log_warn "  Found stopped k3d containers:"
-            docker ps -a --filter "name=k3d" --filter "status=exited" --format "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}"
+            if docker ps 2>/dev/null | grep -q "k3d"; then
+                docker ps --filter "name=k3d" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+            else
+                log_warn "  No running k3d containers found"
+            fi
+            
+            # Check for hanging containers
+            echo ""
+            log_info "  Checking for hanging/stopped containers:"
+            if docker ps -a 2>/dev/null | grep -q "k3d"; then
+                log_warn "  Found stopped k3d containers:"
+                docker ps -a --filter "name=k3d" --filter "status=exited" --format "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}"
+            fi
         fi
     else
         log_warn "  Cluster '${CLUSTER_NAME}' not found"

@@ -67,6 +67,37 @@ fi
 # Try to create/start cluster - k3d will handle Docker/Podman errors
 log_info "Cluster not accessible via kubectl, attempting to create/start with k3d..."
 
+# Verify container runtime is accessible before trying k3d
+RUNTIME_ACCESSIBLE=false
+if [ "${USING_PODMAN:-false}" = "true" ] || ([ -n "${DOCKER_HOST:-}" ] && echo "${DOCKER_HOST}" | grep -q "podman\|unix://"); then
+    # Using Podman - check with podman command
+    if command -v podman &> /dev/null && podman ps &> /dev/null 2>&1; then
+        RUNTIME_ACCESSIBLE=true
+        log_info "Podman runtime is accessible"
+    fi
+else
+    # Using Docker - check with docker command
+    if command -v docker &> /dev/null && docker ps &> /dev/null 2>&1; then
+        RUNTIME_ACCESSIBLE=true
+        log_info "Docker runtime is accessible"
+    fi
+fi
+
+if [ "${RUNTIME_ACCESSIBLE}" = "false" ]; then
+    log_error "Container runtime is not accessible"
+    if command -v podman &> /dev/null && podman machine list 2>/dev/null | grep -q "running"; then
+        log_info "Podman machine is running, but podman ps failed"
+        log_info "Try: podman machine restart"
+    elif [ -n "${DOCKER_HOST:-}" ] && echo "${DOCKER_HOST}" | grep -q "podman"; then
+        log_info "DOCKER_HOST is set to Podman, but runtime not accessible"
+        log_info "Try: podman machine start"
+    else
+        log_info "Docker/Podman runtime not accessible"
+        log_info "Check: docker ps or podman ps"
+    fi
+    exit 1
+fi
+
 # Try to list clusters first (to see if we can access Docker/Podman)
 if k3d cluster list &> /dev/null 2>&1; then
     # k3d can see Docker, try to manage cluster
