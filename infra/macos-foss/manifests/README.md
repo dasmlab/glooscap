@@ -51,15 +51,15 @@ The `deploy-glooscap.sh` script handles this automatically.
 
 For local development, you may need to:
 
-1. **Build images locally** using Podman:
+1. **Build images locally** using Docker:
    ```bash
    # Build operator
    cd ../../operator
-   podman build -t ghcr.io/dasmlab/glooscap-operator:latest .
+   docker build -t ghcr.io/dasmlab/glooscap-operator:latest .
    
    # Build UI
    cd ../ui
-   podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
+   docker build -t ghcr.io/dasmlab/glooscap-ui:latest .
    ```
 
 2. **Load images into k3d**:
