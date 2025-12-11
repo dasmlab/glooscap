@@ -92,28 +92,37 @@ if k3d cluster list &> /dev/null 2>&1; then
             log_info "Detected Podman backend - using Podman-compatible flags"
         fi
         
-        # Build k3d command with Podman-specific flags if needed
-        K3D_CMD="k3d cluster create ${CLUSTER_NAME}"
-        K3D_CMD="${K3D_CMD} --api-port 6443"
-        K3D_CMD="${K3D_CMD} --port \"8080:80@loadbalancer\""
-        K3D_CMD="${K3D_CMD} --port \"8443:443@loadbalancer\""
-        K3D_CMD="${K3D_CMD} --port \"3000:3000@loadbalancer\""
-        K3D_CMD="${K3D_CMD} --agents 1"
-        K3D_CMD="${K3D_CMD} --k3s-arg \"--disable=traefik@server:0\""
-        K3D_CMD="${K3D_CMD} --k3s-arg \"--disable=servicelb@server:0\""
+        # Build k3d command arguments
+        K3D_ARGS=(
+            "cluster" "create" "${CLUSTER_NAME}"
+            "--api-port" "6443"
+            "--port" "8080:80@loadbalancer"
+            "--port" "8443:443@loadbalancer"
+            "--port" "3000:3000@loadbalancer"
+            "--agents" "1"
+            "--k3s-arg" "--disable=traefik@server:0"
+            "--k3s-arg" "--disable=servicelb@server:0"
+        )
         
-        # Podman-specific: Use host network mode and disable some features that require root
+        # Podman-specific: Add compatibility flags
         if [ "${USING_PODMAN}" = "true" ]; then
             log_info "Applying Podman compatibility settings..."
-            # Use host network mode to avoid rootless networking issues
-            K3D_CMD="${K3D_CMD} --network host"
-            # Disable features that require root privileges
-            K3D_CMD="${K3D_CMD} --no-hostip"
+            # Note: --network host doesn't work well with k3d, so we skip it
+            # Instead, we rely on k3d's default networking which should work with Podman
+            log_info "Using default k3d networking (should work with Podman)"
         fi
         
         # Execute k3d command with timeout and logging
-        log_info "Running: ${K3D_CMD}"
-        timeout 300 ${K3D_CMD} 2>&1 | tee /tmp/k3d-create.log || {
+        log_info "Creating cluster (this may take a few minutes)..."
+        log_info "Command: k3d ${K3D_ARGS[*]}"
+        
+        # Use timeout if available (macOS timeout or gtimeout from coreutils)
+        if command -v timeout &> /dev/null || command -v gtimeout &> /dev/null; then
+            TIMEOUT_CMD="timeout"
+            if ! command -v timeout &> /dev/null; then
+                TIMEOUT_CMD="gtimeout"
+            fi
+            ${TIMEOUT_CMD} 300 k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
             log_error "Failed to create k3d cluster"
             if grep -q "Cannot connect to the Docker daemon" /tmp/k3d-create.log 2>/dev/null; then
                 log_error "Docker daemon is not accessible"
