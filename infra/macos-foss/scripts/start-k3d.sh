@@ -186,7 +186,51 @@ if k3d cluster list &> /dev/null 2>&1; then
             if ! command -v timeout &> /dev/null; then
                 TIMEOUT_CMD="gtimeout"
             fi
-            ${TIMEOUT_CMD} 300 k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
+            # For Podman, run k3d in background and monitor progress
+            if [ "${USING_PODMAN}" = "true" ]; then
+                log_info "Running k3d in background and monitoring progress..."
+                k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
+                K3D_PID=$!
+                
+                # Monitor k3d process and container startup
+                MONITOR_COUNT=0
+                MAX_MONITOR=120  # 2 minutes
+                while kill -0 ${K3D_PID} 2>/dev/null && [ ${MONITOR_COUNT} -lt ${MAX_MONITOR} ]; do
+                    sleep 2
+                    MONITOR_COUNT=$((MONITOR_COUNT + 2))
+                    
+                    # Check if server container exists and is running
+                    if podman ps 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
+                        log_info "Server container is running (${MONITOR_COUNT}s)..."
+                        # Check k3s logs to see if it's initializing
+                        if podman logs --tail 3 k3d-glooscap-server-0 2>/dev/null | grep -q -i "ready\|started\|running"; then
+                            log_success "k3s appears to be starting!"
+                        fi
+                    elif podman ps -a 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
+                        log_warn "Server container exists but not running (${MONITOR_COUNT}s)"
+                        podman ps -a --filter "name=k3d-glooscap-server-0" --format "{{.Status}}" 2>/dev/null || true
+                    fi
+                    
+                    # Show progress every 20 seconds
+                    if [ $((MONITOR_COUNT % 20)) -eq 0 ]; then
+                        log_info "Still creating cluster... (${MONITOR_COUNT}s)"
+                        tail -3 /tmp/k3d-create.log 2>/dev/null || true
+                    fi
+                done
+                
+                # Wait for k3d process to finish
+                wait ${K3D_PID} 2>/dev/null
+                K3D_EXIT=$?
+                
+                # Show final log
+                log_info "k3d process finished with exit code: ${K3D_EXIT}"
+                if [ ${K3D_EXIT} -ne 0 ]; then
+                    log_error "k3d cluster creation failed"
+                    log_info "Last 30 lines of k3d log:"
+                    tail -30 /tmp/k3d-create.log || true
+                fi
+            else
+                ${TIMEOUT_CMD} 300 k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
                 log_error "Failed to create k3d cluster"
                 if grep -q "Cannot connect to the Docker daemon\|Cannot connect to the Podman" /tmp/k3d-create.log 2>/dev/null; then
                     log_error "Container runtime is not accessible"
