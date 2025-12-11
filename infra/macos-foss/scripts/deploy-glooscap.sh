@@ -75,24 +75,34 @@ log_info "Deploying operator..."
 kubectl apply -f "${MANIFESTS_DIR}/operator/"
 log_success "Operator deployed"
 
-# Wait for operator to be ready
-log_info "Waiting for operator to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/glooscap-operator -n glooscap-system || {
-    log_warn "Operator deployment may not be ready yet"
-    log_info "Check status with: kubectl get pods -n glooscap-system"
-}
-
 # Apply UI
 log_info "Deploying UI..."
 kubectl apply -f "${MANIFESTS_DIR}/ui/"
 log_success "UI deployed"
 
-# Wait for UI to be ready
+# Wait for operator to be ready (idempotent - won't fail if already ready)
+log_info "Waiting for operator to be ready..."
+if kubectl wait --for=condition=available --timeout=10s deployment/glooscap-operator -n glooscap-system 2>/dev/null; then
+    log_success "Operator is ready"
+else
+    log_info "Waiting for operator to become ready (this may take a moment)..."
+    kubectl wait --for=condition=available --timeout=300s deployment/glooscap-operator -n glooscap-system || {
+        log_warn "Operator deployment may not be ready yet"
+        log_info "Check status with: kubectl get pods -n glooscap-system"
+    }
+fi
+
+# Wait for UI to be ready (idempotent - won't fail if already ready)
 log_info "Waiting for UI to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/glooscap-ui -n glooscap-system || {
-    log_warn "UI deployment may not be ready yet"
-    log_info "Check status with: kubectl get pods -n glooscap-system"
-}
+if kubectl wait --for=condition=available --timeout=10s deployment/glooscap-ui -n glooscap-system 2>/dev/null; then
+    log_success "UI is ready"
+else
+    log_info "Waiting for UI to become ready (this may take a moment)..."
+    kubectl wait --for=condition=available --timeout=300s deployment/glooscap-ui -n glooscap-system || {
+        log_warn "UI deployment may not be ready yet"
+        log_info "Check status with: kubectl get pods -n glooscap-system"
+    }
+fi
 
 # Show status
 echo ""
@@ -107,15 +117,10 @@ echo ""
 
 # Show access instructions
 log_info "To access the UI:"
-echo "  The UI is exposed via k3d loadbalancer on port 8081"
-echo "  Access at: http://<your-host-ip>:8081"
+echo "  Port-forward (recommended for now):"
+echo "    kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80"
 echo ""
-echo "  To find your host IP:"
-echo "    macOS: ifconfig | grep 'inet ' | grep -v 127.0.0.1"
-echo "    Or use: hostname -I | awk '{print \$1}'"
-echo ""
-echo "  Alternative (port-forward):"
-echo "    kubectl port-forward -n glooscap-system svc/glooscap-ui 8081:80"
+echo "  Then open: http://localhost:8080"
 echo ""
 log_info "To access the operator API:"
 echo "  kubectl port-forward -n glooscap-system svc/glooscap-operator 3000:3000"

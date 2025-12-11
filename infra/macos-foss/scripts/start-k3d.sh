@@ -39,9 +39,9 @@ fi
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
 if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
     if k3d cluster list | grep -q "${CLUSTER_NAME}.*running"; then
-        log_warn "k3d cluster '${CLUSTER_NAME}' is already running"
-        log_info "To stop it, run: ./scripts/stop-k3d.sh"
-        exit 0
+        log_success "k3d cluster '${CLUSTER_NAME}' is already running"
+        # Still wait for it to be ready and show status
+        # (fall through to wait/status section)
     else
         log_info "Cluster '${CLUSTER_NAME}' exists but is not running. Starting it..."
         # If k3d can list clusters, Docker must be working - just try to start
@@ -51,6 +51,7 @@ if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
             exit 1
         }
         log_success "Cluster started"
+        # Fall through to wait/status section
     fi
 else
     log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
