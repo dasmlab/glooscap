@@ -228,6 +228,24 @@ if k3d cluster list &> /dev/null 2>&1; then
                     log_error "k3d cluster creation failed"
                     log_info "Last 30 lines of k3d log:"
                     tail -30 /tmp/k3d-create.log || true
+                    
+                    # Check container status
+                    log_info ""
+                    log_info "Container status:"
+                    podman ps -a --filter "name=k3d" --format "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}" 2>/dev/null || true
+                    
+                    # Show server logs if container exists
+                    if podman ps -a 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
+                        log_info ""
+                        log_info "Server container logs (last 20 lines):"
+                        podman logs --tail 20 k3d-glooscap-server-0 2>/dev/null || true
+                    fi
+                    
+                    log_info ""
+                    log_info "Run ./scripts/debug-k3d-hang.sh for more detailed diagnostics"
+                    exit 1
+                else
+                    log_success "k3d cluster created successfully!"
                 fi
             else
                 ${TIMEOUT_CMD} 300 k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
