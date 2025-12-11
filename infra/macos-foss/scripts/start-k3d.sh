@@ -165,15 +165,20 @@ if k3d cluster list &> /dev/null 2>&1; then
             # Note: --network host doesn't work well with k3d, so we skip it
             # Instead, we rely on k3d's default networking which should work with Podman
             log_info "Using default k3d networking (should work with Podman)"
-            # For Podman, add timeout to give containers more time to start
-            # --wait is a boolean flag (default true), --timeout sets the duration
-            K3D_ARGS+=("--timeout" "120s")  # Wait up to 120 seconds for cluster to be ready
+            # For Podman, disable wait and use longer timeout
+            # The "k3s is up" log line sometimes doesn't appear with Podman
+            K3D_ARGS+=("--wait=false")  # Don't wait for "k3s is up" log line
+            K3D_ARGS+=("--timeout" "180s")  # But still have a timeout for safety
             # Note: --no-lb is already added above to avoid loadbalancer issues with Podman
         fi
         
         # Execute k3d command with timeout and logging
         log_info "Creating cluster (this may take a few minutes)..."
         log_info "Command: k3d ${K3D_ARGS[*]}"
+        log_info "Full command array:"
+        for i in "${!K3D_ARGS[@]}"; do
+            log_info "  [${i}]: '${K3D_ARGS[$i]}'"
+        done
         
         # Use timeout if available (macOS timeout or gtimeout from coreutils)
         if command -v timeout &> /dev/null || command -v gtimeout &> /dev/null; then

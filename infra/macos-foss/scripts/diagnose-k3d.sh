@@ -150,6 +150,34 @@ echo ""
 if command -v limactl &> /dev/null; then
     log_info "Lima VM Status (Podman backend):"
     limactl list 2>/dev/null || log_warn "  Cannot list Lima VMs"
+    
+    # Check Podman machine resources
+    if command -v podman &> /dev/null; then
+        PODMAN_MACHINE=$(podman machine list --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+        if [ -n "${PODMAN_MACHINE}" ]; then
+            log_info ""
+            log_info "Podman Machine Resources:"
+            log_info "  Machine name: ${PODMAN_MACHINE}"
+            
+            # Check Lima config for this machine
+            LIMA_CONFIG="${HOME}/.lima/${PODMAN_MACHINE}/lima.yaml"
+            if [ -f "${LIMA_CONFIG}" ]; then
+                log_info "  Config file: ${LIMA_CONFIG}"
+                CPU_COUNT=$(grep "^cpus:" "${LIMA_CONFIG}" 2>/dev/null | awk '{print $2}' || echo "unknown")
+                MEMORY=$(grep "^memory:" "${LIMA_CONFIG}" 2>/dev/null | awk '{print $2}' || echo "unknown")
+                log_info "  CPUs: ${CPU_COUNT}"
+                log_info "  Memory: ${MEMORY}"
+                
+                if [ "${CPU_COUNT}" = "unknown" ] || [ "${MEMORY}" = "unknown" ]; then
+                    log_warn "  Could not read resource limits from config"
+                    log_info "  To increase resources, edit: ${LIMA_CONFIG}"
+                    log_info "  Then restart: podman machine stop && podman machine start"
+                fi
+            else
+                log_warn "  Lima config not found at ${LIMA_CONFIG}"
+            fi
+        fi
+    fi
 fi
 
 echo ""
