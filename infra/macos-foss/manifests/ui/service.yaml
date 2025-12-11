@@ -14,5 +14,7 @@ spec:
     port: 80
     targetPort: http
     protocol: TCP
-  type: ClusterIP
+  type: LoadBalancer
+  # k3d will automatically expose LoadBalancer services on the host IP
+  # The port mapping in k3d (--port "8081:80@loadbalancer") routes host:8081 -> service:80
 
