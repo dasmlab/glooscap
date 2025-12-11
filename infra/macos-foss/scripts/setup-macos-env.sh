@@ -142,35 +142,13 @@ log_info "We'll install k3d instead, which runs k3s inside containers (works on 
 
 # Install Colima (RECOMMENDED for macOS - lightweight, works with Podman)
 # Colima provides a Docker-compatible API and Kubernetes support
+# Note: k3d and minikube have known issues with Podman on macOS, so we use Colima
 if ! check_command colima; then
-    log_info "Installing Colima (RECOMMENDED for macOS Kubernetes)..."
+    log_info "Installing Colima (Kubernetes solution for macOS)..."
     brew install colima
     log_success "Colima installed"
 else
     log_info "Colima already installed: $(colima version 2>/dev/null | head -n1 || echo 'installed')"
-fi
-
-# Install k3d (optional alternative)
-if [[ "${INSTALL_K3D:-false}" == "true" ]]; then
-    if ! check_command k3d; then
-        log_info "Installing k3d..."
-        brew install k3d
-        log_success "k3d installed"
-        log_warn "Note: k3d has known compatibility issues with Podman on macOS"
-    else
-        log_info "k3d already installed: $(k3d version 2>/dev/null || echo 'installed')"
-    fi
-fi
-
-# Install minikube (optional alternative)
-if [[ "${INSTALL_MINIKUBE:-false}" == "true" ]]; then
-    if ! check_command minikube; then
-        log_info "Installing minikube..."
-        brew install minikube
-        log_success "minikube installed"
-    else
-        log_info "minikube already installed: $(minikube version --short 2>/dev/null || echo 'installed')"
-    fi
 fi
 
 # Install Helm (optional, for future use)
@@ -217,15 +195,13 @@ echo ""
 log_info "Next steps:"
 echo "  1. Restart your terminal or run: source ~/.zprofile"
 echo "  2. Start Kubernetes cluster:"
-echo "     - RECOMMENDED: ./scripts/start-colima.sh (lightweight, works great on macOS)"
-echo "     - Alternative: ./scripts/start-minikube.sh"
-echo "     - Alternative: ./scripts/start-k3d.sh (may hang with Podman)"
+echo "     ./scripts/start-colima.sh"
 echo "  3. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_info "RECOMMENDED: Colima is the best solution for macOS:"
+log_info "Colima is the recommended solution for macOS:"
 log_info "  - Lightweight and fast"
-log_info "  - Works reliably on macOS"
+log_info "  - Works reliably on macOS with Podman"
 log_info "  - Provides Docker-compatible API"
 log_info "  - Built-in Kubernetes support"
-log_info "  ./scripts/start-colima.sh"
+log_info "  - No hanging issues (unlike k3d/minikube with Podman)"
 

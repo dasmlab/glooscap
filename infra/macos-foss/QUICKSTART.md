@@ -30,7 +30,7 @@ export PATH="${HOME}/.local/bin:$PATH"
 
 ## Step 2: Start Kubernetes Cluster
 
-**RECOMMENDED: Use Colima (best solution for macOS):**
+Start Colima with Kubernetes:
 
 ```bash
 ./scripts/start-colima.sh
@@ -45,15 +45,11 @@ This will:
 **Why Colima?**
 - Specifically designed for macOS
 - Lightweight and fast
-- Works reliably (no hanging issues)
+- Works reliably with Podman (no hanging issues)
 - Provides Docker-compatible API
 - Built-in Kubernetes support
 
-**Alternatives:**
-```bash
-./scripts/start-minikube.sh  # Alternative option
-./scripts/start-k3d.sh        # May hang with Podman
-```
+**Note:** k3d and minikube have known compatibility issues with Podman on macOS, so we use Colima.
 
 **To stop Colima:**
 ```bash
