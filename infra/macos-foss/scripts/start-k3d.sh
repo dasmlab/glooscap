@@ -154,6 +154,9 @@ if k3d cluster list &> /dev/null 2>&1; then
             # Note: --network host doesn't work well with k3d, so we skip it
             # Instead, we rely on k3d's default networking which should work with Podman
             log_info "Using default k3d networking (should work with Podman)"
+            # For Podman, we might need to wait longer for containers to start
+            # Add a wait flag to give containers more time
+            K3D_ARGS+=("--wait" "60")  # Wait up to 60 seconds for cluster to be ready
         fi
         
         # Execute k3d command with timeout and logging
