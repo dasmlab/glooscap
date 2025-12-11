@@ -32,6 +32,7 @@ log_error() {
 # First, check if kubectl can already connect - if so, we're done!
 if kubectl cluster-info &> /dev/null 2>&1; then
     log_success "Cluster is already accessible via kubectl"
+    log_info "Skipping k3d management (cluster running in different Docker context)"
     # Fall through to show status
 else
     # Cluster not accessible, try to manage via k3d
@@ -81,26 +82,30 @@ else
     fi
 fi
 
-# Wait for cluster to be ready
-log_info "Waiting for cluster to be ready..."
-MAX_WAIT=120
-WAIT_COUNT=0
+# Wait for cluster to be ready (only if we just created/started it)
+if ! kubectl cluster-info &> /dev/null 2>&1; then
+    log_info "Waiting for cluster to be ready..."
+    MAX_WAIT=120
+    WAIT_COUNT=0
 
-while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-    if kubectl cluster-info &> /dev/null 2>&1; then
-        break
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if kubectl cluster-info &> /dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        WAIT_COUNT=$((WAIT_COUNT + 2))
+        echo -n "."
+    done
+    echo ""
+
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        log_warn "Cluster may not be fully ready yet"
+        log_info "Check status: kubectl cluster-info"
+    else
+        log_success "Cluster is ready!"
     fi
-    sleep 2
-    WAIT_COUNT=$((WAIT_COUNT + 2))
-    echo -n "."
-done
-echo ""
-
-if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-    log_warn "Cluster may not be fully ready yet"
-    log_info "Check status: kubectl cluster-info"
 else
-    log_success "Cluster is ready!"
+    log_success "Cluster is ready and accessible!"
 fi
 
 # Show cluster info
