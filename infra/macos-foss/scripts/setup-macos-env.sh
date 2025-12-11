@@ -94,16 +94,33 @@ fi
 log_info "Updating Homebrew..."
 brew update
 
-# Install Docker (required for k3d)
+# Install Docker Desktop (required for k3d - includes daemon)
+# NOTE: brew install docker only installs CLI, not daemon!
+# We need Docker Desktop (--cask) which includes the daemon
 if ! check_command docker; then
-    log_info "Installing Docker..."
+    log_info "Installing Docker Desktop (includes daemon)..."
     brew install --cask docker
-    log_success "Docker installed"
-    log_warn "Please start Docker Desktop before continuing"
+    log_success "Docker Desktop installed"
+    log_warn "Please start Docker Desktop before continuing:"
+    log_info "  open -a Docker"
+    log_info "  Wait for Docker to start, then run this script again"
 else
     log_success "Docker CLI is installed"
-    # Don't check if Docker is running - kubectl will tell us if cluster works
-    log_info "Docker status will be checked when starting cluster"
+    # Check if it's Docker Desktop (has daemon) or just CLI
+    if [ -d "/Applications/Docker.app" ]; then
+        log_info "Docker Desktop is installed (includes daemon)"
+        if pgrep -f "Docker Desktop" &> /dev/null; then
+            log_success "Docker Desktop is running"
+        else
+            log_warn "Docker Desktop is not running"
+            log_info "Start it with: open -a Docker"
+        fi
+    else
+        log_warn "Docker CLI found but Docker Desktop not detected"
+        log_warn "You may have installed 'docker' via 'brew install docker' (CLI only)"
+        log_info "k3d needs Docker Desktop (includes daemon):"
+        log_info "  brew install --cask docker"
+    fi
 fi
 
 # Install kubectl
