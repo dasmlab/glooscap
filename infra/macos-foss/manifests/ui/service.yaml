@@ -15,5 +15,6 @@ spec:
     targetPort: http
     protocol: TCP
   type: LoadBalancer
-  # k3d port mapping: --port "8081:80@loadbalancer" routes host:8081 -> service:80
+  # k3d with servicelb enabled will expose LoadBalancer services
+  # Port mapping --port "8081:80@loadbalancer" routes host:8081 -> service:80
 

@@ -60,8 +60,7 @@ else
         --api-port 6443 \
         --port "8081:80@loadbalancer" \
         --agents 1 \
-        --k3s-arg "--disable=traefik@server:0" \
-        --k3s-arg "--disable=servicelb@server:0"
+        --k3s-arg "--disable=traefik@server:0"
     
     if [[ $? -eq 0 ]]; then
         log_success "k3d cluster created successfully!"
