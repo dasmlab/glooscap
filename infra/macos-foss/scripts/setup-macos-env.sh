@@ -94,33 +94,71 @@ fi
 log_info "Updating Homebrew..."
 brew update
 
-# Install Docker Desktop (required for k3d - includes daemon)
-# NOTE: brew install docker only installs CLI, not daemon!
-# We need Docker Desktop (--cask) which includes the daemon
+# Install Docker CLI (for k3d compatibility)
+# We use Podman as the actual container runtime/daemon
 if ! check_command docker; then
-    log_info "Installing Docker Desktop (includes daemon)..."
-    brew install --cask docker
-    log_success "Docker Desktop installed"
-    log_warn "Please start Docker Desktop before continuing:"
-    log_info "  open -a Docker"
-    log_info "  Wait for Docker to start, then run this script again"
+    log_info "Installing Docker CLI (for k3d compatibility)..."
+    brew install docker
+    log_success "Docker CLI installed"
 else
     log_success "Docker CLI is installed"
-    # Check if it's Docker Desktop (has daemon) or just CLI
-    if [ -d "/Applications/Docker.app" ]; then
-        log_info "Docker Desktop is installed (includes daemon)"
-        if pgrep -f "Docker Desktop" &> /dev/null; then
-            log_success "Docker Desktop is running"
+fi
+
+# Install Podman (container runtime/daemon)
+if ! check_command podman; then
+    log_info "Installing Podman (container runtime)..."
+    brew install podman
+    log_success "Podman installed"
+    
+    # Initialize Podman machine
+    log_info "Initializing Podman machine..."
+    podman machine init || log_warn "Podman machine may already be initialized"
+    podman machine start || log_warn "Podman machine may already be running"
+    log_success "Podman machine initialized"
+else
+    log_info "Podman already installed: $(podman --version)"
+    
+    # Ensure Podman machine is running
+    if ! podman machine list 2>/dev/null | grep -q "running"; then
+        log_info "Starting Podman machine..."
+        podman machine start || log_warn "Podman machine start failed"
+    fi
+fi
+
+# Configure Docker CLI to use Podman socket
+# k3d will use DOCKER_HOST to connect to Podman
+PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+if [ -n "${PODMAN_SOCKET}" ]; then
+    log_info "Configuring Docker CLI to use Podman socket..."
+    export DOCKER_HOST="unix://${PODMAN_SOCKET}"
+    log_info "DOCKER_HOST set to: ${DOCKER_HOST}"
+    
+    # Add to shell profile for persistence
+    SHELL_PROFILE=""
+    if [ -f "${HOME}/.zprofile" ]; then
+        SHELL_PROFILE="${HOME}/.zprofile"
+    elif [ -f "${HOME}/.zshrc" ]; then
+        SHELL_PROFILE="${HOME}/.zshrc"
+    fi
+    
+    if [ -n "${SHELL_PROFILE}" ]; then
+        if ! grep -q "DOCKER_HOST.*podman\|DOCKER_HOST.*unix://" "${SHELL_PROFILE}" 2>/dev/null; then
+            log_info "Adding DOCKER_HOST to ${SHELL_PROFILE} for persistence..."
+            echo "" >> "${SHELL_PROFILE}"
+            echo "# Configure Docker CLI to use Podman (for k3d)" >> "${SHELL_PROFILE}"
+            echo "export DOCKER_HOST=\"unix://${PODMAN_SOCKET}\"" >> "${SHELL_PROFILE}"
+            log_success "DOCKER_HOST added to ${SHELL_PROFILE}"
         else
-            log_warn "Docker Desktop is not running"
-            log_info "Start it with: open -a Docker"
+            log_info "DOCKER_HOST already configured in ${SHELL_PROFILE}"
         fi
     else
-        log_warn "Docker CLI found but Docker Desktop not detected"
-        log_warn "You may have installed 'docker' via 'brew install docker' (CLI only)"
-        log_info "k3d needs Docker Desktop (includes daemon):"
-        log_info "  brew install --cask docker"
+        log_warn "Could not find ~/.zprofile or ~/.zshrc"
+        log_info "Add this to your shell profile:"
+        log_info "  export DOCKER_HOST=\"unix://${PODMAN_SOCKET}\""
     fi
+else
+    log_warn "Could not detect Podman socket"
+    log_info "k3d will try to detect Podman automatically"
 fi
 
 # Install kubectl
@@ -202,14 +240,15 @@ log_success "macOS environment setup complete!"
 echo ""
 log_info "Next steps:"
 echo "  1. Restart your terminal or run: source ~/.zprofile"
-echo "  2. Ensure Docker Desktop is running"
-echo "  3. Start Kubernetes cluster:"
+echo "  2. Ensure Podman machine is running: podman machine start"
+echo "  3. Verify container runtime: ./scripts/check-docker.sh"
+echo "  4. Start Kubernetes cluster:"
 echo "     ./scripts/start-k3d.sh"
-echo "  4. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
+echo "  5. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_info "k3d is the recommended solution:"
-log_info "  - Lightweight (k3s in Docker containers, no VM overhead)"
-log_info "  - Works reliably with Docker"
-log_info "  - Fast startup and simple architecture"
+log_info "k3d with Podman (FOSS approach):"
+log_info "  - Uses Podman as container runtime (no Docker Desktop needed)"
+log_info "  - Docker CLI connects to Podman via DOCKER_HOST"
+log_info "  - Lightweight and fast startup"
 log_info "  - Perfect for local development"
 
