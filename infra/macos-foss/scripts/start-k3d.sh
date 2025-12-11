@@ -47,7 +47,7 @@ if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
         # If k3d can list clusters, Docker must be working - just try to start
         k3d cluster start "${CLUSTER_NAME}" || {
             log_error "Failed to start cluster. Docker may not be running."
-            log_info "Please start Docker Desktop and try again"
+            log_info "Please ensure Docker is running and try again"
             exit 1
         }
         log_success "Cluster started"
@@ -56,10 +56,6 @@ else
     log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
     # If k3d works, Docker must be working - just try to create
     # If it fails, k3d will give a better error message than we can
-    log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
-    
-    # Create cluster
-    log_info "Creating k3d cluster with Docker..."
     k3d cluster create "${CLUSTER_NAME}" \
         --api-port 6443 \
         --port "8081:30081@loadbalancer" \
