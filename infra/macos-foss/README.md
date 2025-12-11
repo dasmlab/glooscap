@@ -61,9 +61,9 @@ The `setup-macos-env.sh` script will install:
 
 ### Step 2: Start k3d Cluster
 
-k3d runs k3s inside Docker/Podman containers, which:
+k3d runs k3s inside Docker containers, which:
 - Works on macOS (no systemd requirement)
-- Uses Podman automatically if available (or Docker as fallback)
+- Uses Docker directly (lightweight, no VM overhead)
 - Creates a lightweight Kubernetes cluster in containers
 
 ### Step 3: Deploy Glooscap
@@ -115,14 +115,14 @@ Docker stores images and containers in:
 ## Troubleshooting
 
 ### k3d won't start
-- Ensure Podman machine is running: `podman machine start`
+- Ensure Docker Desktop is running
 - Check if port 6443 is already in use
 - Check cluster status: `k3d cluster list`
-- Check container logs: `podman logs k3d-glooscap-server-0`
+- Check container logs: `docker logs k3d-glooscap-server-0`
 
-### Podman issues
-- Ensure Podman machine is running: `podman machine start`
-- Check Podman info: `podman info`
+### Docker issues
+- Ensure Docker Desktop is running
+- Check Docker info: `docker info`
 
 ### Image pull errors
 - Ensure images are built and available locally
