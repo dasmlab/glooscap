@@ -123,20 +123,58 @@ if k3d cluster list &> /dev/null 2>&1; then
                 TIMEOUT_CMD="gtimeout"
             fi
             ${TIMEOUT_CMD} 300 k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
-            log_error "Failed to create k3d cluster"
-            if grep -q "Cannot connect to the Docker daemon" /tmp/k3d-create.log 2>/dev/null; then
-                log_error "Docker daemon is not accessible"
+                log_error "Failed to create k3d cluster"
+                if grep -q "Cannot connect to the Docker daemon\|Cannot connect to the Podman" /tmp/k3d-create.log 2>/dev/null; then
+                    log_error "Container runtime is not accessible"
+                    log_info ""
+                    log_info "To fix this:"
+                    if [ "${USING_PODMAN}" = "true" ]; then
+                        log_info "  1. Ensure Podman machine is running: podman machine start"
+                        log_info "  2. Check DOCKER_HOST: echo \$DOCKER_HOST"
+                        log_info "  3. Verify Podman: podman ps"
+                    else
+                        log_info "  1. Start Docker Desktop (or Docker daemon)"
+                        log_info "  2. Wait for Docker to be ready"
+                    fi
+                    log_info "  3. Run this script again"
+                    log_info ""
+                    log_info "Check container runtime status: docker ps"
+                elif grep -q "starting node\|hanging\|timeout" /tmp/k3d-create.log 2>/dev/null; then
+                    log_error "Cluster creation hung or timed out"
+                    log_info ""
+                    log_info "This is a known issue with k3d + rootless Podman"
+                    log_info ""
+                    log_info "Troubleshooting steps:"
+                    log_info "  1. Check Podman containers: podman ps -a"
+                    log_info "  2. Check Podman logs: podman logs k3d-glooscap-server-0"
+                    log_info "  3. Check Lima VM: limactl list"
+                    log_info "  4. Try cleaning up: k3d cluster delete ${CLUSTER_NAME} || true"
+                    log_info "  5. Check system resources (CPU/memory)"
+                    log_info ""
+                    log_info "If the issue persists, you may need to:"
+                    log_info "  - Increase Lima VM resources (CPU/memory)"
+                    log_info "  - Use Docker Desktop instead of Podman"
+                    log_info "  - Run Podman in rootful mode (not recommended)"
+                fi
+                
+                # Show last 20 lines of log for debugging
                 log_info ""
-                log_info "To fix this:"
-                log_info "  1. Start Docker Desktop (or Docker daemon)"
-                log_info "  2. Wait for Docker to be ready"
-                log_info "  3. Run this script again"
-                log_info ""
-                log_info "Or check Docker status: docker ps"
-            fi
-            exit 1
-        }
-        log_success "k3d cluster created successfully!"
+                log_info "Last 20 lines of k3d log:"
+                tail -20 /tmp/k3d-create.log || true
+                
+                exit 1
+            }
+            log_success "k3d cluster created successfully!"
+        else
+            # No timeout command available, run k3d directly
+            log_warn "timeout command not available, running k3d without timeout"
+            k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
+                log_error "Failed to create k3d cluster"
+                log_info "Check /tmp/k3d-create.log for details"
+                exit 1
+            }
+            log_success "k3d cluster created successfully!"
+        fi
     fi
 else
     # k3d cluster list failed - Docker not accessible
