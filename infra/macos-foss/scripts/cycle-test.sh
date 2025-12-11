@@ -135,9 +135,9 @@ done
 
 echo ""
 TOTAL_STEPS=${#RESULTS[@]}
-SUCCESS_COUNT=$(echo "${RESULTS[@]}" | grep -o "✓ SUCCESS" | wc -l | tr -d ' ')
+SUCCESS_COUNT=$(printf '%s\n' "${RESULTS[@]}" | grep -c "✓ SUCCESS" || echo "0")
 
-if [ ${SUCCESS_COUNT} -eq ${TOTAL_STEPS} ]; then
+if [ "${SUCCESS_COUNT}" -eq "${TOTAL_STEPS}" ]; then
     log_success "All steps completed successfully!"
     exit 0
 else
