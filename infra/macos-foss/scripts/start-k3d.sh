@@ -55,10 +55,19 @@ fi
 
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
 
-# Try to create/start cluster - k3d will handle Docker errors
+# Configure DOCKER_HOST for Podman if needed
+if command -v podman &> /dev/null; then
+    PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+    if [ -n "${PODMAN_SOCKET}" ] && [ -z "${DOCKER_HOST:-}" ]; then
+        export DOCKER_HOST="unix://${PODMAN_SOCKET}"
+        log_info "Configured DOCKER_HOST to use Podman: ${DOCKER_HOST}"
+    fi
+fi
+
+# Try to create/start cluster - k3d will handle Docker/Podman errors
 log_info "Cluster not accessible via kubectl, attempting to create/start with k3d..."
 
-# Try to list clusters first (to see if we can access Docker)
+# Try to list clusters first (to see if we can access Docker/Podman)
 if k3d cluster list &> /dev/null 2>&1; then
     # k3d can see Docker, try to manage cluster
     if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then

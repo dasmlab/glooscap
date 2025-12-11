@@ -161,9 +161,25 @@ log_info "Verifying installations..."
 
 if check_command docker; then
     log_success "✓ Docker CLI: $(docker --version 2>/dev/null || echo 'installed')"
-    log_info "  (Docker daemon status will be checked when starting cluster)"
 else
     log_error "✗ Docker CLI not found"
+fi
+
+if check_command podman; then
+    log_success "✓ Podman: $(podman --version 2>/dev/null || echo 'installed')"
+    if podman machine list 2>/dev/null | grep -q "running"; then
+        log_success "✓ Podman machine is running"
+        PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+        if [ -n "${PODMAN_SOCKET}" ]; then
+            log_info "  Podman socket: ${PODMAN_SOCKET}"
+            log_info "  Set DOCKER_HOST=unix://${PODMAN_SOCKET} for k3d"
+        fi
+    else
+        log_warn "⚠ Podman machine is not running"
+        log_info "  Start it with: podman machine start"
+    fi
+else
+    log_error "✗ Podman not found"
 fi
 
 if check_command kubectl; then
