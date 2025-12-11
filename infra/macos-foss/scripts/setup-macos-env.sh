@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup-macos-env.sh
-# Sets up macOS environment for Glooscap FOSS development
-# Installs Podman, k3d, kubectl, and other dependencies
+# Sets up macOS environment for Glooscap development
+# Installs Docker, k3d, kubectl, and other dependencies
 
 set -euo pipefail
 
@@ -94,52 +94,6 @@ fi
 log_info "Updating Homebrew..."
 brew update
 
-# Install Podman
-if ! check_command podman; then
-    log_info "Installing Podman..."
-    
-    # Check if Podman Desktop is preferred
-    if [[ "${PODMAN_DESKTOP:-false}" == "true" ]]; then
-        log_info "Installing Podman Desktop via Homebrew Cask..."
-        brew install --cask podman-desktop
-        log_success "Podman Desktop installed"
-        log_warn "Please start Podman Desktop and initialize the machine, then run this script again"
-        exit 0
-    else
-        log_info "Installing Podman via Homebrew..."
-        brew install podman
-        log_success "Podman installed"
-        
-        # Initialize Podman machine
-        log_info "Initializing Podman machine..."
-        podman machine init || log_warn "Podman machine may already be initialized"
-        podman machine start || log_warn "Podman machine may already be running"
-        log_success "Podman machine initialized and started"
-    fi
-else
-    log_info "Podman already installed: $(podman --version)"
-    
-    # Ensure Podman machine is running
-    if ! podman machine list | grep -q "running"; then
-        log_info "Starting Podman machine..."
-        podman machine start
-    fi
-fi
-
-# Install kubectl
-if ! check_command kubectl; then
-    log_info "Installing kubectl..."
-    brew install kubectl
-    log_success "kubectl installed"
-else
-    log_info "kubectl already installed: $(kubectl version --client --short 2>/dev/null || echo 'installed')"
-fi
-
-# Note: k3s doesn't work natively on macOS (requires systemd/openrc)
-# We'll use k3d instead, which runs k3s inside Docker/Podman containers
-log_info "Note: k3s doesn't work natively on macOS (requires systemd/openrc)"
-log_info "We'll install k3d instead, which runs k3s inside containers (works on macOS)"
-
 # Install Docker (required for k3d)
 if ! check_command docker; then
     log_info "Installing Docker..."
@@ -155,7 +109,18 @@ else
     fi
 fi
 
+# Install kubectl
+if ! check_command kubectl; then
+    log_info "Installing kubectl..."
+    brew install kubectl
+    log_success "kubectl installed"
+else
+    log_info "kubectl already installed: $(kubectl version --client --short 2>/dev/null || echo 'installed')"
+fi
+
 # Install k3d (k3s in Docker containers)
+# Note: k3s doesn't work natively on macOS (requires systemd/openrc)
+# k3d runs k3s inside Docker containers, which works perfectly on macOS
 if ! check_command k3d; then
     log_info "Installing k3d (k3s in Docker containers)..."
     brew install k3d
@@ -180,11 +145,14 @@ fi
 # Verify installations
 log_info "Verifying installations..."
 
-if check_command podman; then
-    log_success "✓ Podman: $(podman --version)"
-    podman info &> /dev/null && log_success "✓ Podman machine is running" || log_warn "⚠ Podman machine may not be running"
+if check_command docker; then
+    if docker info &> /dev/null; then
+        log_success "✓ Docker: $(docker --version 2>/dev/null || echo 'installed and running')"
+    else
+        log_warn "⚠ Docker: installed but not running"
+    fi
 else
-    log_error "✗ Podman not found"
+    log_error "✗ Docker not found"
 fi
 
 if check_command kubectl; then

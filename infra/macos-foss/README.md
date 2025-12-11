@@ -1,12 +1,12 @@
 # Glooscap macOS FOSS Setup
 
-This directory contains everything needed to run Glooscap on macOS using Podman and k3d (k3s in containers).
+This directory contains everything needed to run Glooscap on macOS using Docker and k3d (k3s in containers).
 
 ## Overview
 
 This setup provides a fully FOSS (Free and Open Source Software) stack for running Glooscap locally on macOS:
 
-- **Podman**: Container runtime (Docker alternative)
+- **Docker**: Container runtime
 - **k3d**: k3s in Docker containers (lightweight, no VM overhead)
 - **kubectl**: Kubernetes CLI
 - **kubectl**: Kubernetes CLI
@@ -98,16 +98,16 @@ macos-foss/
 
 ### k3d Configuration
 
-k3d stores cluster data in Docker/Podman containers. The kubeconfig file is at:
+k3d stores cluster data in Docker containers. The kubeconfig file is at:
 ```
 ~/.kube/config
 ```
 
 k3d automatically manages the kubeconfig when you create/start clusters.
 
-### Podman Configuration
+### Docker Configuration
 
-Podman stores images and containers in:
+Docker stores images and containers in:
 ```
 ~/.local/share/containers/storage
 ```
@@ -135,7 +135,7 @@ k3d is the recommended solution for macOS because:
 - k3s doesn't work natively on macOS (requires systemd/openrc)
 - k0s doesn't support macOS (darwin)
 - k3d runs k3s inside containers, avoiding these limitations
-- Works seamlessly with Podman (FOSS-compliant)
+- Works seamlessly with Docker
 
 ## Next Steps
 

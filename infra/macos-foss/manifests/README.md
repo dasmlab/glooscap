@@ -1,6 +1,6 @@
 # Glooscap Kubernetes Manifests
 
-This directory contains Kubernetes manifests for deploying Glooscap on any Kubernetes cluster (Colima for macOS, or any other Kubernetes distribution).
+This directory contains Kubernetes manifests for deploying Glooscap on any Kubernetes cluster (k3d for local development, or any other Kubernetes distribution).
 
 ## Directory Structure
 

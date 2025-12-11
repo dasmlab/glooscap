@@ -1,6 +1,6 @@
 # Glooscap macOS FOSS Quick Start Guide
 
-This guide will help you get Glooscap running on macOS using Podman and k3d (k3s in containers) in just a few steps.
+This guide will help you get Glooscap running on macOS using Docker and k3d (k3s in containers) in just a few steps.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ cd infra/macos-foss
 
 This will install:
 - Homebrew (if not already installed)
-- Podman (container runtime)
+- Docker (container runtime)
 - kubectl (Kubernetes CLI)
 - k3d (runs k3s in containers)
 
@@ -75,7 +75,7 @@ If you're building images locally, you'll need to build and load them into k3s:
 
 ```bash
 cd ../../operator
-podman build -t ghcr.io/dasmlab/glooscap-operator:latest .
+docker build -t ghcr.io/dasmlab/glooscap-operator:latest .
 ```
 
 ### Build UI Image
@@ -87,17 +87,17 @@ podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
 
 ### Load Images into k3d
 
-k3d uses the container runtime (Podman/Docker) directly, so images are automatically available:
+k3d uses Docker directly, so images are automatically available:
 
 ```bash
 # Build images (they'll be available to k3d automatically)
 cd ../../operator
-podman build -t ghcr.io/dasmlab/glooscap-operator:latest .
+docker build -t ghcr.io/dasmlab/glooscap-operator:latest .
 
 cd ../ui
 podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
 
-# k3d will use these images from Podman/Docker
+# k3d will use these images from Docker
 # Or import into k3d cluster:
 k3d image import ghcr.io/dasmlab/glooscap-operator:latest -c glooscap
 k3d image import ghcr.io/dasmlab/glooscap-ui:latest -c glooscap
@@ -162,10 +162,10 @@ Then open http://localhost:8080 in your browser.
 
 ### k3d won't start
 
-- Ensure Podman machine is running: `podman machine start`
+- Ensure Docker Desktop is running
 - Check if ports are in use: `lsof -i :6443`
 - Check k3d cluster status: `k3d cluster list`
-- Check container logs: `podman logs k3d-${CLUSTER_NAME}-server-0` (replace CLUSTER_NAME)
+- Check container logs: `docker logs k3d-${CLUSTER_NAME}-server-0` (replace CLUSTER_NAME)
 - Try stopping and restarting: `./scripts/stop-k3d.sh && ./scripts/start-k3d.sh`
 
 ### Pods stuck in ImagePullBackOff
