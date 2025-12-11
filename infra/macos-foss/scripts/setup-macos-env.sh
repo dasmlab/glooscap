@@ -101,12 +101,9 @@ if ! check_command docker; then
     log_success "Docker installed"
     log_warn "Please start Docker Desktop before continuing"
 else
-    if docker info &> /dev/null; then
-        log_success "Docker is installed and running"
-    else
-        log_warn "Docker is installed but not running"
-        log_info "Please start Docker Desktop"
-    fi
+    log_success "Docker CLI is installed"
+    # Don't check if Docker is running - kubectl will tell us if cluster works
+    log_info "Docker status will be checked when starting cluster"
 fi
 
 # Install kubectl
@@ -146,13 +143,10 @@ fi
 log_info "Verifying installations..."
 
 if check_command docker; then
-    if docker info &> /dev/null; then
-        log_success "✓ Docker: $(docker --version 2>/dev/null || echo 'installed and running')"
-    else
-        log_warn "⚠ Docker: installed but not running"
-    fi
+    log_success "✓ Docker CLI: $(docker --version 2>/dev/null || echo 'installed')"
+    log_info "  (Docker daemon status will be checked when starting cluster)"
 else
-    log_error "✗ Docker not found"
+    log_error "✗ Docker CLI not found"
 fi
 
 if check_command kubectl; then
