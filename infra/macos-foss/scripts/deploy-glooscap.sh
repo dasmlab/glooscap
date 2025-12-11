@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # deploy-glooscap.sh
-# Deploys Glooscap operator and UI to the Kubernetes cluster (Colima/minikube/k3d)
+# Deploys Glooscap operator and UI to the Kubernetes cluster
+# Optionally deploys Iskoces translation service if ISKOCES_DIR is set
 
 set -euo pipefail
 
@@ -117,4 +118,25 @@ echo ""
 log_info "To view logs:"
 echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"
 echo "  UI: kubectl logs -f -n glooscap-system deployment/glooscap-ui"
+echo ""
+
+# Optionally deploy Iskoces if ISKOCES_DIR is set
+if [[ -n "${ISKOCES_DIR:-}" ]] && [[ -d "${ISKOCES_DIR}/manifests" ]]; then
+    log_info "ISKOCES_DIR is set, deploying Iskoces..."
+    if [ -f "${ISKOCES_DIR}/manifests/deploy.sh" ]; then
+        "${ISKOCES_DIR}/manifests/deploy.sh"
+        echo ""
+        log_info "Iskoces deployed! To configure Glooscap to use Iskoces:"
+        echo "  1. Go to Glooscap UI Settings → Translation Service"
+        echo "  2. Set Address: iskoces-service.iskoces.svc:50051"
+        echo "  3. Set Type: iskoces"
+        echo "  4. Set Secure: false"
+        echo "  5. Click 'Set Configuration'"
+    else
+        log_warn "Iskoces deploy script not found at ${ISKOCES_DIR}/manifests/deploy.sh"
+    fi
+else
+    log_info "To deploy Iskoces alongside Glooscap, set ISKOCES_DIR:"
+    echo "  ISKOCES_DIR=/path/to/iskoces ./scripts/deploy-glooscap.sh"
+fi
 

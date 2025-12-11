@@ -120,6 +120,12 @@ const navItems = computed(() => [
     to: { name: 'catalogue' },
   },
   {
+    label: t('navigation.author'),
+    caption: t('navigation.authorDesc'),
+    icon: 'edit_document',
+    to: { name: 'author' },
+  },
+  {
     label: t('navigation.jobs'),
     caption: t('navigation.jobsDesc'),
     icon: 'list_alt',
