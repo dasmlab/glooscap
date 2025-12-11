@@ -155,16 +155,6 @@ else
     log_error "✗ kubectl not found"
 fi
 
-if check_command docker; then
-    if docker info &> /dev/null; then
-        log_success "✓ Docker: $(docker --version 2>/dev/null || echo 'installed and running')"
-    else
-        log_warn "⚠ Docker: installed but not running"
-    fi
-else
-    log_warn "⚠ Docker not found"
-fi
-
 if check_command k3d; then
     log_success "✓ k3d: $(k3d version 2>/dev/null | head -n1 || echo 'installed')"
 else
