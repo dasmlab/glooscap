@@ -61,17 +61,21 @@ if command -v podman &> /dev/null && podman machine list 2>/dev/null | grep -q "
     USING_PODMAN=true
     log_info "Detected Podman (machine is running)"
     
-    # Configure DOCKER_HOST for k3d (k3d uses Docker CLI which needs DOCKER_HOST to talk to Podman)
-    PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
-    if [ -n "${PODMAN_SOCKET}" ]; then
-        if [ -z "${DOCKER_HOST:-}" ] || [ "${DOCKER_HOST}" != "unix://${PODMAN_SOCKET}" ]; then
+    # Check if podman-helper-mac is installed (automatically sets DOCKER_HOST)
+    if [ -n "${DOCKER_HOST:-}" ]; then
+        log_info "DOCKER_HOST is set: ${DOCKER_HOST}"
+        if echo "${DOCKER_HOST}" | grep -q "podman\|unix://"; then
+            log_info "DOCKER_HOST points to Podman (likely via podman-helper-mac)"
+        fi
+    else
+        # Fallback: manually set DOCKER_HOST if not set (for systems without podman-helper-mac)
+        PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+        if [ -n "${PODMAN_SOCKET}" ]; then
             export DOCKER_HOST="unix://${PODMAN_SOCKET}"
             log_info "Configured DOCKER_HOST for k3d: ${DOCKER_HOST}"
         else
-            log_info "DOCKER_HOST already set correctly: ${DOCKER_HOST}"
+            log_warn "Could not detect Podman socket and DOCKER_HOST not set, k3d may not work"
         fi
-    else
-        log_warn "Could not detect Podman socket, k3d may not work"
     fi
 else
     log_info "Using Docker (Podman not detected or not running)"
