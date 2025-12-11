@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy-glooscap.sh
-# Deploys Glooscap operator and UI to the Kubernetes cluster (k3d for macOS)
+# Deploys Glooscap operator and UI to the Kubernetes cluster (Colima/minikube/k3d)
 
 set -euo pipefail
 
@@ -41,7 +41,10 @@ fi
 # Check if cluster is accessible
 if ! kubectl cluster-info &> /dev/null; then
     log_error "Cannot connect to Kubernetes cluster"
-    log_info "Please ensure k3d cluster is running: ./scripts/start-k3d.sh"
+    log_info "Please ensure Kubernetes cluster is running:"
+    log_info "  RECOMMENDED: ./scripts/start-colima.sh"
+    log_info "  Alternative: ./scripts/start-minikube.sh"
+    log_info "  Alternative: ./scripts/start-k3d.sh"
     exit 1
 fi
 
