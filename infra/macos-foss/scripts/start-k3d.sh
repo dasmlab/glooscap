@@ -251,18 +251,29 @@ if k3d cluster list &> /dev/null 2>&1; then
                     if podman ps 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
                         log_info "Server container is running (${MONITOR_COUNT}s)..."
                         # Check k3s logs to see if it's initializing
-                        if podman logs --tail 3 k3d-glooscap-server-0 2>/dev/null | grep -q -i "ready\|started\|running"; then
-                            log_success "k3s appears to be starting!"
+                        K3S_LOGS=$(podman logs --tail 10 k3d-glooscap-server-0 2>/dev/null || echo "")
+                        if echo "${K3S_LOGS}" | grep -q -i "ready\|started\|running\|error\|fatal"; then
+                            if echo "${K3S_LOGS}" | grep -q -i "error\|fatal"; then
+                                log_error "k3s has errors in logs!"
+                                echo "${K3S_LOGS}" | grep -i "error\|fatal" | tail -3
+                            else
+                                log_success "k3s appears to be starting!"
+                            fi
                         fi
                     elif podman ps -a 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
                         log_warn "Server container exists but not running (${MONITOR_COUNT}s)"
                         podman ps -a --filter "name=k3d-glooscap-server-0" --format "{{.Status}}" 2>/dev/null || true
                     fi
                     
-                    # Show progress every 30 seconds
+                    # Show progress every 30 seconds with more detail
                     if [ $((MONITOR_COUNT % 30)) -eq 0 ]; then
                         log_info "Still creating cluster... (${MONITOR_COUNT}s / ${TIMEOUT_SECONDS}s max)"
+                        log_info "k3d log (last 5 lines):"
                         tail -5 /tmp/k3d-create.log 2>/dev/null || true
+                        if podman ps 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
+                            log_info "k3s container logs (last 5 lines):"
+                            podman logs --tail 5 k3d-glooscap-server-0 2>/dev/null | tail -5 || true
+                        fi
                     fi
                 done
                 
