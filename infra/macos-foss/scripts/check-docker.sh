@@ -1,136 +1,102 @@
 #!/usr/bin/env bash
 # check-docker.sh
-# Diagnoses Docker setup on macOS
+# Checks Docker/Podman daemon accessibility for k3d
 
 set -euo pipefail
 
-echo "=== Docker Diagnosis ==="
+echo "=== Container Runtime Check (for k3d) ==="
 echo ""
 
-# Check Docker CLI
-if command -v docker &> /dev/null; then
-    echo "✓ Docker CLI is installed: $(docker --version 2>/dev/null || echo 'version unknown')"
-else
-    echo "✗ Docker CLI not found"
+# Check if docker command exists
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker CLI not found"
+    echo "   Install with: brew install docker"
     exit 1
 fi
 
-echo ""
-echo "=== Docker Daemon Access ==="
+echo "✓ Docker CLI found: $(docker --version)"
 echo ""
 
-# Check Docker socket locations
-SOCKET_LOCATIONS=(
-    "/var/run/docker.sock"
-    "$HOME/.docker/run/docker.sock"
-    "/tmp/docker.sock"
-)
-
-FOUND_SOCKET=""
-for socket in "${SOCKET_LOCATIONS[@]}"; do
-    if [ -S "${socket}" ] 2>/dev/null; then
-        echo "✓ Found Docker socket: ${socket}"
-        FOUND_SOCKET="${socket}"
+# Check if Podman is installed and running
+if command -v podman &> /dev/null; then
+    echo "✓ Podman found: $(podman --version)"
+    
+    # Check Podman machine status
+    if podman machine list 2>/dev/null | grep -q "running"; then
+        echo "✓ Podman machine is running"
+        
+        # Get Podman socket
+        PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+        if [ -n "${PODMAN_SOCKET}" ]; then
+            echo "  Podman socket: ${PODMAN_SOCKET}"
+            
+            # Check if DOCKER_HOST is set
+            if [ -n "${DOCKER_HOST:-}" ]; then
+                echo "  DOCKER_HOST: ${DOCKER_HOST}"
+            else
+                echo "  ⚠ DOCKER_HOST not set"
+                echo "  Set it with: export DOCKER_HOST=unix://${PODMAN_SOCKET}"
+                echo "  Or add to ~/.zshrc: export DOCKER_HOST=unix://${PODMAN_SOCKET}"
+            fi
+        fi
+    else
+        echo "⚠ Podman machine is not running"
+        echo "  Start it with: podman machine start"
     fi
-done
-
-if [ -z "${FOUND_SOCKET}" ]; then
-    echo "✗ No Docker socket found in common locations"
+    echo ""
 fi
-
-echo ""
-echo "=== Docker Context ==="
-echo ""
 
 # Check Docker context
-if docker context ls &> /dev/null 2>&1; then
-    echo "Docker contexts:"
-    docker context ls 2>&1 || echo "  (docker context ls failed)"
+echo "Docker Context:"
+docker context ls 2>/dev/null || echo "  (Could not list contexts)"
+echo ""
+
+# Check if Docker daemon is accessible (via Docker CLI, which may use Podman)
+echo "Testing container runtime connection (via Docker CLI)..."
+if docker ps &> /dev/null; then
+    echo "✓ Container runtime is accessible via Docker CLI"
     echo ""
-    CURRENT_CONTEXT=$(docker context show 2>/dev/null || echo "unknown")
-    echo "Current context: ${CURRENT_CONTEXT}"
+    echo "Runtime Info:"
+    docker info 2>/dev/null | grep -E "(Server Version|Operating System|OSType|Architecture|Total Memory|CPUs|Backend)" || true
+    
+    # Check if it's actually Podman
+    if docker info 2>/dev/null | grep -q "podman"; then
+        echo ""
+        echo "ℹ Using Podman as backend (via Docker CLI)"
+    fi
 else
-    echo "Cannot list Docker contexts"
-fi
-
-echo ""
-echo "=== Docker Info Test ==="
-echo ""
-
-# Try docker info
-if docker info &> /dev/null 2>&1; then
-    echo "✓ docker info works - Docker daemon is accessible"
+    echo "❌ Cannot connect to container runtime"
     echo ""
-    echo "Docker daemon info:"
-    docker info 2>&1 | head -20 || true
-else
-    echo "✗ docker info failed - Docker daemon not accessible"
+    echo "Possible issues:"
+    if command -v podman &> /dev/null; then
+        echo "  1. Podman machine is not running: podman machine start"
+        echo "  2. DOCKER_HOST not set to Podman socket"
+        echo "  3. Docker CLI not configured to use Podman"
+    else
+        echo "  1. Docker Desktop is not running"
+        echo "  2. Docker daemon is not accessible"
+        echo "  3. Wrong Docker context"
+    fi
     echo ""
-    echo "Error details:"
-    docker info 2>&1 | head -10 || true
-fi
-
-echo ""
-echo "=== Docker PS Test ==="
-echo ""
-
-# Try docker ps
-if docker ps &> /dev/null 2>&1; then
-    echo "✓ docker ps works"
-    echo ""
-    echo "Running containers:"
-    docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" 2>&1 | head -20 || true
-else
-    echo "✗ docker ps failed"
-    docker ps 2>&1 | head -5 || true
-fi
-
-echo ""
-echo "=== Environment Variables ==="
-echo ""
-
-# Check DOCKER_HOST
-if [ -n "${DOCKER_HOST:-}" ]; then
-    echo "DOCKER_HOST is set: ${DOCKER_HOST}"
-else
-    echo "DOCKER_HOST is not set (using default socket)"
-fi
-
-# Check DOCKER_CONTEXT
-if [ -n "${DOCKER_CONTEXT:-}" ]; then
-    echo "DOCKER_CONTEXT is set: ${DOCKER_CONTEXT}"
-else
-    echo "DOCKER_CONTEXT is not set"
-fi
-
-echo ""
-echo "=== Docker Desktop Status (macOS) ==="
-echo ""
-
-# Check if Docker Desktop is running (macOS)
-if pgrep -f "Docker Desktop" &> /dev/null; then
-    echo "✓ Docker Desktop process is running"
-else
-    echo "✗ Docker Desktop process not found"
-    echo ""
-    echo "To start Docker Desktop:"
-    echo "  open -a Docker"
-    echo ""
-    echo "Or check if it's installed:"
-    echo "  ls -la /Applications/Docker.app"
+    echo "Try:"
+    if command -v podman &> /dev/null; then
+        echo "  - Start Podman: podman machine start"
+        PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+        if [ -n "${PODMAN_SOCKET}" ]; then
+            echo "  - Set DOCKER_HOST: export DOCKER_HOST=unix://${PODMAN_SOCKET}"
+        fi
+    else
+        echo "  - Start Docker Desktop: open -a Docker"
+        echo "  - Check Docker context: docker context ls"
+    fi
+    exit 1
 fi
 
 echo ""
 echo "=== Summary ==="
 echo ""
-if docker ps &> /dev/null 2>&1; then
-    echo "✓ Docker is working - you can create clusters"
+if docker ps &> /dev/null; then
+    echo "✓ Container runtime is working - you can create clusters with k3d"
 else
-    echo "✗ Docker is NOT accessible"
-    echo ""
-    echo "To fix:"
-    echo "  1. Start Docker Desktop: open -a Docker"
-    echo "  2. Wait for Docker to start (check system tray)"
-    echo "  3. Run this script again to verify"
+    echo "✗ Container runtime is NOT accessible"
 fi
-

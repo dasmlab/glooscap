@@ -6,9 +6,9 @@ This directory contains everything needed to run Glooscap on macOS using Docker 
 
 This setup provides a fully FOSS (Free and Open Source Software) stack for running Glooscap locally on macOS:
 
-- **Docker**: Container runtime
-- **k3d**: k3s in Docker containers (lightweight, no VM overhead)
-- **kubectl**: Kubernetes CLI
+- **Docker CLI**: Container CLI (for k3d compatibility)
+- **Podman**: Container runtime/daemon (FOSS alternative to Docker Desktop)
+- **k3d**: k3s in Podman containers (lightweight, no Docker Desktop needed)
 - **kubectl**: Kubernetes CLI
 - **Glooscap Operator**: Deployed via Kubernetes manifests
 - **Glooscap UI**: Deployed via Kubernetes manifests
@@ -32,9 +32,9 @@ This setup provides a fully FOSS (Free and Open Source Software) stack for runni
    ./scripts/start-k3d.sh
    ```
    
-   k3d runs k3s directly in Docker containers:
-   - No VM overhead (lighter than Colima)
-   - Works reliably with Docker
+   k3d runs k3s in Podman containers:
+   - Uses Podman as the container runtime (FOSS)
+   - Docker CLI connects to Podman via `DOCKER_HOST`
    - Fast startup and simple architecture
    - Perfect for local development
 
