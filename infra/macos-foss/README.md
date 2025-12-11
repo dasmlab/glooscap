@@ -7,7 +7,8 @@ This directory contains everything needed to run Glooscap on macOS using Podman 
 This setup provides a fully FOSS (Free and Open Source Software) stack for running Glooscap locally on macOS:
 
 - **Podman**: Container runtime (Docker alternative)
-- **minikube**: Recommended Kubernetes for macOS with Podman
+- **Colima**: RECOMMENDED - Lightweight Kubernetes for macOS (works great with Podman)
+- **minikube**: Alternative Kubernetes solution
 - **k3d**: Alternative (runs k3s in containers, but has known issues with Podman on macOS)
 - **kubectl**: Kubernetes CLI
 - **kubectl**: Kubernetes CLI
@@ -29,17 +30,22 @@ This setup provides a fully FOSS (Free and Open Source Software) stack for runni
 
 2. **Start the Kubernetes cluster:**
    
-   **RECOMMENDED (works reliably with Podman):**
+   **RECOMMENDED (Colima - lightweight, works great on macOS):**
    ```bash
-   ./scripts/start-minikube.sh
+   ./scripts/start-colima.sh
    ```
    
-   **Alternative (may hang with Podman):**
-   ```bash
-   ./scripts/start-k3d.sh
-   ```
+   Colima is specifically designed for macOS and provides:
+   - Lightweight VM using Lima
+   - Docker-compatible API
+   - Built-in Kubernetes support
+   - Fast startup and reliable operation
    
-   **Note**: minikube is recommended for Podman on macOS as k3d has known compatibility issues.
+   **Alternatives:**
+   ```bash
+   ./scripts/start-minikube.sh  # Alternative option
+   ./scripts/start-k3d.sh       # May hang with Podman
+   ```
 
 3. **Deploy Glooscap:**
    ```bash

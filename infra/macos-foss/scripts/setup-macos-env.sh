@@ -140,25 +140,37 @@ fi
 log_info "Note: k3s doesn't work natively on macOS (requires systemd/openrc)"
 log_info "We'll install k3d instead, which runs k3s inside containers (works on macOS)"
 
-# Install k3d (k3s in Docker/Podman)
-# Note: k3d has known issues with Podman on macOS, minikube is recommended
-if ! check_command k3d; then
-    log_info "Installing k3d..."
-    brew install k3d
-    log_success "k3d installed"
-    log_warn "Note: k3d has known compatibility issues with Podman on macOS"
-    log_info "If k3d hangs, consider using minikube instead (see below)"
+# Install Colima (RECOMMENDED for macOS - lightweight, works with Podman)
+# Colima provides a Docker-compatible API and Kubernetes support
+if ! check_command colima; then
+    log_info "Installing Colima (RECOMMENDED for macOS Kubernetes)..."
+    brew install colima
+    log_success "Colima installed"
 else
-    log_info "k3d already installed: $(k3d version 2>/dev/null || echo 'installed')"
+    log_info "Colima already installed: $(colima version 2>/dev/null | head -n1 || echo 'installed')"
 fi
 
-# Install minikube (recommended alternative for Podman on macOS)
-if ! check_command minikube; then
-    log_info "Installing minikube (recommended for Podman on macOS)..."
-    brew install minikube
-    log_success "minikube installed"
-else
-    log_info "minikube already installed: $(minikube version --short 2>/dev/null || echo 'installed')"
+# Install k3d (optional alternative)
+if [[ "${INSTALL_K3D:-false}" == "true" ]]; then
+    if ! check_command k3d; then
+        log_info "Installing k3d..."
+        brew install k3d
+        log_success "k3d installed"
+        log_warn "Note: k3d has known compatibility issues with Podman on macOS"
+    else
+        log_info "k3d already installed: $(k3d version 2>/dev/null || echo 'installed')"
+    fi
+fi
+
+# Install minikube (optional alternative)
+if [[ "${INSTALL_MINIKUBE:-false}" == "true" ]]; then
+    if ! check_command minikube; then
+        log_info "Installing minikube..."
+        brew install minikube
+        log_success "minikube installed"
+    else
+        log_info "minikube already installed: $(minikube version --short 2>/dev/null || echo 'installed')"
+    fi
 fi
 
 # Install Helm (optional, for future use)
@@ -190,16 +202,10 @@ else
     log_error "✗ kubectl not found"
 fi
 
-if check_command k3d; then
-    log_success "✓ k3d: $(k3d version 2>/dev/null || echo 'installed')"
+if check_command colima; then
+    log_success "✓ Colima: $(colima version 2>/dev/null | head -n1 || echo 'installed')"
 else
-    log_warn "⚠ k3d not found"
-fi
-
-if check_command minikube; then
-    log_success "✓ minikube: $(minikube version --short 2>/dev/null || echo 'installed')"
-else
-    log_warn "⚠ minikube not found"
+    log_warn "⚠ Colima not found"
 fi
 
 # Create kubeconfig directory
@@ -211,11 +217,15 @@ echo ""
 log_info "Next steps:"
 echo "  1. Restart your terminal or run: source ~/.zprofile"
 echo "  2. Start Kubernetes cluster:"
-echo "     - RECOMMENDED (Podman): ./scripts/start-minikube.sh"
+echo "     - RECOMMENDED: ./scripts/start-colima.sh (lightweight, works great on macOS)"
+echo "     - Alternative: ./scripts/start-minikube.sh"
 echo "     - Alternative: ./scripts/start-k3d.sh (may hang with Podman)"
 echo "  3. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_warn "IMPORTANT: k3d has known issues with Podman on macOS and may hang."
-log_info "RECOMMENDED: Use minikube instead (works reliably with Podman):"
-log_info "  ./scripts/start-minikube.sh"
+log_info "RECOMMENDED: Colima is the best solution for macOS:"
+log_info "  - Lightweight and fast"
+log_info "  - Works reliably on macOS"
+log_info "  - Provides Docker-compatible API"
+log_info "  - Built-in Kubernetes support"
+log_info "  ./scripts/start-colima.sh"
 

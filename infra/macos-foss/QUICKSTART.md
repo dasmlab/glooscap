@@ -30,36 +30,39 @@ export PATH="${HOME}/.local/bin:$PATH"
 
 ## Step 2: Start Kubernetes Cluster
 
-**IMPORTANT**: k3d has known compatibility issues with Podman on macOS and may hang.
-
-**RECOMMENDED: Use minikube (works reliably with Podman):**
+**RECOMMENDED: Use Colima (best solution for macOS):**
 
 ```bash
-./scripts/start-minikube.sh
+./scripts/start-colima.sh
 ```
 
 This will:
-- Start minikube with Podman driver
+- Start Colima with Kubernetes support
+- Create a lightweight VM (using Lima)
 - Configure kubectl to use the cluster
-- Wait for the cluster to be ready
-- Install ingress and metrics-server addons
+- Wait for Kubernetes to be ready
 
-**Alternative: k3d (may hang with Podman):**
+**Why Colima?**
+- Specifically designed for macOS
+- Lightweight and fast
+- Works reliably (no hanging issues)
+- Provides Docker-compatible API
+- Built-in Kubernetes support
 
+**Alternatives:**
 ```bash
-./scripts/start-k3d.sh
+./scripts/start-minikube.sh  # Alternative option
+./scripts/start-k3d.sh        # May hang with Podman
 ```
 
-**Note**: If k3d hangs at "starting node", press Ctrl+C and use minikube instead.
-
-**To stop minikube:**
+**To stop Colima:**
 ```bash
-./scripts/stop-minikube.sh
+./scripts/stop-colima.sh
 ```
 
-**To delete minikube cluster:**
+**To delete Colima VM:**
 ```bash
-DELETE_CLUSTER=true ./scripts/stop-minikube.sh
+DELETE_VM=true ./scripts/stop-colima.sh
 ```
 
 ## Step 3: Prepare CRDs
