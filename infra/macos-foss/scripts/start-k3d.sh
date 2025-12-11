@@ -208,8 +208,29 @@ if k3d cluster list &> /dev/null 2>&1; then
                 fi
                 K3D_PID=$!
                 
+                # Give k3d a moment to start and check if it failed immediately
+                sleep 2
+                if ! kill -0 ${K3D_PID} 2>/dev/null; then
+                    # Process already finished (likely failed immediately)
+                    wait ${K3D_PID} 2>/dev/null
+                    K3D_EXIT=$?
+                    log_error "k3d failed immediately (exit code: ${K3D_EXIT})"
+                    log_info "k3d log output:"
+                    if [ -f /tmp/k3d-create.log ]; then
+                        cat /tmp/k3d-create.log
+                    else
+                        log_warn "Log file not created"
+                    fi
+                    log_info ""
+                    log_info "Check:"
+                    log_info "  - k3d version: k3d version"
+                    log_info "  - Container runtime: podman ps"
+                    log_info "  - DOCKER_HOST: echo \$DOCKER_HOST"
+                    exit 1
+                fi
+                
                 # Monitor k3d process and container startup
-                MONITOR_COUNT=0
+                MONITOR_COUNT=2  # Start from 2 since we already waited 2 seconds
                 MAX_MONITOR=$((TIMEOUT_SECONDS + 10))  # Monitor slightly longer than timeout
                 K3D_FINISHED=false
                 
