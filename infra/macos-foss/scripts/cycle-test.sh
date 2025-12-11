@@ -103,7 +103,7 @@ if [ ${DEPLOY_RESULT} -eq 0 ]; then
     run_step "Undeploy Glooscap" "${SCRIPT_DIR}/undeploy-glooscap.sh"
     UNDEPLOY_RESULT=$?
 else
-    log_warn "Skipping undeploy (deploy failed or skipped)")
+    log_warn "Skipping undeploy (deploy failed or skipped)"
     RESULTS+=("4. Undeploy Glooscap: ⊘ SKIPPED")
     UNDEPLOY_RESULT=0
 fi
