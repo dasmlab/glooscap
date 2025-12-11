@@ -255,24 +255,53 @@ else
     exit 1
 fi
 
-# Wait for cluster to be ready
+# Wait for cluster to be ready (especially important if --wait=false was used)
 log_info "Waiting for cluster to be ready..."
-MAX_WAIT=120
+MAX_WAIT=180  # Increased timeout for Podman
 WAIT_COUNT=0
+
+# If using Podman, also check if containers are actually running
+if [ "${USING_PODMAN}" = "true" ]; then
+    log_info "Checking Podman containers are running..."
+    sleep 5  # Give containers a moment to start
+    if ! podman ps 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
+        log_warn "k3d server container not running yet, waiting..."
+    fi
+fi
 
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     if kubectl cluster-info &> /dev/null 2>&1; then
-        break
+        # Also verify nodes are ready
+        if kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
+            break
+        fi
     fi
-    sleep 2
-    WAIT_COUNT=$((WAIT_COUNT + 2))
+    sleep 3
+    WAIT_COUNT=$((WAIT_COUNT + 3))
     echo -n "."
+    
+    # Show progress every 30 seconds
+    if [ $((WAIT_COUNT % 30)) -eq 0 ]; then
+        echo ""
+        log_info "Still waiting... (${WAIT_COUNT}s / ${MAX_WAIT}s)"
+        if [ "${USING_PODMAN}" = "true" ]; then
+            # Check container status
+            if podman ps 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
+                log_info "Server container is running, checking k3s logs..."
+                podman logs --tail 5 k3d-glooscap-server-0 2>/dev/null | tail -3 || true
+            fi
+        fi
+    fi
 done
 echo ""
 
 if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-    log_warn "Cluster may not be fully ready yet"
+    log_warn "Cluster may not be fully ready yet (waited ${MAX_WAIT}s)"
     log_info "Check status: kubectl cluster-info"
+    if [ "${USING_PODMAN}" = "true" ]; then
+        log_info "Check Podman containers: podman ps -a | grep k3d"
+        log_info "Check k3s logs: podman logs k3d-glooscap-server-0"
+    fi
 else
     log_success "Cluster is ready!"
 fi
