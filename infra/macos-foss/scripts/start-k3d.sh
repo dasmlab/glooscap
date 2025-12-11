@@ -29,54 +29,56 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if k3d is installed
-if ! command -v k3d &> /dev/null; then
-    log_error "k3d not found. Installing..."
-    brew install k3d
-    log_success "k3d installed"
-fi
-
-# Check if cluster already exists - let k3d handle everything
-CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
-
-# Try to list clusters - if this fails, k3d will tell us why
-if ! k3d cluster list &> /dev/null; then
-    log_error "k3d cluster list failed"
-    log_info "This might mean Docker/k3d is not properly configured"
-    log_info "Try: k3d cluster list"
-    exit 1
-fi
-
-# Check cluster status
-if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
-    if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}.*running"; then
-        log_success "k3d cluster '${CLUSTER_NAME}' is already running"
-        # Fall through to wait/status section
-    else
-        log_info "Cluster '${CLUSTER_NAME}' exists but is not running. Starting it..."
-        k3d cluster start "${CLUSTER_NAME}" || {
-            log_error "Failed to start cluster"
-            log_info "Check k3d status: k3d cluster list"
-            exit 1
-        }
-        log_success "Cluster started"
-        # Fall through to wait/status section
-    fi
+# First, check if kubectl can already connect - if so, we're done!
+if kubectl cluster-info &> /dev/null 2>&1; then
+    log_success "Cluster is already accessible via kubectl"
+    # Fall through to show status
 else
-    log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
-    k3d cluster create "${CLUSTER_NAME}" \
-        --api-port 6443 \
-        --port "8080:80@loadbalancer" \
-        --port "8443:443@loadbalancer" \
-        --port "3000:3000@loadbalancer" \
-        --agents 1 \
-        --k3s-arg "--disable=traefik@server:0" \
-        --k3s-arg "--disable=servicelb@server:0" || {
-        log_error "Failed to create k3d cluster"
-        log_info "Check k3d status: k3d cluster list"
-        exit 1
-    }
-    log_success "k3d cluster created successfully!"
+    # Cluster not accessible, try to manage via k3d
+    # Check if k3d is installed
+    if ! command -v k3d &> /dev/null; then
+        log_error "k3d not found. Installing..."
+        brew install k3d
+        log_success "k3d installed"
+    fi
+
+    CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
+
+    # Try to list clusters - if this fails, we can't manage via k3d
+    if k3d cluster list &> /dev/null 2>&1; then
+        # k3d can see Docker, try to manage cluster
+        if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
+            if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}.*running"; then
+                log_success "k3d cluster '${CLUSTER_NAME}' is running"
+                # Fall through to wait/status section
+            else
+                log_info "Cluster '${CLUSTER_NAME}' exists but is not running. Starting it..."
+                k3d cluster start "${CLUSTER_NAME}" || {
+                    log_error "Failed to start cluster"
+                    exit 1
+                }
+                log_success "Cluster started"
+            fi
+        else
+            log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
+            k3d cluster create "${CLUSTER_NAME}" \
+                --api-port 6443 \
+                --port "8080:80@loadbalancer" \
+                --port "8443:443@loadbalancer" \
+                --port "3000:3000@loadbalancer" \
+                --agents 1 \
+                --k3s-arg "--disable=traefik@server:0" \
+                --k3s-arg "--disable=servicelb@server:0" || {
+                log_error "Failed to create k3d cluster"
+                exit 1
+            }
+            log_success "k3d cluster created successfully!"
+        fi
+    else
+        log_warn "k3d cannot access Docker daemon, but checking if cluster is accessible anyway..."
+        log_info "If kubectl works, the cluster is running in a different Docker context"
+        # Fall through to check kubectl again
+    fi
 fi
 
 # Wait for cluster to be ready
