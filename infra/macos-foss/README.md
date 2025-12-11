@@ -54,8 +54,9 @@ This setup provides a fully FOSS (Free and Open Source Software) stack for runni
 ### Step 1: Install Dependencies
 
 The `setup-macos-env.sh` script will install:
-- Podman Desktop (or Podman via Homebrew)
-- k3s (lightweight Kubernetes)
+- Docker CLI (via Homebrew, for k3d compatibility)
+- Podman (via Homebrew, the container runtime/daemon)
+- k3d (k3s in containers)
 - kubectl (Kubernetes CLI)
 - Helm (optional, for future use)
 
@@ -105,24 +106,30 @@ k3d stores cluster data in Docker containers. The kubeconfig file is at:
 
 k3d automatically manages the kubeconfig when you create/start clusters.
 
-### Docker Configuration
+### Podman Configuration
 
-Docker stores images and containers in:
+Podman stores images and containers in:
 ```
 ~/.local/share/containers/storage
 ```
 
+The Docker CLI connects to Podman via `DOCKER_HOST` environment variable, which is automatically configured by the setup scripts.
+
 ## Troubleshooting
 
 ### k3d won't start
-- Ensure Docker Desktop is running
+- Ensure Podman machine is running: `podman machine start`
+- Check if `DOCKER_HOST` is set: `echo $DOCKER_HOST` (should point to Podman socket)
+- Verify container runtime: `./scripts/check-docker.sh`
 - Check if port 6443 is already in use
 - Check cluster status: `k3d cluster list`
-- Check container logs: `docker logs k3d-glooscap-server-0`
+- Check Podman containers: `podman ps`
 
-### Docker issues
-- Ensure Docker Desktop is running
-- Check Docker info: `docker info`
+### Container runtime issues
+- Ensure Podman machine is running: `podman machine start`
+- Check if `DOCKER_HOST` is set correctly
+- Verify with: `./scripts/check-docker.sh`
+- Check Docker info: `docker info` (should show Podman backend)
 
 ### Image pull errors
 - Ensure images are built and available locally
