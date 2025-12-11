@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # start-k3d.sh
 # Starts a k3d cluster (k3s in Docker containers)
+# This script relies entirely on k3d - no Docker checks needed
 
 set -euo pipefail
 
@@ -35,19 +36,27 @@ if ! command -v k3d &> /dev/null; then
     log_success "k3d installed"
 fi
 
-# Check if cluster already exists first
+# Check if cluster already exists - let k3d handle everything
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
-if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
-    if k3d cluster list | grep -q "${CLUSTER_NAME}.*running"; then
+
+# Try to list clusters - if this fails, k3d will tell us why
+if ! k3d cluster list &> /dev/null; then
+    log_error "k3d cluster list failed"
+    log_info "This might mean Docker/k3d is not properly configured"
+    log_info "Try: k3d cluster list"
+    exit 1
+fi
+
+# Check cluster status
+if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
+    if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}.*running"; then
         log_success "k3d cluster '${CLUSTER_NAME}' is already running"
-        # Still wait for it to be ready and show status
-        # (fall through to wait/status section)
+        # Fall through to wait/status section
     else
         log_info "Cluster '${CLUSTER_NAME}' exists but is not running. Starting it..."
-        # If k3d can list clusters, Docker must be working - just try to start
         k3d cluster start "${CLUSTER_NAME}" || {
-            log_error "Failed to start cluster. Docker may not be running."
-            log_info "Please ensure Docker is running and try again"
+            log_error "Failed to start cluster"
+            log_info "Check k3d status: k3d cluster list"
             exit 1
         }
         log_success "Cluster started"
@@ -55,8 +64,6 @@ if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
     fi
 else
     log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
-    # If k3d works, Docker must be working - just try to create
-    # If it fails, k3d will give a better error message than we can
     k3d cluster create "${CLUSTER_NAME}" \
         --api-port 6443 \
         --port "8080:80@loadbalancer" \
@@ -64,14 +71,12 @@ else
         --port "3000:3000@loadbalancer" \
         --agents 1 \
         --k3s-arg "--disable=traefik@server:0" \
-        --k3s-arg "--disable=servicelb@server:0"
-    
-    if [[ $? -eq 0 ]]; then
-        log_success "k3d cluster created successfully!"
-    else
+        --k3s-arg "--disable=servicelb@server:0" || {
         log_error "Failed to create k3d cluster"
+        log_info "Check k3d status: k3d cluster list"
         exit 1
-    fi
+    }
+    log_success "k3d cluster created successfully!"
 fi
 
 # Wait for cluster to be ready
