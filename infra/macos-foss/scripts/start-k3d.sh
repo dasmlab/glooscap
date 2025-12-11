@@ -45,7 +45,7 @@ if kubectl cluster-info &> /dev/null 2>&1; then
     exit 0
 fi
 
-# Cluster not accessible, try to manage via k3d
+# Cluster not accessible, need to create/start it
 # Check if k3d is installed
 if ! command -v k3d &> /dev/null; then
     log_error "k3d not found. Installing..."
@@ -55,7 +55,10 @@ fi
 
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
 
-# Try to list clusters - if this fails, we can't manage via k3d
+# Try to create/start cluster - k3d will handle Docker errors
+log_info "Cluster not accessible via kubectl, attempting to create/start with k3d..."
+
+# Try to list clusters first (to see if we can access Docker)
 if k3d cluster list &> /dev/null 2>&1; then
     # k3d can see Docker, try to manage cluster
     if k3d cluster list 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
@@ -65,6 +68,7 @@ if k3d cluster list &> /dev/null 2>&1; then
             log_info "Cluster '${CLUSTER_NAME}' exists but is not running. Starting it..."
             k3d cluster start "${CLUSTER_NAME}" || {
                 log_error "Failed to start cluster"
+                log_info "Check if Docker is running: docker ps"
                 exit 1
             }
             log_success "Cluster started"
@@ -78,15 +82,34 @@ if k3d cluster list &> /dev/null 2>&1; then
             --port "3000:3000@loadbalancer" \
             --agents 1 \
             --k3s-arg "--disable=traefik@server:0" \
-            --k3s-arg "--disable=servicelb@server:0" || {
+            --k3s-arg "--disable=servicelb@server:0" 2>&1 | tee /tmp/k3d-create.log || {
             log_error "Failed to create k3d cluster"
+            if grep -q "Cannot connect to the Docker daemon" /tmp/k3d-create.log 2>/dev/null; then
+                log_error "Docker daemon is not accessible"
+                log_info ""
+                log_info "To fix this:"
+                log_info "  1. Start Docker Desktop (or Docker daemon)"
+                log_info "  2. Wait for Docker to be ready"
+                log_info "  3. Run this script again"
+                log_info ""
+                log_info "Or check Docker status: docker ps"
+            fi
             exit 1
         }
         log_success "k3d cluster created successfully!"
     fi
 else
-    log_error "k3d cannot access Docker daemon and kubectl cannot connect"
-    log_info "Please ensure Docker is running or cluster is accessible"
+    # k3d cluster list failed - Docker not accessible
+    log_error "k3d cannot access Docker daemon"
+    log_info ""
+    log_info "k3d needs Docker to be running to create clusters."
+    log_info ""
+    log_info "To fix this:"
+    log_info "  1. Start Docker Desktop (or Docker daemon)"
+    log_info "  2. Wait for Docker to be ready"
+    log_info "  3. Run this script again: ./scripts/start-k3d.sh"
+    log_info ""
+    log_info "Check Docker status: docker ps"
     exit 1
 fi
 
