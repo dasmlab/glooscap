@@ -22,7 +22,13 @@ if ! command -v podman &> /dev/null; then
 fi
 
 # Get Podman machine name
-PODMAN_MACHINE=$(podman machine list --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "podman-machine-default")
+PODMAN_MACHINE=$(podman machine list --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+
+if [ -z "${PODMAN_MACHINE}" ]; then
+    log_error "No Podman machine found"
+    log_info "Create one with: podman machine init --rootful podman-machine-default"
+    exit 1
+fi
 
 log_info "Podman Machine: ${PODMAN_MACHINE}"
 
@@ -37,11 +43,19 @@ if podman machine list 2>/dev/null | grep -q "${PODMAN_MACHINE}.*running"; then
     log_success "Machine stopped"
 fi
 
-# Check current resources
+# Check current resources (with fallbacks)
 log_info "Checking current machine resources..."
 MACHINE_INFO=$(podman machine inspect "${PODMAN_MACHINE}" 2>/dev/null || echo "")
 CPU_COUNT=$(echo "${MACHINE_INFO}" | grep -o '"CPUs":[0-9]*' | cut -d':' -f2 || echo "2")
 MEMORY=$(echo "${MACHINE_INFO}" | grep -o '"Memory":[0-9]*' | cut -d':' -f2 || echo "2048")
+
+# Validate we got reasonable values
+if [ -z "${CPU_COUNT}" ] || [ "${CPU_COUNT}" = "0" ]; then
+    CPU_COUNT="2"
+fi
+if [ -z "${MEMORY}" ] || [ "${MEMORY}" = "0" ]; then
+    MEMORY="2048"
+fi
 
 log_info "Current resources:"
 log_info "  CPUs: ${CPU_COUNT}"
