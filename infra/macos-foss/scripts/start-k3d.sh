@@ -35,7 +35,7 @@ if ! command -v k3d &> /dev/null; then
     log_success "k3d installed"
 fi
 
-# Check if cluster already exists first (before checking Docker)
+# Check if cluster already exists first
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
 if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
     if k3d cluster list | grep -q "${CLUSTER_NAME}.*running"; then
@@ -44,24 +44,18 @@ if k3d cluster list | grep -q "${CLUSTER_NAME}"; then
         exit 0
     else
         log_info "Cluster '${CLUSTER_NAME}' exists but is not running. Starting it..."
-        # Only check Docker if we need to start the cluster
-        if ! docker info &> /dev/null; then
-            log_error "Docker is not running"
-            log_info "Please start Docker Desktop or Docker daemon"
+        # If k3d can list clusters, Docker must be working - just try to start
+        k3d cluster start "${CLUSTER_NAME}" || {
+            log_error "Failed to start cluster. Docker may not be running."
+            log_info "Please start Docker Desktop and try again"
             exit 1
-        fi
-        k3d cluster start "${CLUSTER_NAME}"
+        }
         log_success "Cluster started"
     fi
 else
-    # Only check Docker if we need to create a new cluster
-    if ! docker info &> /dev/null; then
-        log_error "Docker is not running"
-        log_info "Please start Docker Desktop or Docker daemon"
-        exit 1
-    fi
-    
-    log_info "Docker is running"
+    log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
+    # If k3d works, Docker must be working - just try to create
+    # If it fails, k3d will give a better error message than we can
     log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
     
     # Create cluster
