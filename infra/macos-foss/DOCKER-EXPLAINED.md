@@ -30,8 +30,30 @@ After removing the cluster:
 
 ## The Solution
 
-**Option 1: Start Docker Desktop**
+**IMPORTANT: Docker CLI vs Docker Desktop**
+
+- `brew install docker` → **CLI only** (no daemon, won't work with k3d)
+- `brew install --cask docker` → **Docker Desktop** (includes daemon, works with k3d)
+
+**If you installed via `brew install docker` (CLI only):**
 ```bash
+# Uninstall CLI-only version
+brew uninstall docker
+
+# Install Docker Desktop (includes daemon)
+brew install --cask docker
+
+# Start Docker Desktop
+open -a Docker
+
+# Wait for it to start, then verify:
+./scripts/check-docker.sh
+./scripts/start-k3d.sh
+```
+
+**If Docker Desktop is already installed:**
+```bash
+# Just start it
 open -a Docker
 # Wait for it to start, then:
 ./scripts/check-docker.sh  # Verify Docker is accessible
