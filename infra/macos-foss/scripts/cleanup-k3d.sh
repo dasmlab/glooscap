@@ -38,17 +38,37 @@ fi
 # Force remove any remaining k3d containers
 log_info "Removing k3d containers..."
 if [ "${USING_PODMAN}" = "true" ]; then
-    # Podman
-    for container in $(${CONTAINER_CMD} ps -a --filter "name=k3d" --format "{{.Names}}" 2>/dev/null); do
-        log_info "  Removing container: ${container}"
-        ${CONTAINER_CMD} rm -f "${container}" 2>/dev/null || true
-    done
+    # Podman - get all k3d containers (including stopped)
+    CONTAINERS=$(${CONTAINER_CMD} ps -a --filter "name=k3d" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "${CONTAINERS}" ]; then
+        echo "${CONTAINERS}" | while read -r container; do
+            if [ -n "${container}" ]; then
+                log_info "  Removing container: ${container}"
+                # Show logs before removing (for debugging)
+                log_info "    Logs for ${container}:"
+                ${CONTAINER_CMD} logs --tail 10 "${container}" 2>/dev/null || true
+                ${CONTAINER_CMD} rm -f "${container}" 2>/dev/null || true
+            fi
+        done
+    else
+        log_info "  No k3d containers found"
+    fi
 else
     # Docker
-    for container in $(${CONTAINER_CMD} ps -a --filter "name=k3d" --format "{{.Names}}" 2>/dev/null); do
-        log_info "  Removing container: ${container}"
-        ${CONTAINER_CMD} rm -f "${container}" 2>/dev/null || true
-    done
+    CONTAINERS=$(${CONTAINER_CMD} ps -a --filter "name=k3d" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "${CONTAINERS}" ]; then
+        echo "${CONTAINERS}" | while read -r container; do
+            if [ -n "${container}" ]; then
+                log_info "  Removing container: ${container}"
+                # Show logs before removing (for debugging)
+                log_info "    Logs for ${container}:"
+                ${CONTAINER_CMD} logs --tail 10 "${container}" 2>/dev/null || true
+                ${CONTAINER_CMD} rm -f "${container}" 2>/dev/null || true
+            fi
+        done
+    else
+        log_info "  No k3d containers found"
+    fi
 fi
 
 # Remove kubeconfig entry if it exists

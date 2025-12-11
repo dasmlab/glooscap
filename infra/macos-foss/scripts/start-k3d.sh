@@ -146,6 +146,7 @@ if k3d cluster list &> /dev/null 2>&1; then
             "--agents" "1"
             "--k3s-arg" "--disable=traefik@server:0"
             "--k3s-arg" "--disable=servicelb@server:0"
+            "--no-lb"  # Disable loadbalancer for Podman compatibility
         )
         
         # Podman-specific: Add compatibility flags
@@ -157,6 +158,7 @@ if k3d cluster list &> /dev/null 2>&1; then
             # For Podman, we might need to wait longer for containers to start
             # Add a wait flag to give containers more time
             K3D_ARGS+=("--wait" "60")  # Wait up to 60 seconds for cluster to be ready
+            # Note: --no-lb is already added above to avoid loadbalancer issues with Podman
         fi
         
         # Execute k3d command with timeout and logging
