@@ -189,7 +189,23 @@ if k3d cluster list &> /dev/null 2>&1; then
                 log_info "Running k3d for Podman (with timeout and monitoring)..."
                 # Use timeout to prevent infinite hanging
                 TIMEOUT_SECONDS=300  # 5 minutes max
-                timeout ${TIMEOUT_SECONDS} k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
+                
+                # Check if timeout command is available
+                TIMEOUT_CMD=""
+                if command -v timeout &> /dev/null; then
+                    TIMEOUT_CMD="timeout"
+                elif command -v gtimeout &> /dev/null; then
+                    TIMEOUT_CMD="gtimeout"
+                fi
+                
+                if [ -n "${TIMEOUT_CMD}" ]; then
+                    log_info "Using ${TIMEOUT_CMD} for timeout protection"
+                    ${TIMEOUT_CMD} ${TIMEOUT_SECONDS} k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
+                else
+                    log_warn "timeout command not available, running k3d without timeout wrapper"
+                    log_warn "If k3d hangs, you may need to kill it manually"
+                    k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
+                fi
                 K3D_PID=$!
                 
                 # Monitor k3d process and container startup
