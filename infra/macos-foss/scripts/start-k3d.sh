@@ -180,14 +180,8 @@ if k3d cluster list &> /dev/null 2>&1; then
             log_info "  [${i}]: '${K3D_ARGS[$i]}'"
         done
         
-        # Use timeout if available (macOS timeout or gtimeout from coreutils)
-        if command -v timeout &> /dev/null || command -v gtimeout &> /dev/null; then
-            TIMEOUT_CMD="timeout"
-            if ! command -v timeout &> /dev/null; then
-                TIMEOUT_CMD="gtimeout"
-            fi
-            # For Podman, run k3d in background and monitor progress
-            if [ "${USING_PODMAN}" = "true" ]; then
+        # For Podman, run k3d in background and monitor progress
+        if [ "${USING_PODMAN}" = "true" ]; then
                 log_info "Running k3d in background and monitoring progress..."
                 k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
                 K3D_PID=$!
@@ -247,7 +241,13 @@ if k3d cluster list &> /dev/null 2>&1; then
                 else
                     log_success "k3d cluster created successfully!"
                 fi
-            else
+        else
+            # Docker: Use timeout if available (macOS timeout or gtimeout from coreutils)
+            if command -v timeout &> /dev/null || command -v gtimeout &> /dev/null; then
+                TIMEOUT_CMD="timeout"
+                if ! command -v timeout &> /dev/null; then
+                    TIMEOUT_CMD="gtimeout"
+                fi
                 ${TIMEOUT_CMD} 300 k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
                 log_error "Failed to create k3d cluster"
                 if grep -q "Cannot connect to the Docker daemon\|Cannot connect to the Podman" /tmp/k3d-create.log 2>/dev/null; then
@@ -289,17 +289,18 @@ if k3d cluster list &> /dev/null 2>&1; then
                 tail -20 /tmp/k3d-create.log || true
                 
                 exit 1
-            }
-            log_success "k3d cluster created successfully!"
-        else
-            # No timeout command available, run k3d directly
-            log_warn "timeout command not available, running k3d without timeout"
-            k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
-                log_error "Failed to create k3d cluster"
-                log_info "Check /tmp/k3d-create.log for details"
-                exit 1
-            }
-            log_success "k3d cluster created successfully!"
+                }
+                log_success "k3d cluster created successfully!"
+            else
+                # No timeout command available, run k3d directly
+                log_warn "timeout command not available, running k3d without timeout"
+                k3d "${K3D_ARGS[@]}" 2>&1 | tee /tmp/k3d-create.log || {
+                    log_error "Failed to create k3d cluster"
+                    log_info "Check /tmp/k3d-create.log for details"
+                    exit 1
+                }
+                log_success "k3d cluster created successfully!"
+            fi
         fi
     fi
 else
