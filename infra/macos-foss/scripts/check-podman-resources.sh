@@ -121,11 +121,12 @@ if [ "${BACKEND}" = "AppleHV" ]; then
     log_info "  AppleHV backend requires recreating the machine:"
     log_info "  1. Stop machine: podman machine stop"
     log_info "  2. Remove machine: podman machine rm ${PODMAN_MACHINE}"
-    log_info "  3. Create new with more resources:"
-    log_info "     podman machine init --cpus 4 --memory 4096 ${PODMAN_MACHINE}"
+    log_info "  3. Create new with more resources (rootful mode for k3d):"
+    log_info "     podman machine init --rootful --cpus 4 --memory 4096 ${PODMAN_MACHINE}"
     log_info "  4. Start machine: podman machine start ${PODMAN_MACHINE}"
     log_info ""
     log_info "  Note: This will delete existing containers/images in the machine"
+    log_info "  Note: --rootful is required for k3d to work properly"
 elif [ "${BACKEND}" = "Lima" ]; then
     log_info "  1. Stop Podman machine: podman machine stop"
     log_info "  2. Edit config: ${CONFIG_FILE}"
@@ -133,6 +134,16 @@ elif [ "${BACKEND}" = "Lima" ]; then
     log_info "  4. Start Podman machine: podman machine start"
 else
     log_info "  Unknown backend - check Podman documentation for your setup"
+fi
+
+# Check if rootful
+if [ -f "${CONFIG_FILE}" ]; then
+    if grep -q '"Rootful":true' "${CONFIG_FILE}" 2>/dev/null || grep -q "rootful: true" "${CONFIG_FILE}" 2>/dev/null; then
+        log_success "Podman machine is in rootful mode (good for k3d)"
+    else
+        log_warn "Podman machine is in rootless mode"
+        log_info "k3d works better with rootful mode - consider recreating machine with --rootful"
+    fi
 fi
 log_info ""
 log_info "Recommended minimum for k3d:"

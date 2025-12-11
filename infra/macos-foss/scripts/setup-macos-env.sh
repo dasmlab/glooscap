@@ -110,13 +110,54 @@ if ! check_command podman; then
     brew install podman
     log_success "Podman installed"
     
-    # Initialize Podman machine
-    log_info "Initializing Podman machine..."
-    podman machine init || log_warn "Podman machine may already be initialized"
+    # Initialize Podman machine in rootful mode (required for k3d)
+    log_info "Initializing Podman machine in rootful mode..."
+    log_info "Rootful mode is required for k3d to work properly (avoids rootless limitations)"
+    
+    # Check if machine already exists
+    if podman machine list 2>/dev/null | grep -q "podman-machine"; then
+        log_warn "Podman machine already exists"
+        log_info "To recreate in rootful mode, run:"
+        log_info "  podman machine stop"
+        log_info "  podman machine rm podman-machine-default"
+        log_info "  podman machine init --rootful podman-machine-default"
+        log_info "  podman machine start podman-machine-default"
+    else
+        # Initialize in rootful mode
+        podman machine init --rootful || {
+            log_error "Failed to initialize Podman machine in rootful mode"
+            log_info "You may need to run: podman machine init --rootful"
+            exit 1
+        }
+        log_success "Podman machine initialized in rootful mode"
+    fi
+    
+    # Start Podman machine
+    log_info "Starting Podman machine..."
     podman machine start || log_warn "Podman machine may already be running"
-    log_success "Podman machine initialized"
+    log_success "Podman machine started"
 else
     log_info "Podman already installed: $(podman --version)"
+    
+    # Check if machine is in rootful mode
+    MACHINE_NAME=$(podman machine list --format json 2>/dev/null | grep -o '"Name":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "podman-machine-default")
+    if [ -n "${MACHINE_NAME}" ]; then
+        # Check machine config for rootful
+        MACHINE_CONFIG="${HOME}/.config/containers/podman/machine/applehv/${MACHINE_NAME}.json"
+        if [ -f "${MACHINE_CONFIG}" ]; then
+            if grep -q '"Rootful":true' "${MACHINE_CONFIG}" 2>/dev/null; then
+                log_success "Podman machine is in rootful mode"
+            else
+                log_warn "Podman machine is in rootless mode"
+                log_warn "k3d works better with rootful mode"
+                log_info "To switch to rootful mode:"
+                log_info "  1. podman machine stop"
+                log_info "  2. podman machine rm ${MACHINE_NAME}"
+                log_info "  3. podman machine init --rootful ${MACHINE_NAME}"
+                log_info "  4. podman machine start ${MACHINE_NAME}"
+            fi
+        fi
+    fi
     
     # Ensure Podman machine is running
     if ! podman machine list 2>/dev/null | grep -q "running"; then
