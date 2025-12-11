@@ -17,6 +17,8 @@ spec:
       labels:
         app: glooscap-ui
     spec:
+      imagePullSecrets:
+      - name: dasmlab-ghcr-pull
       containers:
       - name: ui
         image: ghcr.io/dasmlab/glooscap-ui:latest

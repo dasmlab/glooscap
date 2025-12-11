@@ -23,6 +23,8 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      imagePullSecrets:
+        - name: dasmlab-ghcr-pull
       containers:
       - command:
         - /manager
