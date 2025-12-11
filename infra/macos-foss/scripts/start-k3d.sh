@@ -184,18 +184,31 @@ if k3d cluster list &> /dev/null 2>&1; then
             log_info "  [${i}]: '${K3D_ARGS[$i]}'"
         done
         
-        # For Podman, run k3d in background and monitor progress
-        if [ "${USING_PODMAN}" = "true" ]; then
-                log_info "Running k3d in background and monitoring progress..."
-                k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
+            # For Podman, run k3d with timeout and monitor progress
+            if [ "${USING_PODMAN}" = "true" ]; then
+                log_info "Running k3d for Podman (with timeout and monitoring)..."
+                # Use timeout to prevent infinite hanging
+                TIMEOUT_SECONDS=300  # 5 minutes max
+                timeout ${TIMEOUT_SECONDS} k3d "${K3D_ARGS[@]}" > /tmp/k3d-create.log 2>&1 &
                 K3D_PID=$!
                 
                 # Monitor k3d process and container startup
                 MONITOR_COUNT=0
-                MAX_MONITOR=120  # 2 minutes
-                while kill -0 ${K3D_PID} 2>/dev/null && [ ${MONITOR_COUNT} -lt ${MAX_MONITOR} ]; do
-                    sleep 2
-                    MONITOR_COUNT=$((MONITOR_COUNT + 2))
+                MAX_MONITOR=$((TIMEOUT_SECONDS + 10))  # Monitor slightly longer than timeout
+                K3D_FINISHED=false
+                
+                while [ ${MONITOR_COUNT} -lt ${MAX_MONITOR} ]; do
+                    # Check if k3d process is still running
+                    if ! kill -0 ${K3D_PID} 2>/dev/null; then
+                        # Process finished, wait for exit code
+                        wait ${K3D_PID} 2>/dev/null
+                        K3D_EXIT=$?
+                        K3D_FINISHED=true
+                        break
+                    fi
+                    
+                    sleep 3
+                    MONITOR_COUNT=$((MONITOR_COUNT + 3))
                     
                     # Check if server container exists and is running
                     if podman ps 2>/dev/null | grep -q "k3d-glooscap-server-0"; then
@@ -209,20 +222,29 @@ if k3d cluster list &> /dev/null 2>&1; then
                         podman ps -a --filter "name=k3d-glooscap-server-0" --format "{{.Status}}" 2>/dev/null || true
                     fi
                     
-                    # Show progress every 20 seconds
-                    if [ $((MONITOR_COUNT % 20)) -eq 0 ]; then
-                        log_info "Still creating cluster... (${MONITOR_COUNT}s)"
-                        tail -3 /tmp/k3d-create.log 2>/dev/null || true
+                    # Show progress every 30 seconds
+                    if [ $((MONITOR_COUNT % 30)) -eq 0 ]; then
+                        log_info "Still creating cluster... (${MONITOR_COUNT}s / ${TIMEOUT_SECONDS}s max)"
+                        tail -5 /tmp/k3d-create.log 2>/dev/null || true
                     fi
                 done
                 
-                # Wait for k3d process to finish
-                wait ${K3D_PID} 2>/dev/null
-                K3D_EXIT=$?
+                # If k3d didn't finish, kill it
+                if [ "${K3D_FINISHED}" = "false" ]; then
+                    log_error "k3d cluster creation timed out after ${TIMEOUT_SECONDS} seconds"
+                    log_warn "Killing hanging k3d process..."
+                    kill ${K3D_PID} 2>/dev/null || true
+                    sleep 2
+                    kill -9 ${K3D_PID} 2>/dev/null || true
+                    K3D_EXIT=124  # Timeout exit code
+                fi
                 
                 # Show final log
-                log_info "k3d process finished with exit code: ${K3D_EXIT}"
-                if [ ${K3D_EXIT} -ne 0 ]; then
+                if [ "${K3D_FINISHED}" = "true" ]; then
+                    log_info "k3d process finished with exit code: ${K3D_EXIT}"
+                fi
+                
+                if [ ${K3D_EXIT:-1} -ne 0 ]; then
                     log_error "k3d cluster creation failed"
                     log_info "Last 30 lines of k3d log:"
                     tail -30 /tmp/k3d-create.log || true
