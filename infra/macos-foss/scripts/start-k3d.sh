@@ -129,11 +129,10 @@ if k3d cluster list &> /dev/null 2>&1; then
     else
         log_info "Creating k3d cluster '${CLUSTER_NAME}'..."
         
-        # Check if we're using Podman (for compatibility flags)
-        USING_PODMAN=false
-        if [ -n "${DOCKER_HOST:-}" ] && echo "${DOCKER_HOST}" | grep -q "podman\|unix://"; then
-            USING_PODMAN=true
-            log_info "Detected Podman backend - using Podman-compatible flags"
+        # Use the USING_PODMAN variable already set earlier in the script
+        # (Don't override it here - it was already detected and DOCKER_HOST was configured)
+        if [ "${USING_PODMAN}" = "true" ]; then
+            log_info "Using Podman backend - applying Podman-compatible flags"
         fi
         
         # Build k3d command arguments
@@ -166,9 +165,9 @@ if k3d cluster list &> /dev/null 2>&1; then
             # Note: --network host doesn't work well with k3d, so we skip it
             # Instead, we rely on k3d's default networking which should work with Podman
             log_info "Using default k3d networking (should work with Podman)"
-            # For Podman, we might need to wait longer for containers to start
-            # Add a wait flag to give containers more time
-            K3D_ARGS+=("--wait" "60")  # Wait up to 60 seconds for cluster to be ready
+            # For Podman, add timeout to give containers more time to start
+            # --wait is a boolean flag (default true), --timeout sets the duration
+            K3D_ARGS+=("--timeout" "120s")  # Wait up to 120 seconds for cluster to be ready
             # Note: --no-lb is already added above to avoid loadbalancer issues with Podman
         fi
         
