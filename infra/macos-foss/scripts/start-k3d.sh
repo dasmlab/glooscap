@@ -55,13 +55,26 @@ fi
 
 CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
 
-# Configure DOCKER_HOST for Podman if needed
-if command -v podman &> /dev/null; then
+# Detect if we're using Podman and configure accordingly
+USING_PODMAN=false
+if command -v podman &> /dev/null && podman machine list 2>/dev/null | grep -q "running"; then
+    USING_PODMAN=true
+    log_info "Detected Podman (machine is running)"
+    
+    # Configure DOCKER_HOST for k3d (k3d uses Docker CLI which needs DOCKER_HOST to talk to Podman)
     PODMAN_SOCKET=$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
-    if [ -n "${PODMAN_SOCKET}" ] && [ -z "${DOCKER_HOST:-}" ]; then
-        export DOCKER_HOST="unix://${PODMAN_SOCKET}"
-        log_info "Configured DOCKER_HOST to use Podman: ${DOCKER_HOST}"
+    if [ -n "${PODMAN_SOCKET}" ]; then
+        if [ -z "${DOCKER_HOST:-}" ] || [ "${DOCKER_HOST}" != "unix://${PODMAN_SOCKET}" ]; then
+            export DOCKER_HOST="unix://${PODMAN_SOCKET}"
+            log_info "Configured DOCKER_HOST for k3d: ${DOCKER_HOST}"
+        else
+            log_info "DOCKER_HOST already set correctly: ${DOCKER_HOST}"
+        fi
+    else
+        log_warn "Could not detect Podman socket, k3d may not work"
     fi
+else
+    log_info "Using Docker (Podman not detected or not running)"
 fi
 
 # Try to create/start cluster - k3d will handle Docker/Podman errors
@@ -69,7 +82,7 @@ log_info "Cluster not accessible via kubectl, attempting to create/start with k3
 
 # Verify container runtime is accessible before trying k3d
 RUNTIME_ACCESSIBLE=false
-if [ "${USING_PODMAN:-false}" = "true" ] || ([ -n "${DOCKER_HOST:-}" ] && echo "${DOCKER_HOST}" | grep -q "podman\|unix://"); then
+if [ "${USING_PODMAN}" = "true" ]; then
     # Using Podman - check with podman command
     if command -v podman &> /dev/null && podman ps &> /dev/null 2>&1; then
         RUNTIME_ACCESSIBLE=true
