@@ -140,15 +140,28 @@ fi
 log_info "Note: k3s doesn't work natively on macOS (requires systemd/openrc)"
 log_info "We'll install k3d instead, which runs k3s inside containers (works on macOS)"
 
-# Install Colima (RECOMMENDED for macOS - lightweight, works with Podman)
-# Colima provides a Docker-compatible API and Kubernetes support
-# Note: k3d and minikube have known issues with Podman on macOS, so we use Colima
-if ! check_command colima; then
-    log_info "Installing Colima (Kubernetes solution for macOS)..."
-    brew install colima
-    log_success "Colima installed"
+# Install Docker (required for k3d)
+if ! check_command docker; then
+    log_info "Installing Docker..."
+    brew install --cask docker
+    log_success "Docker installed"
+    log_warn "Please start Docker Desktop before continuing"
 else
-    log_info "Colima already installed: $(colima version 2>/dev/null | head -n1 || echo 'installed')"
+    if docker info &> /dev/null; then
+        log_success "Docker is installed and running"
+    else
+        log_warn "Docker is installed but not running"
+        log_info "Please start Docker Desktop"
+    fi
+fi
+
+# Install k3d (k3s in Docker containers)
+if ! check_command k3d; then
+    log_info "Installing k3d (k3s in Docker containers)..."
+    brew install k3d
+    log_success "k3d installed"
+else
+    log_info "k3d already installed: $(k3d version 2>/dev/null | head -n1 || echo 'installed')"
 fi
 
 # Install Helm (optional, for future use)
@@ -180,10 +193,20 @@ else
     log_error "✗ kubectl not found"
 fi
 
-if check_command colima; then
-    log_success "✓ Colima: $(colima version 2>/dev/null | head -n1 || echo 'installed')"
+if check_command docker; then
+    if docker info &> /dev/null; then
+        log_success "✓ Docker: $(docker --version 2>/dev/null || echo 'installed and running')"
+    else
+        log_warn "⚠ Docker: installed but not running"
+    fi
 else
-    log_warn "⚠ Colima not found"
+    log_warn "⚠ Docker not found"
+fi
+
+if check_command k3d; then
+    log_success "✓ k3d: $(k3d version 2>/dev/null | head -n1 || echo 'installed')"
+else
+    log_warn "⚠ k3d not found"
 fi
 
 # Create kubeconfig directory
@@ -194,14 +217,14 @@ log_success "macOS environment setup complete!"
 echo ""
 log_info "Next steps:"
 echo "  1. Restart your terminal or run: source ~/.zprofile"
-echo "  2. Start Kubernetes cluster:"
-echo "     ./scripts/start-colima.sh"
-echo "  3. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
+echo "  2. Ensure Docker Desktop is running"
+echo "  3. Start Kubernetes cluster:"
+echo "     ./scripts/start-k3d.sh"
+echo "  4. Run './scripts/deploy-glooscap.sh' to deploy Glooscap"
 echo ""
-log_info "Colima is the recommended solution for macOS:"
-log_info "  - Lightweight and fast"
-log_info "  - Works reliably on macOS with Podman"
-log_info "  - Provides Docker-compatible API"
-log_info "  - Built-in Kubernetes support"
-log_info "  - No hanging issues (unlike k3d/minikube with Podman)"
+log_info "k3d is the recommended solution:"
+log_info "  - Lightweight (k3s in Docker containers, no VM overhead)"
+log_info "  - Works reliably with Docker"
+log_info "  - Fast startup and simple architecture"
+log_info "  - Perfect for local development"
 

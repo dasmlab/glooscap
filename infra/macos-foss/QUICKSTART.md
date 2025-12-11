@@ -30,35 +30,31 @@ export PATH="${HOME}/.local/bin:$PATH"
 
 ## Step 2: Start Kubernetes Cluster
 
-Start Colima with Kubernetes:
+Start k3d cluster:
 
 ```bash
-./scripts/start-colima.sh
+./scripts/start-k3d.sh
 ```
 
 This will:
-- Start Colima with Kubernetes support
-- Create a lightweight VM (using Lima)
+- Create a k3d cluster (k3s in Docker containers)
 - Configure kubectl to use the cluster
 - Wait for Kubernetes to be ready
 
-**Why Colima?**
-- Specifically designed for macOS
-- Lightweight and fast
-- Works reliably with Podman (no hanging issues)
-- Provides Docker-compatible API
-- Built-in Kubernetes support
+**Why k3d?**
+- No VM overhead (lighter than Colima)
+- Works reliably with Docker
+- Fast startup and simple architecture
+- Perfect for local development
 
-**Note:** k3d and minikube have known compatibility issues with Podman on macOS, so we use Colima.
-
-**To stop Colima:**
+**To stop k3d:**
 ```bash
-./scripts/stop-colima.sh
+./scripts/stop-k3d.sh
 ```
 
-**To delete Colima VM:**
+**To delete k3d cluster:**
 ```bash
-DELETE_VM=true ./scripts/stop-colima.sh
+DELETE_CLUSTER=true ./scripts/stop-k3d.sh
 ```
 
 ## Step 3: Prepare CRDs
