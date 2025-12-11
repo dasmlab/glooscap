@@ -63,8 +63,7 @@ else
     log_info "Creating k3d cluster with Docker..."
     k3d cluster create "${CLUSTER_NAME}" \
         --api-port 6443 \
-        --port "8081:80@loadbalancer" \
-        --port "8443:443@loadbalancer" \
+        --port "8081:30081@loadbalancer" \
         --agents 1 \
         --k3s-arg "--disable=traefik@server:0" \
         --k3s-arg "--disable=servicelb@server:0"
