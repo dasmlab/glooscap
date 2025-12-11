@@ -1,6 +1,6 @@
 # Glooscap Kubernetes Manifests
 
-This directory contains Kubernetes manifests for deploying Glooscap on k3d (k3s in containers for macOS) or k3s (for Linux).
+This directory contains Kubernetes manifests for deploying Glooscap on any Kubernetes cluster (Colima for macOS, or any other Kubernetes distribution).
 
 ## Directory Structure
 
@@ -62,12 +62,11 @@ For local development, you may need to:
    podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
    ```
 
-2. **Load images into k3d**:
+2. **Load images into Colima**:
    ```bash
-   # k3d uses Podman/Docker directly, so images are automatically available
-   # Or import explicitly:
-   k3d image import ghcr.io/dasmlab/glooscap-operator:latest -c glooscap
-   k3d image import ghcr.io/dasmlab/glooscap-ui:latest -c glooscap
+   # Colima provides Docker-compatible API, so images are automatically available
+   # Images built with Podman/Docker are accessible to Colima
+   # No explicit import needed - Colima uses the same image registry
    ```
 
 3. **Update imagePullPolicy** in the deployment manifests:
@@ -96,9 +95,9 @@ Edit `ui/deployment.yaml` to customize:
 ### Images not found
 
 If pods fail with `ImagePullBackOff`:
-1. Ensure images are built and available
+1. Ensure images are built and available in your local Podman/Docker registry
 2. Check `imagePullPolicy` is set correctly
-3. For k3d, import images: `k3d image import <image> -c <cluster-name>`
+3. For Colima, images built with Podman/Docker are automatically available (Colima uses the same image registry)
 
 ### CRDs not found
 
