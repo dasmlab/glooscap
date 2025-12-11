@@ -58,9 +58,12 @@ else
     # If it fails, k3d will give a better error message than we can
     k3d cluster create "${CLUSTER_NAME}" \
         --api-port 6443 \
-        --port "8081:80@loadbalancer" \
+        --port "8080:80@loadbalancer" \
+        --port "8443:443@loadbalancer" \
+        --port "3000:3000@loadbalancer" \
         --agents 1 \
-        --k3s-arg "--disable=traefik@server:0"
+        --k3s-arg "--disable=traefik@server:0" \
+        --k3s-arg "--disable=servicelb@server:0"
     
     if [[ $? -eq 0 ]]; then
         log_success "k3d cluster created successfully!"
