@@ -169,10 +169,11 @@ if k3d cluster list &> /dev/null 2>&1; then
             # Note: --network host doesn't work well with k3d, so we skip it
             # Instead, we rely on k3d's default networking which should work with Podman
             log_info "Using default k3d networking (should work with Podman)"
-            # For Podman, disable wait and use longer timeout
-            # The "k3s is up" log line sometimes doesn't appear with Podman
-            K3D_ARGS+=("--wait=false")  # Don't wait for "k3s is up" log line
-            K3D_ARGS+=("--timeout" "180s")  # But still have a timeout for safety
+            # For Podman, use wait with longer timeout
+            # --wait is required - without it k3d loops forever trying to start nodes
+            # The timeout gives it a limit if k3s doesn't start
+            K3D_ARGS+=("--wait")  # Enable wait (required for k3d to work)
+            K3D_ARGS+=("--timeout" "300s")  # 5 minutes timeout
             # Note: --no-lb is already added above to avoid loadbalancer issues with Podman
         fi
         
