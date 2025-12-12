@@ -21,9 +21,11 @@ spec:
       - name: dasmlab-ghcr-pull
       containers:
       - name: ui
-        image: ghcr.io/dasmlab/glooscap-ui:latest
-        # For local development, use imagePullPolicy: Never or IfNotPresent
-        imagePullPolicy: IfNotPresent
+        # For local development on macOS (ARM64), use local image built for correct architecture
+        # To use registry image, change to: ghcr.io/dasmlab/glooscap-ui:latest
+        image: glooscap-ui:local
+        # Never pull - use local image only (built with build-and-load-images.sh)
+        imagePullPolicy: Never
         env:
         - name: API_BASE_URL
           # For local development, use port-forward or NodePort/Ingress

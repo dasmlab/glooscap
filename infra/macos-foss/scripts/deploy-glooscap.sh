@@ -49,6 +49,23 @@ fi
 
 log_info "Deploying Glooscap to Kubernetes cluster..."
 
+# Check if local images exist, offer to build if not
+if ! docker images | grep -q "glooscap-operator.*local"; then
+    log_warn "Local operator image not found (glooscap-operator:local)"
+    log_info "To build and load images, run: ./scripts/build-and-load-images.sh"
+    log_info "Continuing with deployment (will fail if images not available)..."
+else
+    log_success "Local operator image found"
+fi
+
+if ! docker images | grep -q "glooscap-ui.*local"; then
+    log_warn "Local UI image not found (glooscap-ui:local)"
+    log_info "To build and load images, run: ./scripts/build-and-load-images.sh"
+    log_info "Continuing with deployment (will fail if images not available)..."
+else
+    log_success "Local UI image found"
+fi
+
 # Create namespace
 log_info "Creating namespace..."
 kubectl apply -f "${MANIFESTS_DIR}/namespace.yaml"
