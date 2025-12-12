@@ -645,7 +645,7 @@ async function testConnection(endpoint, serviceName) {
     // Try to connect to the endpoint
     // For HTTP endpoints, try a simple fetch
     const url = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`
-    const response = await fetch(url, { 
+    await fetch(url, { 
       method: 'GET', 
       mode: 'no-cors',
       signal: AbortSignal.timeout(3000)
