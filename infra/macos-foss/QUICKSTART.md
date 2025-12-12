@@ -30,11 +30,10 @@ This single command will:
 
 After installation completes, services are accessible directly:
 
-- **UI**: http://localhost:30080
-- **Operator API**: http://localhost:30000
-- **Operator Health**: http://localhost:30081/healthz
+- **UI**: http://localhost:8080
+- **Operator API**: http://localhost:3000
 
-No port-forwarding needed!
+No port-forwarding needed! k3d's LoadBalancer (servicelb) handles the port mapping.
 
 ### Uninstall
 
@@ -100,9 +99,8 @@ This deploys the operator and UI to the cluster.
 
 Services are accessible directly on host ports:
 
-- **UI**: http://localhost:30080
-- **Operator API**: http://localhost:30000
-- **Operator Health**: http://localhost:30081/healthz
+- **UI**: http://localhost:8080
+- **Operator API**: http://localhost:3000
 
 ## Step 7: Configure Translation Service
 

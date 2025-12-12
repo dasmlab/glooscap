@@ -133,10 +133,9 @@ kubectl get svc -n glooscap-system
 echo ""
 
 # Show access instructions
-log_info "Services are accessible directly on host ports (NodePort):"
-echo "  UI: http://localhost:30080"
-echo "  Operator API: http://localhost:30000"
-echo "  Operator Health: http://localhost:30081/healthz"
+log_info "Services are accessible directly on host ports (LoadBalancer):"
+echo "  UI: http://localhost:8080"
+echo "  Operator API: http://localhost:3000"
 echo ""
 log_info "To view logs:"
 echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"
