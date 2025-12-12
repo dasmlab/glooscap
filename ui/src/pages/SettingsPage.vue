@@ -21,153 +21,187 @@
       <q-tab-panels v-model="tab" animated>
         <!-- General Settings Tab -->
         <q-tab-panel name="general">
-          <q-form @submit.prevent="save">
-            <div class="row q-col-gutter-md">
-              <div class="col-12">
-                <q-checkbox
-                  v-model="form.remoteWikiTarget"
-                  label="Remote Wiki Target"
-                  color="primary"
-                />
-              </div>
-            </div>
-            
-            <div class="row q-col-gutter-md q-mt-md">
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model="form.destinationTarget"
-                  :label="$t('settings.destinationTarget')"
-                  outlined
-                  dense
-                  :disable="!form.remoteWikiTarget"
-                />
-              </div>
-              <div class="col-12 col-md-4" v-if="!form.remoteWikiTarget">
-                <q-input
-                  v-model="form.pathPrefix"
-                  :label="$t('settings.pathPrefix')"
-                  outlined
-                  dense
-                  :hint="$t('settings.pathPrefixHint')"
-                />
-              </div>
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model="form.defaultLanguage"
-                  :label="$t('settings.languageTag')"
-                  outlined
-                  dense
-                />
-              </div>
-            </div>
-
-            <div class="row q-col-gutter-md q-mt-md">
-              <div class="col-12 col-md-6">
-                <q-item>
-                  <q-item-section avatar>
-                    <q-checkbox
-                      v-model="form.operatorEnabled"
-                      color="primary"
-                      dense
-                    />
-                  </q-item-section>
-                  <q-item-section avatar>
-                    <q-icon
-                      :name="operatorStatusIcon"
-                      :color="operatorStatusColor"
-                      size="md"
-                    />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-input
-                      v-model="form.operatorEndpoint"
-                      :label="$t('settings.operatorEndpoint')"
-                      outlined
-                      dense
-                      :disable="!form.operatorEnabled"
-                      :hint="$t('settings.operatorHint')"
-                    />
-                  </q-item-section>
-                </q-item>
-              </div>
-              <div class="col-12 col-md-6">
-                <q-item>
-                  <q-item-section avatar>
-                    <q-checkbox
-                      v-model="form.telemetryEnabled"
-                      color="primary"
-                      dense
-                    />
-                  </q-item-section>
-                  <q-item-section avatar>
-                    <q-icon
-                      :name="telemetryStatusIcon"
-                      :color="telemetryStatusColor"
-                      size="md"
-                    />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-input
-                      v-model="form.telemetryEndpoint"
-                      :label="$t('settings.telemetryEndpoint')"
-                      outlined
-                      dense
-                      :disable="!form.telemetryEnabled"
-                      :hint="$t('settings.telemetryHint')"
-                    />
-                  </q-item-section>
-                </q-item>
-              </div>
-            </div>
-            
-            <div class="row q-col-gutter-md q-mt-md">
-              <div class="col-12 col-md-6">
-                <q-item>
-                  <q-item-section avatar>
-                    <q-checkbox
-                      v-model="form.nokomisEnabled"
-                      color="primary"
-                      dense
-                    />
-                  </q-item-section>
-                  <q-item-section avatar>
-                    <q-icon
-                      :name="nokomisStatusIcon"
-                      :color="nokomisStatusColor"
-                      size="md"
-                    />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-input
-                      v-model="form.nokomisEndpoint"
-                      :label="$t('settings.nokomisEndpoint')"
-                      outlined
-                      dense
-                      :disable="!form.nokomisEnabled"
-                      :hint="$t('settings.nokomisHint')"
-                    />
-                  </q-item-section>
-                </q-item>
-              </div>
-            </div>
-            
-            <div class="row q-col-gutter-md q-mt-md">
-              <div class="col-12 col-md-6">
-                <q-input
-                  v-model="securityBadge"
-                  :label="$t('settings.securityBanner')"
-                  outlined
-                  dense
-                  disable
-                />
-              </div>
+          <div class="row q-col-gutter-md">
+            <!-- Service Status Lights -->
+            <div class="col-12">
+              <q-card flat bordered>
+                <q-card-section>
+                  <div class="text-subtitle1 q-mb-md">Service Status</div>
+                  <q-list>
+                    <!-- Operator Status -->
+                    <q-item>
+                      <q-item-section avatar>
+                        <q-icon
+                          :name="operatorStatusIcon"
+                          :color="operatorStatusColor"
+                          size="md"
+                        />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label class="text-weight-medium">
+                          Operator
+                        </q-item-label>
+                        <q-item-label caption>
+                          {{ operatorStatusText }}
+                        </q-item-label>
+                      </q-item-section>
+                      <q-item-section side>
+                        <q-checkbox
+                          v-model="form.operatorEnabled"
+                          color="primary"
+                          dense
+                        />
+                      </q-item-section>
+                    </q-item>
+                    <q-separator />
+                    
+                    <!-- Telemetry Status -->
+                    <q-item>
+                      <q-item-section avatar>
+                        <q-icon
+                          :name="telemetryStatusIcon"
+                          :color="telemetryStatusColor"
+                          size="md"
+                        />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label class="text-weight-medium">
+                          Telemetry
+                        </q-item-label>
+                        <q-item-label caption>
+                          {{ telemetryStatusText }}
+                        </q-item-label>
+                      </q-item-section>
+                      <q-item-section side>
+                        <q-checkbox
+                          v-model="form.telemetryEnabled"
+                          color="primary"
+                          dense
+                        />
+                      </q-item-section>
+                    </q-item>
+                    <q-separator />
+                    
+                    <!-- Nokomis (CMDB) Status -->
+                    <q-item>
+                      <q-item-section avatar>
+                        <q-icon
+                          :name="nokomisStatusIcon"
+                          :color="nokomisStatusColor"
+                          size="md"
+                        />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label class="text-weight-medium">
+                          Nokomis (CMDB)
+                        </q-item-label>
+                        <q-item-label caption>
+                          {{ nokomisStatusText }}
+                        </q-item-label>
+                      </q-item-section>
+                      <q-item-section side>
+                        <q-checkbox
+                          v-model="form.nokomisEnabled"
+                          color="primary"
+                          dense
+                        />
+                      </q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-card-section>
+              </q-card>
             </div>
 
-            <div class="row justify-end q-gutter-sm q-mt-lg">
-              <q-btn :label="$t('common.cancel')" color="white" text-color="primary" outline @click="reset" />
-              <q-btn :label="$t('common.save')" color="primary" type="submit" />
+            <!-- Configuration Form -->
+            <div class="col-12">
+              <q-card flat bordered>
+                <q-card-section>
+                  <div class="text-subtitle1 q-mb-md">Configuration</div>
+                  <q-form @submit.prevent="save">
+                    <div class="row q-col-gutter-md">
+                      <div class="col-12">
+                        <q-checkbox
+                          v-model="form.remoteWikiTarget"
+                          label="Remote Wiki Target"
+                          color="primary"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div class="row q-col-gutter-md q-mt-md">
+                      <div class="col-12 col-md-4">
+                        <q-input
+                          v-model="form.destinationTarget"
+                          :label="$t('settings.destinationTarget')"
+                          outlined
+                          dense
+                          :disable="!form.remoteWikiTarget"
+                        />
+                      </div>
+                      <div class="col-12 col-md-4" v-if="!form.remoteWikiTarget">
+                        <q-input
+                          v-model="form.pathPrefix"
+                          :label="$t('settings.pathPrefix')"
+                          outlined
+                          dense
+                          :hint="$t('settings.pathPrefixHint')"
+                        />
+                      </div>
+                      <div class="col-12 col-md-4">
+                        <q-input
+                          v-model="form.defaultLanguage"
+                          :label="$t('settings.languageTag')"
+                          outlined
+                          dense
+                        />
+                      </div>
+                    </div>
+
+                    <div class="row q-col-gutter-md q-mt-md">
+                      <div class="col-12 col-md-6">
+                        <q-input
+                          v-model="form.operatorEndpoint"
+                          :label="$t('settings.operatorEndpoint')"
+                          outlined
+                          dense
+                          :disable="!form.operatorEnabled"
+                          :hint="$t('settings.operatorHint')"
+                        />
+                      </div>
+                      <div class="col-12 col-md-6">
+                        <q-input
+                          v-model="form.telemetryEndpoint"
+                          :label="$t('settings.telemetryEndpoint')"
+                          outlined
+                          dense
+                          :disable="!form.telemetryEnabled"
+                          :hint="$t('settings.telemetryHint')"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div class="row q-col-gutter-md q-mt-md">
+                      <div class="col-12 col-md-6">
+                        <q-input
+                          v-model="form.nokomisEndpoint"
+                          :label="$t('settings.nokomisEndpoint')"
+                          outlined
+                          dense
+                          :disable="!form.nokomisEnabled"
+                          :hint="$t('settings.nokomisHint')"
+                        />
+                      </div>
+                    </div>
+
+                    <div class="row justify-end q-gutter-sm q-mt-lg">
+                      <q-btn :label="$t('common.cancel')" color="white" text-color="primary" outline @click="reset" />
+                      <q-btn :label="$t('common.save')" color="primary" type="submit" />
+                    </div>
+                  </q-form>
+                </q-card-section>
+              </q-card>
             </div>
-          </q-form>
+          </div>
         </q-tab-panel>
 
         <!-- Translation Service Configuration Tab -->
@@ -178,28 +212,30 @@
               <q-card flat bordered>
                 <q-card-section>
                   <div class="text-subtitle1 q-mb-md">Translation Service Status</div>
-                  <q-item>
-                    <q-item-section avatar>
-                      <q-icon
-                        :name="nanabushStatusIcon"
-                        :color="nanabushStatusColor"
-                        size="md"
-                      />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label class="text-weight-medium">
-                        Translation Service Connection
-                      </q-item-label>
-                      <q-item-label caption>
-                        {{ nanabushStatusText }}
-                      </q-item-label>
-                    </q-item-section>
-                    <q-item-section side v-if="nanabushStatus.clientId">
-                      <q-item-label caption class="text-grey-6">
-                        ID: {{ nanabushStatus.clientId }}
-                      </q-item-label>
-                    </q-item-section>
-                  </q-item>
+                  <q-list>
+                    <q-item>
+                      <q-item-section avatar>
+                        <q-icon
+                          :name="nanabushStatusIcon"
+                          :color="nanabushStatusColor"
+                          size="md"
+                        />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label class="text-weight-medium">
+                          Translation Service Connection
+                        </q-item-label>
+                        <q-item-label caption>
+                          {{ nanabushStatusText }}
+                        </q-item-label>
+                      </q-item-section>
+                      <q-item-section side v-if="nanabushStatus.clientId">
+                        <q-item-label caption class="text-grey-6">
+                          ID: {{ nanabushStatus.clientId }}
+                        </q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </q-list>
                 </q-card-section>
               </q-card>
             </div>
@@ -551,6 +587,49 @@ const nokomisStatusColor = computed(() => {
       return 'negative'
     default:
       return 'grey'
+  }
+})
+
+// Status text computed properties
+const operatorStatusText = computed(() => {
+  if (!form.operatorEnabled) return 'Disabled'
+  switch (operatorStatus.value.status) {
+    case 'connected':
+      return 'Connected'
+    case 'error':
+      return 'Connection Error'
+    case 'disabled':
+      return 'Disabled'
+    default:
+      return 'Unknown'
+  }
+})
+
+const telemetryStatusText = computed(() => {
+  if (!form.telemetryEnabled) return 'Disabled'
+  switch (telemetryStatus.value.status) {
+    case 'connected':
+      return 'Connected'
+    case 'error':
+      return 'Connection Error'
+    case 'disabled':
+      return 'Disabled'
+    default:
+      return 'Unknown'
+  }
+})
+
+const nokomisStatusText = computed(() => {
+  if (!form.nokomisEnabled) return 'Disabled'
+  switch (nokomisStatus.value.status) {
+    case 'connected':
+      return 'Connected'
+    case 'error':
+      return 'Connection Error'
+    case 'disabled':
+      return 'Disabled'
+    default:
+      return 'Unknown'
   }
 })
 
@@ -963,13 +1042,16 @@ async function saveWikiTarget() {
   savingWikiTarget.value = true
   
   // Show loading notification
-  const loadingNotify = $q.notify({
-    type: 'info',
-    message: editingWikiTarget.value ? 'Updating WikiTarget...' : 'Creating WikiTarget...',
-    timeout: 0,
-    position: 'top',
-    spinner: true,
-  })
+  let loadingNotify = null
+  if ($q && typeof $q.notify === 'function') {
+    loadingNotify = $q.notify({
+      type: 'info',
+      message: editingWikiTarget.value ? 'Updating WikiTarget...' : 'Creating WikiTarget...',
+      timeout: 0,
+      position: 'top',
+      spinner: true,
+    })
+  }
   
   try {
     const payload = {
@@ -992,20 +1074,36 @@ async function saveWikiTarget() {
       // Update existing
       await api.put(`/wikitargets/${wikiTargetForm.namespace}/${wikiTargetForm.name}`, payload)
       logToConsole('INFO', 'WikiTarget updated', payload.metadata.name)
-      loadingNotify({
-        type: 'positive',
-        message: 'WikiTarget updated successfully',
-        timeout: 3000,
-      })
+      if (loadingNotify && typeof loadingNotify === 'function') {
+        loadingNotify({
+          type: 'positive',
+          message: 'WikiTarget updated successfully',
+          timeout: 3000,
+        })
+      } else if ($q && typeof $q.notify === 'function') {
+        $q.notify({
+          type: 'positive',
+          message: 'WikiTarget updated successfully',
+          timeout: 3000,
+        })
+      }
     } else {
       // Create new
       await api.post('/wikitargets', payload)
       logToConsole('INFO', 'WikiTarget created', payload.metadata.name)
-      loadingNotify({
-        type: 'positive',
-        message: 'WikiTarget created successfully',
-        timeout: 3000,
-      })
+      if (loadingNotify && typeof loadingNotify === 'function') {
+        loadingNotify({
+          type: 'positive',
+          message: 'WikiTarget created successfully',
+          timeout: 3000,
+        })
+      } else if ($q && typeof $q.notify === 'function') {
+        $q.notify({
+          type: 'positive',
+          message: 'WikiTarget created successfully',
+          timeout: 3000,
+        })
+      }
     }
 
     showWikiTargetDialog.value = false
@@ -1022,11 +1120,19 @@ async function saveWikiTarget() {
     fetchWikiTargets()
   } catch (error) {
     logToConsole('ERROR', 'Failed to save WikiTarget', error.message)
-    loadingNotify({
-      type: 'negative',
-      message: `Failed to save WikiTarget: ${error.response?.data?.message || error.message}`,
-      timeout: 5000,
-    })
+    if (loadingNotify && typeof loadingNotify === 'function') {
+      loadingNotify({
+        type: 'negative',
+        message: `Failed to save WikiTarget: ${error.response?.data?.message || error.message}`,
+        timeout: 5000,
+      })
+    } else if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to save WikiTarget: ${error.response?.data?.message || error.message}`,
+        timeout: 5000,
+      })
+    }
   } finally {
     savingWikiTarget.value = false
   }
