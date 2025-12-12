@@ -72,7 +72,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Determine which plugins to install
-SELECTED_PLUGINS=()
+SELECTED_PLUGINS=()  # Initialize as empty array
 if [ "${ALL_PLUGINS}" = "true" ]; then
     # --all includes all plugins except nanabush
     for plugin_repo in "${PLUGIN_REPOS[@]}"; do
@@ -99,7 +99,9 @@ elif [ -n "${PLUGINS}" ]; then
             log_warn "Unknown plugin: ${plugin} (skipping)"
         fi
     done
-    log_info "Installing plugins: ${SELECTED_PLUGINS[*]}"
+    if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
+        log_info "Installing plugins: ${SELECTED_PLUGINS[*]}"
+    fi
 fi
 
 # Check if running on macOS
@@ -113,6 +115,8 @@ log_info "Glooscap Installation for macOS"
 log_info "This will set up everything needed to run Glooscap locally"
 if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
     log_info "Plugins to install: ${SELECTED_PLUGINS[*]}"
+else
+    log_info "No plugins specified - installing Glooscap only"
 fi
 echo ""
 
@@ -273,7 +277,7 @@ log_info "Access the services directly on host ports:"
 echo "  UI: http://localhost:8080"
 echo "  Operator API: http://localhost:3000"
 echo ""
-if [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
+if [ ${#SELECTED_PLUGINS[@]} -gt 0 ] && [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
     log_info "Iskoces service: iskoces-service.iskoces.svc:50051"
     log_info "Configure in Glooscap UI: Settings → Translation Service"
 fi
@@ -281,7 +285,7 @@ echo ""
 log_info "View logs:"
 echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"
 echo "  UI: kubectl logs -f -n glooscap-system deployment/glooscap-ui"
-if [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
+if [ ${#SELECTED_PLUGINS[@]} -gt 0 ] && [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
     echo "  Iskoces: kubectl logs -f -n iskoces deployment/iskoces-server"
 fi
 echo ""
