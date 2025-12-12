@@ -60,10 +60,10 @@
     </q-banner>
 
     <!-- Dual Panel Layout -->
-    <div class="row q-gutter-md author-panels-container">
+    <div class="row q-gutter-md author-panels-container" style="height: calc(100vh - 250px);">
       <!-- English Panel -->
       <div class="col-12 col-md-6 author-panel-wrapper">
-        <q-card class="author-panel full-height">
+        <q-card class="author-panel">
           <q-card-section class="bg-blue-1">
             <div class="row items-center justify-between">
               <div class="text-h6 text-weight-bold">
@@ -149,7 +149,7 @@
 
       <!-- French Panel -->
       <div class="col-12 col-md-6 author-panel-wrapper">
-        <q-card class="author-panel full-height">
+        <q-card class="author-panel">
           <q-card-section class="bg-red-1">
             <div class="row items-center justify-between">
               <div class="text-h6 text-weight-bold">
@@ -526,23 +526,29 @@ watch(selectedTarget, (newTarget) => {
 <style scoped>
 .author-page {
   background: #f4f7fb;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .author-panels-container {
   display: flex;
-  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .author-panel-wrapper {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .author-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 auto;
   min-height: 600px;
+  height: 100%;
 }
 
 .author-panel .q-card__section {
@@ -553,11 +559,15 @@ watch(selectedTarget, (newTarget) => {
   flex: 1 1 auto;
   overflow: auto;
   min-height: 300px;
+  display: flex;
+  flex-direction: column;
 }
 
 .markdown-view {
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .markdown-content {
@@ -571,6 +581,8 @@ watch(selectedTarget, (newTarget) => {
   background: #fafafa;
   border-radius: 4px;
   border: 1px solid #e0e0e0;
+  flex: 1 1 auto;
+  overflow: auto;
 }
 </style>
 
