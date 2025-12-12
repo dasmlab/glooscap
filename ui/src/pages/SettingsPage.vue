@@ -50,6 +50,7 @@
                           v-model="form.operatorEnabled"
                           color="primary"
                           dense
+                          @update:model-value="onServiceToggle('operator')"
                         />
                       </q-item-section>
                     </q-item>
@@ -77,6 +78,7 @@
                           v-model="form.telemetryEnabled"
                           color="primary"
                           dense
+                          @update:model-value="onServiceToggle('telemetry')"
                         />
                       </q-item-section>
                     </q-item>
@@ -104,6 +106,7 @@
                           v-model="form.nokomisEnabled"
                           color="primary"
                           dense
+                          @update:model-value="onServiceToggle('nokomis')"
                         />
                       </q-item-section>
                     </q-item>
@@ -112,86 +115,88 @@
               </q-card>
             </div>
 
-            <!-- Configuration Form -->
+            <!-- Service Configuration -->
             <div class="col-12">
               <q-card flat bordered>
                 <q-card-section>
-                  <div class="text-subtitle1 q-mb-md">Configuration</div>
+                  <div class="text-subtitle1 q-mb-md">Service Configuration</div>
                   <q-form @submit.prevent="save">
-                    <div class="row q-col-gutter-md">
-                      <div class="col-12">
-                        <q-checkbox
-                          v-model="form.remoteWikiTarget"
-                          label="Remote Wiki Target"
-                          color="primary"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div class="row q-col-gutter-md q-mt-md">
-                      <div class="col-12 col-md-4">
-                        <q-input
-                          v-model="form.destinationTarget"
-                          :label="$t('settings.destinationTarget')"
-                          outlined
-                          dense
-                          :disable="!form.remoteWikiTarget"
-                        />
-                      </div>
-                      <div class="col-12 col-md-4" v-if="!form.remoteWikiTarget">
-                        <q-input
-                          v-model="form.pathPrefix"
-                          :label="$t('settings.pathPrefix')"
-                          outlined
-                          dense
-                          :hint="$t('settings.pathPrefixHint')"
-                        />
-                      </div>
-                      <div class="col-12 col-md-4">
-                        <q-input
-                          v-model="form.defaultLanguage"
-                          :label="$t('settings.languageTag')"
-                          outlined
-                          dense
-                        />
-                      </div>
-                    </div>
-
-                    <div class="row q-col-gutter-md q-mt-md">
-                      <div class="col-12 col-md-6">
-                        <q-input
-                          v-model="form.operatorEndpoint"
-                          :label="$t('settings.operatorEndpoint')"
-                          outlined
-                          dense
-                          :disable="!form.operatorEnabled"
-                          :hint="$t('settings.operatorHint')"
-                        />
-                      </div>
-                      <div class="col-12 col-md-6">
-                        <q-input
-                          v-model="form.telemetryEndpoint"
-                          :label="$t('settings.telemetryEndpoint')"
-                          outlined
-                          dense
-                          :disable="!form.telemetryEnabled"
-                          :hint="$t('settings.telemetryHint')"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div class="row q-col-gutter-md q-mt-md">
-                      <div class="col-12 col-md-6">
-                        <q-input
-                          v-model="form.nokomisEndpoint"
-                          :label="$t('settings.nokomisEndpoint')"
-                          outlined
-                          dense
-                          :disable="!form.nokomisEnabled"
-                          :hint="$t('settings.nokomisHint')"
-                        />
-                      </div>
-                    </div>
+                    <q-list>
+                      <!-- Remote Wiki Target -->
+                      <q-item>
+                        <q-item-section>
+                          <q-item-label class="text-weight-medium">Remote Wiki Target</q-item-label>
+                          <q-item-label caption>Enable to use a remote wiki as destination</q-item-label>
+                        </q-item-section>
+                        <q-item-section side>
+                          <q-checkbox
+                            v-model="form.remoteWikiTarget"
+                            color="primary"
+                            dense
+                          />
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      
+                      <!-- Destination Wiki Target -->
+                      <q-item>
+                        <q-item-section>
+                          <q-input
+                            v-model="form.destinationTarget"
+                            :label="$t('settings.destinationTarget')"
+                            outlined
+                            dense
+                            :disable="!form.remoteWikiTarget"
+                            class="q-mt-sm"
+                          />
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      
+                      <!-- Operator Endpoint -->
+                      <q-item>
+                        <q-item-section>
+                          <q-input
+                            v-model="form.operatorEndpoint"
+                            :label="$t('settings.operatorEndpoint')"
+                            outlined
+                            dense
+                            :hint="$t('settings.operatorHint')"
+                            class="q-mt-sm"
+                          />
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      
+                      <!-- Telemetry Endpoint -->
+                      <q-item>
+                        <q-item-section>
+                          <q-input
+                            v-model="form.telemetryEndpoint"
+                            :label="$t('settings.telemetryEndpoint')"
+                            outlined
+                            dense
+                            :hint="$t('settings.telemetryHint')"
+                            class="q-mt-sm"
+                          />
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      
+                      <!-- Nokomis Endpoint -->
+                      <q-item>
+                        <q-item-section>
+                          <q-input
+                            v-model="form.nokomisEndpoint"
+                            :label="$t('settings.nokomisEndpoint')"
+                            outlined
+                            dense
+                            :hint="$t('settings.nokomisHint')"
+                            class="q-mt-sm"
+                          />
+                        </q-item-section>
+                      </q-item>
+                    </q-list>
 
                     <div class="row justify-end q-gutter-sm q-mt-lg">
                       <q-btn :label="$t('common.cancel')" color="white" text-color="primary" outline @click="reset" />
@@ -484,8 +489,6 @@ const tab = ref('general')
 const form = reactive({
   remoteWikiTarget: settingsStore.remoteWikiTarget || false,
   destinationTarget: settingsStore.destinationTarget,
-  pathPrefix: settingsStore.pathPrefix,
-  defaultLanguage: settingsStore.defaultLanguage,
   operatorEnabled: settingsStore.operatorEnabled ?? true,
   operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000',
   telemetryEnabled: settingsStore.telemetryEnabled ?? true,
@@ -632,6 +635,51 @@ const nokomisStatusText = computed(() => {
   }
 })
 
+// Test connection to a service endpoint
+async function testConnection(endpoint, serviceName) {
+  if (!endpoint) {
+    return { connected: false, status: 'error' }
+  }
+  
+  try {
+    // Try to connect to the endpoint
+    // For HTTP endpoints, try a simple fetch
+    const url = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`
+    const response = await fetch(url, { 
+      method: 'GET', 
+      mode: 'no-cors',
+      signal: AbortSignal.timeout(3000)
+    }).catch(() => null)
+    
+    // If we get here without error, consider it connected
+    // (no-cors mode doesn't give us response status, so we assume success if no error)
+    return { connected: true, status: 'connected' }
+  } catch (error) {
+    logToConsole('WARN', `Failed to test ${serviceName} connection`, error.message)
+    return { connected: false, status: 'error' }
+  }
+}
+
+// Handle service toggle - test connection when enabled
+async function onServiceToggle(serviceName) {
+  if (serviceName === 'operator' && form.operatorEnabled) {
+    await fetchOperatorStatus()
+  } else if (serviceName === 'telemetry' && form.telemetryEnabled) {
+    await fetchTelemetryStatus()
+  } else if (serviceName === 'nokomis' && form.nokomisEnabled) {
+    await fetchNokomisStatus()
+  } else {
+    // Service disabled, update status
+    if (serviceName === 'operator') {
+      operatorStatus.value = { connected: false, status: 'disabled', lastCheck: new Date() }
+    } else if (serviceName === 'telemetry') {
+      telemetryStatus.value = { connected: false, status: 'disabled' }
+    } else if (serviceName === 'nokomis') {
+      nokomisStatus.value = { connected: false, status: 'disabled' }
+    }
+  }
+}
+
 // Fetch operator connection status
 async function fetchOperatorStatus() {
   if (!form.operatorEnabled) {
@@ -683,18 +731,11 @@ async function fetchTelemetryStatus() {
     return
   }
   try {
-    // Try to ping the telemetry endpoint or check if it's reachable
-    // For now, we'll assume it's connected if the endpoint is configured
-    if (form.telemetryEndpoint) {
-      telemetryStatus.value = {
-        connected: true,
-        status: 'connected',
-      }
-    } else {
-      telemetryStatus.value = {
-        connected: false,
-        status: 'error',
-      }
+    // Test connection to telemetry endpoint
+    const result = await testConnection(form.telemetryEndpoint, 'telemetry')
+    telemetryStatus.value = {
+      connected: result.connected,
+      status: result.status,
     }
   } catch (error) {
     logToConsole('WARN', 'Failed to check telemetry endpoint status', error.message)
@@ -712,18 +753,11 @@ async function fetchNokomisStatus() {
     return
   }
   try {
-    // Try to ping the Nokomis endpoint or check if it's reachable
-    // For now, we'll assume it's connected if the endpoint is configured
-    if (form.nokomisEndpoint) {
-      nokomisStatus.value = {
-        connected: true,
-        status: 'connected',
-      }
-    } else {
-      nokomisStatus.value = {
-        connected: false,
-        status: 'error',
-      }
+    // Test connection to Nokomis endpoint
+    const result = await testConnection(form.nokomisEndpoint, 'nokomis')
+    nokomisStatus.value = {
+      connected: result.connected,
+      status: result.status,
     }
   } catch (error) {
     logToConsole('WARN', 'Failed to check Nokomis endpoint status', error.message)
@@ -1203,8 +1237,6 @@ onUnmounted(() => {
 function reset() {
   form.remoteWikiTarget = settingsStore.remoteWikiTarget || false
   form.destinationTarget = settingsStore.destinationTarget
-  form.pathPrefix = settingsStore.pathPrefix
-  form.defaultLanguage = settingsStore.defaultLanguage
   form.operatorEnabled = settingsStore.operatorEnabled ?? true
   form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000'
   form.telemetryEnabled = settingsStore.telemetryEnabled ?? true
@@ -1221,8 +1253,6 @@ function save() {
   settingsStore.updateSettings({
     remoteWikiTarget: form.remoteWikiTarget,
     destinationTarget: form.destinationTarget,
-    pathPrefix: form.remoteWikiTarget ? '' : form.pathPrefix, // Clear path prefix if remote
-    defaultLanguage: form.defaultLanguage,
     operatorEnabled: form.operatorEnabled,
     operatorEndpoint: form.operatorEndpoint,
     telemetryEnabled: form.telemetryEnabled,
