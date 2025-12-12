@@ -133,14 +133,10 @@ kubectl get svc -n glooscap-system
 echo ""
 
 # Show access instructions
-log_info "To access the UI:"
-echo "  Port-forward (recommended for now):"
-echo "    kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80"
-echo ""
-echo "  Then open: http://localhost:8080"
-echo ""
-log_info "To access the operator API:"
-echo "  kubectl port-forward -n glooscap-system svc/glooscap-operator 3000:3000"
+log_info "Services are accessible directly on host ports (NodePort):"
+echo "  UI: http://localhost:30080"
+echo "  Operator API: http://localhost:30000"
+echo "  Operator Health: http://localhost:30081/healthz"
 echo ""
 log_info "To view logs:"
 echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"

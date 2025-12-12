@@ -13,10 +13,12 @@ spec:
   - name: http-api
     port: 3000
     targetPort: http-api
+    nodePort: 30000
     protocol: TCP
   - name: health
     port: 8081
     targetPort: health
+    nodePort: 30081
     protocol: TCP
-  type: ClusterIP
+  type: NodePort
 

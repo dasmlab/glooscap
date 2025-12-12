@@ -26,15 +26,15 @@ This single command will:
 4. Build and push architecture-specific images
 5. Deploy Glooscap operator and UI
 
-### Access the UI
+### Access the Services
 
-After installation completes:
+After installation completes, services are accessible directly:
 
-```bash
-kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80
-```
+- **UI**: http://localhost:30080
+- **Operator API**: http://localhost:30000
+- **Operator Health**: http://localhost:30081/healthz
 
-Then open http://localhost:8080 in your browser.
+No port-forwarding needed!
 
 ### Uninstall
 
@@ -96,13 +96,13 @@ This builds architecture-specific images and pushes them to `ghcr.io/dasmlab`.
 
 This deploys the operator and UI to the cluster.
 
-### Step 6: Access the UI
+### Step 6: Access the Services
 
-```bash
-kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80
-```
+Services are accessible directly on host ports:
 
-Then open http://localhost:8080 in your browser.
+- **UI**: http://localhost:30080
+- **Operator API**: http://localhost:30000
+- **Operator Health**: http://localhost:30081/healthz
 
 ## Step 7: Configure Translation Service
 
