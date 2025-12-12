@@ -214,6 +214,20 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
             continue
         fi
         
+        # Ensure registry secret exists in plugin namespace (if it has one)
+        # Most plugins will use the same secret from glooscap-system
+        log_info "Ensuring registry secret exists for ${plugin}..."
+        # Try to create secret in plugin namespace if it exists, otherwise use glooscap-system
+        PLUGIN_NAMESPACE="${plugin}"
+        if kubectl get namespace "${PLUGIN_NAMESPACE}" &>/dev/null; then
+            # Copy secret from glooscap-system if it exists
+            if kubectl get secret dasmlab-ghcr-pull -n glooscap-system &>/dev/null; then
+                kubectl get secret dasmlab-ghcr-pull -n glooscap-system -o yaml | \
+                    sed "s/namespace: glooscap-system/namespace: ${PLUGIN_NAMESPACE}/" | \
+                    kubectl apply -f - || log_warn "Failed to copy registry secret to ${PLUGIN_NAMESPACE}"
+            fi
+        fi
+        
         # Build and push plugin image
         if [ -f "${PLUGIN_INFRA_DIR}/scripts/build-and-load-images.sh" ]; then
             log_info "Building and pushing ${plugin} image..."
