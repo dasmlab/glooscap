@@ -23,6 +23,14 @@ if [ -z "${GHCR_PAT}" ]; then
     exit 1
 fi
 
+# Ensure namespace exists
+echo "Ensuring namespace '${NAMESPACE}' exists..."
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - || {
+    echo "ERROR: Failed to create namespace ${NAMESPACE}"
+    exit 1
+}
+echo "Namespace '${NAMESPACE}' ensured"
+
 echo "Creating image pull secret 'dasmlab-ghcr-pull' in namespace ${NAMESPACE}..."
 
 # Use --dry-run=client -o yaml | kubectl apply -f - to make it idempotent
