@@ -77,8 +77,8 @@ if [ -f "./buildme.sh" ]; then
         exit 1
     }
 else
-    # Fallback to docker build
-    docker build -t "${UI_IMG}" . || {
+    # Fallback to docker buildx build (modern approach, avoids deprecation warnings)
+    docker buildx build --load --tag "${UI_IMG}" . || {
         log_error "Failed to build UI image"
         exit 1
     }

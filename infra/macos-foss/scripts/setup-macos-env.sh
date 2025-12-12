@@ -196,6 +196,15 @@ else
     log_info "k3d will try to detect Podman automatically"
 fi
 
+# Install Go (required for building operator)
+if ! check_command go; then
+    log_info "Installing Go..."
+    brew install go
+    log_success "Go installed"
+else
+    log_info "Go already installed: $(go version 2>/dev/null || echo 'installed')"
+fi
+
 # Install kubectl
 if ! check_command kubectl; then
     log_info "Installing kubectl..."
@@ -253,6 +262,12 @@ if check_command podman; then
     fi
 else
     log_error "✗ Podman not found"
+fi
+
+if check_command go; then
+    log_success "✓ Go: $(go version 2>/dev/null || echo 'installed')"
+else
+    log_error "✗ Go not found"
 fi
 
 if check_command kubectl; then

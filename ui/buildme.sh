@@ -26,14 +26,14 @@ else
   git_sha="unknown"
 fi
 
-echo "[buildme] docker build -t ${app}:${version} ."
+echo "[buildme] docker buildx build --load --tag ${app}:${version} ."
 echo "  Build number: ${next}"
 echo "  Version tag: ${tag}"
 echo "  Git SHA: ${git_sha}"
 
-docker build \
+docker buildx build --load \
   --build-arg BUILD_VERSION="${tag}" \
   --build-arg BUILD_NUMBER="${next}" \
   --build-arg BUILD_SHA="${git_sha}" \
-  -t "${app}:${version}" .
+  --tag "${app}:${version}" .
 
