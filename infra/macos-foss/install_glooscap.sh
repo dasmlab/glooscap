@@ -218,6 +218,17 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
             continue
         fi
         
+        # Run plugin setup script (if it exists) to install build dependencies
+        if [ -f "${PLUGIN_INFRA_DIR}/scripts/setup-macos-env.sh" ]; then
+            log_info "Setting up build environment for ${plugin}..."
+            cd "${PLUGIN_INFRA_DIR}"
+            if ! bash scripts/setup-macos-env.sh; then
+                log_warn "Plugin ${plugin} setup failed (continuing anyway)"
+            fi
+        else
+            log_info "No setup script found for ${plugin} (skipping environment setup)"
+        fi
+        
         # Ensure registry secret exists in plugin namespace (if it has one)
         # Most plugins will use the same secret from glooscap-system
         log_info "Ensuring registry secret exists for ${plugin}..."
