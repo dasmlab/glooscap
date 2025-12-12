@@ -31,8 +31,8 @@ spec:
         env:
         - name: API_BASE_URL
           # For local development, use port-forward or NodePort/Ingress
-          # This will be the operator service
-          value: http://glooscap-operator.glooscap-system.svc:3000/api/v1
+          # This will be the operator service (Kubernetes DNS format)
+          value: http://glooscap-operator.glooscap-system.svc.cluster.local:3000/api/v1
         ports:
         - containerPort: 8080
           name: http

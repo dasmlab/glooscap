@@ -112,32 +112,47 @@ const buildInfo = computed(() => {
   return buildNumber ? `#${buildNumber}` : 'dev'
 })
 
-const navItems = computed(() => [
-  {
-    label: t('navigation.catalogue'),
-    caption: t('navigation.catalogueDesc'),
-    icon: 'travel_explore',
-    to: { name: 'catalogue' },
-  },
-  {
-    label: t('navigation.author'),
-    caption: t('navigation.authorDesc'),
-    icon: 'edit_document',
-    to: { name: 'author' },
-  },
-  {
-    label: t('navigation.jobs'),
-    caption: t('navigation.jobsDesc'),
-    icon: 'list_alt',
-    to: { name: 'jobs' },
-  },
-  {
+const navItems = computed(() => {
+  const items = [
+    {
+      label: t('navigation.catalogue'),
+      caption: t('navigation.catalogueDesc'),
+      icon: 'travel_explore',
+      to: { name: 'catalogue' },
+    },
+    {
+      label: t('navigation.author'),
+      caption: t('navigation.authorDesc'),
+      icon: 'edit_document',
+      to: { name: 'author' },
+    },
+    {
+      label: t('navigation.jobs'),
+      caption: t('navigation.jobsDesc'),
+      icon: 'list_alt',
+      to: { name: 'jobs' },
+    },
+  ]
+  
+  // Add CMDB (Nokomis) if enabled
+  if (settingsStore.nokomisEnabled) {
+    items.push({
+      label: t('navigation.cmdb'),
+      caption: t('navigation.cmdbDesc'),
+      icon: 'account_tree',
+      to: { name: 'cmdb' },
+    })
+  }
+  
+  items.push({
     label: t('navigation.settings'),
     caption: t('navigation.settingsDesc'),
     icon: 'tune',
     to: { name: 'settings' },
-  },
-])
+  })
+  
+  return items
+})
 
 const localeOptions = [
   { label: 'English', value: 'en-US', icon: 'language' },

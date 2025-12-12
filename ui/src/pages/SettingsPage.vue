@@ -66,6 +66,34 @@
                 <q-item>
                   <q-item-section avatar>
                     <q-icon
+                      :name="operatorStatusIcon"
+                      :color="operatorStatusColor"
+                      size="md"
+                    />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-input
+                      v-model="form.operatorEndpoint"
+                      :label="$t('settings.operatorEndpoint')"
+                      outlined
+                      dense
+                      disable
+                      :hint="$t('settings.operatorHint')"
+                    />
+                  </q-item-section>
+                </q-item>
+              </div>
+              <div class="col-12 col-md-6">
+                <q-item>
+                  <q-item-section avatar>
+                    <q-checkbox
+                      v-model="form.telemetryEnabled"
+                      color="primary"
+                      dense
+                    />
+                  </q-item-section>
+                  <q-item-section avatar>
+                    <q-icon
                       :name="telemetryStatusIcon"
                       :color="telemetryStatusColor"
                       size="md"
@@ -73,16 +101,50 @@
                   </q-item-section>
                   <q-item-section>
                     <q-input
-                      v-model="otlpEndpoint"
+                      v-model="form.telemetryEndpoint"
                       :label="$t('settings.telemetryEndpoint')"
                       outlined
                       dense
-                      disable
+                      :disable="!form.telemetryEnabled"
                       :hint="$t('settings.telemetryHint')"
                     />
                   </q-item-section>
                 </q-item>
               </div>
+            </div>
+            
+            <div class="row q-col-gutter-md q-mt-md">
+              <div class="col-12 col-md-6">
+                <q-item>
+                  <q-item-section avatar>
+                    <q-checkbox
+                      v-model="form.nokomisEnabled"
+                      color="primary"
+                      dense
+                    />
+                  </q-item-section>
+                  <q-item-section avatar>
+                    <q-icon
+                      :name="nokomisStatusIcon"
+                      :color="nokomisStatusColor"
+                      size="md"
+                    />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-input
+                      v-model="form.nokomisEndpoint"
+                      :label="$t('settings.nokomisEndpoint')"
+                      outlined
+                      dense
+                      :disable="!form.nokomisEnabled"
+                      :hint="$t('settings.nokomisHint')"
+                    />
+                  </q-item-section>
+                </q-item>
+              </div>
+            </div>
+            
+            <div class="row q-col-gutter-md q-mt-md">
               <div class="col-12 col-md-6">
                 <q-input
                   v-model="securityBadge"
@@ -381,10 +443,21 @@ const form = reactive({
   destinationTarget: settingsStore.destinationTarget,
   pathPrefix: settingsStore.pathPrefix,
   defaultLanguage: settingsStore.defaultLanguage,
+  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.glooscap-system.svc.cluster.local:3000',
+  telemetryEnabled: settingsStore.telemetryEnabled ?? true,
+  telemetryEndpoint: settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317',
+  nokomisEnabled: settingsStore.nokomisEnabled || false,
+  nokomisEndpoint: settingsStore.nokomisEndpoint || 'nokomis-service.nokomis.svc.cluster.local:8080',
 })
 
-const otlpEndpoint = ref('otel-collector.glooscap.svc:4317')
 const securityBadge = computed(() => t('app.securityBadge'))
+
+// Operator connection status
+const operatorStatus = ref({
+  connected: false,
+  status: 'unknown',
+  lastCheck: null,
+})
 
 // Telemetry endpoint status
 const telemetryStatus = ref({
@@ -392,8 +465,38 @@ const telemetryStatus = ref({
   status: 'unknown',
 })
 
+// Nokomis endpoint status
+const nokomisStatus = ref({
+  connected: false,
+  status: 'unknown',
+})
+
+// Computed properties for operator status display
+const operatorStatusIcon = computed(() => {
+  switch (operatorStatus.value.status) {
+    case 'connected':
+      return 'fiber_manual_record'
+    case 'error':
+      return 'fiber_manual_record'
+    default:
+      return 'help_outline'
+  }
+})
+
+const operatorStatusColor = computed(() => {
+  switch (operatorStatus.value.status) {
+    case 'connected':
+      return 'positive'
+    case 'error':
+      return 'negative'
+    default:
+      return 'grey'
+  }
+})
+
 // Computed properties for telemetry status display
 const telemetryStatusIcon = computed(() => {
+  if (!form.telemetryEnabled) return 'fiber_manual_record'
   switch (telemetryStatus.value.status) {
     case 'connected':
       return 'fiber_manual_record'
@@ -405,6 +508,7 @@ const telemetryStatusIcon = computed(() => {
 })
 
 const telemetryStatusColor = computed(() => {
+  if (!form.telemetryEnabled) return 'grey'
   switch (telemetryStatus.value.status) {
     case 'connected':
       return 'positive'
@@ -415,12 +519,80 @@ const telemetryStatusColor = computed(() => {
   }
 })
 
+// Computed properties for Nokomis status display
+const nokomisStatusIcon = computed(() => {
+  if (!form.nokomisEnabled) return 'fiber_manual_record'
+  switch (nokomisStatus.value.status) {
+    case 'connected':
+      return 'fiber_manual_record'
+    case 'error':
+      return 'fiber_manual_record'
+    default:
+      return 'help_outline'
+  }
+})
+
+const nokomisStatusColor = computed(() => {
+  if (!form.nokomisEnabled) return 'grey'
+  switch (nokomisStatus.value.status) {
+    case 'connected':
+      return 'positive'
+    case 'error':
+      return 'negative'
+    default:
+      return 'grey'
+  }
+})
+
+// Fetch operator connection status
+async function fetchOperatorStatus() {
+  try {
+    // Try to make a simple API call to check connection
+    const response = await api.get('/health', { timeout: 3000 }).catch(() => null)
+    
+    if (response && response.status === 200) {
+      operatorStatus.value = {
+        connected: true,
+        status: 'connected',
+        lastCheck: new Date(),
+      }
+    } else {
+      // Try alternative endpoint
+      try {
+        await api.get('/targets', { timeout: 3000 })
+        operatorStatus.value = {
+          connected: true,
+          status: 'connected',
+          lastCheck: new Date(),
+        }
+      } catch {
+        operatorStatus.value = {
+          connected: false,
+          status: 'error',
+          lastCheck: new Date(),
+        }
+      }
+    }
+  } catch (error) {
+    logToConsole('WARN', 'Failed to check operator connection status', error.message)
+    operatorStatus.value = {
+      connected: false,
+      status: 'error',
+      lastCheck: new Date(),
+    }
+  }
+}
+
 // Fetch telemetry endpoint status
 async function fetchTelemetryStatus() {
+  if (!form.telemetryEnabled) {
+    telemetryStatus.value = { connected: false, status: 'disabled' }
+    return
+  }
   try {
     // Try to ping the telemetry endpoint or check if it's reachable
     // For now, we'll assume it's connected if the endpoint is configured
-    if (otlpEndpoint.value) {
+    if (form.telemetryEndpoint) {
       telemetryStatus.value = {
         connected: true,
         status: 'connected',
@@ -434,6 +606,35 @@ async function fetchTelemetryStatus() {
   } catch (error) {
     logToConsole('WARN', 'Failed to check telemetry endpoint status', error.message)
     telemetryStatus.value = {
+      connected: false,
+      status: 'error',
+    }
+  }
+}
+
+// Fetch Nokomis endpoint status
+async function fetchNokomisStatus() {
+  if (!form.nokomisEnabled) {
+    nokomisStatus.value = { connected: false, status: 'disabled' }
+    return
+  }
+  try {
+    // Try to ping the Nokomis endpoint or check if it's reachable
+    // For now, we'll assume it's connected if the endpoint is configured
+    if (form.nokomisEndpoint) {
+      nokomisStatus.value = {
+        connected: true,
+        status: 'connected',
+      }
+    } else {
+      nokomisStatus.value = {
+        connected: false,
+        status: 'error',
+      }
+    }
+  } catch (error) {
+    logToConsole('WARN', 'Failed to check Nokomis endpoint status', error.message)
+    nokomisStatus.value = {
       connected: false,
       status: 'error',
     }
@@ -829,17 +1030,54 @@ function handleNanabushStatusEvent(event) {
   }
 }
 
+// Handle API connection status events
+function handleApiConnectionStatus(event) {
+  const status = event.detail
+  if (status.error) {
+    operatorStatus.value = {
+      connected: false,
+      status: 'error',
+      lastCheck: new Date(),
+    }
+  } else if (status.connected) {
+    operatorStatus.value = {
+      connected: true,
+      status: 'connected',
+      lastCheck: new Date(),
+    }
+  }
+}
+
 // Lifecycle hooks
+let statusInterval = null
+
 onMounted(() => {
+  fetchOperatorStatus()
   fetchNanabushStatus()
   fetchTranslationServiceConfig()
   fetchWikiTargets()
   fetchTelemetryStatus()
+  fetchNokomisStatus()
   window.addEventListener('nanabush-status', handleNanabushStatusEvent)
+  window.addEventListener('api-connection-status', handleApiConnectionStatus)
+  
+  // Periodically check operator status
+  statusInterval = setInterval(() => {
+    fetchOperatorStatus()
+  }, 30000) // Check every 30 seconds
 })
 
 onUnmounted(() => {
   window.removeEventListener('nanabush-status', handleNanabushStatusEvent)
+  window.removeEventListener('api-connection-status', handleApiConnectionStatus)
+  if (statusInterval) {
+    clearInterval(statusInterval)
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('nanabush-status', handleNanabushStatusEvent)
+  window.removeEventListener('api-connection-status', handleApiConnectionStatus)
 })
 
 function reset() {
@@ -847,6 +1085,11 @@ function reset() {
   form.destinationTarget = settingsStore.destinationTarget
   form.pathPrefix = settingsStore.pathPrefix
   form.defaultLanguage = settingsStore.defaultLanguage
+  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.glooscap-system.svc.cluster.local:3000'
+  form.telemetryEnabled = settingsStore.telemetryEnabled ?? true
+  form.telemetryEndpoint = settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317'
+  form.nokomisEnabled = settingsStore.nokomisEnabled || false
+  form.nokomisEndpoint = settingsStore.nokomisEndpoint || 'nokomis-service.nokomis.svc.cluster.local:8080'
   $q.notify({ type: 'info', message: t('common.cancel') })
 }
 
@@ -856,7 +1099,16 @@ function save() {
     destinationTarget: form.destinationTarget,
     pathPrefix: form.remoteWikiTarget ? '' : form.pathPrefix, // Clear path prefix if remote
     defaultLanguage: form.defaultLanguage,
+    operatorEndpoint: form.operatorEndpoint,
+    telemetryEnabled: form.telemetryEnabled,
+    telemetryEndpoint: form.telemetryEndpoint,
+    nokomisEnabled: form.nokomisEnabled,
+    nokomisEndpoint: form.nokomisEndpoint,
   })
+  // Refresh status after saving
+  fetchOperatorStatus()
+  fetchTelemetryStatus()
+  fetchNokomisStatus()
   $q.notify({ type: 'positive', message: t('common.success') })
 }
 </script>

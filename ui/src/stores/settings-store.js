@@ -7,6 +7,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const destinationTarget = ref('outline-fr')
   const pathPrefix = ref('/fr')
   const remoteWikiTarget = ref(false)
+  const telemetryEnabled = ref(true)
+  const telemetryEndpoint = ref('otel-collector.glooscap-system.svc.cluster.local:4317')
+  const nokomisEnabled = ref(false)
+  const nokomisEndpoint = ref('nokomis-service.nokomis.svc.cluster.local:8080')
+  const operatorEndpoint = ref('glooscap-operator.glooscap-system.svc.cluster.local:3000')
   // securityBadge is now translated via i18n, so we don't need a ref for it
   
   // UI language preference (separate from translation target language)
@@ -23,6 +28,11 @@ export const useSettingsStore = defineStore('settings', () => {
     if (partial.destinationTarget) destinationTarget.value = partial.destinationTarget
     if (partial.pathPrefix !== undefined) pathPrefix.value = partial.pathPrefix
     if (partial.remoteWikiTarget !== undefined) remoteWikiTarget.value = partial.remoteWikiTarget
+    if (partial.telemetryEnabled !== undefined) telemetryEnabled.value = partial.telemetryEnabled
+    if (partial.telemetryEndpoint) telemetryEndpoint.value = partial.telemetryEndpoint
+    if (partial.nokomisEnabled !== undefined) nokomisEnabled.value = partial.nokomisEnabled
+    if (partial.nokomisEndpoint) nokomisEndpoint.value = partial.nokomisEndpoint
+    if (partial.operatorEndpoint) operatorEndpoint.value = partial.operatorEndpoint
   }
 
   return {
@@ -30,6 +40,11 @@ export const useSettingsStore = defineStore('settings', () => {
     destinationTarget,
     pathPrefix,
     remoteWikiTarget,
+    telemetryEnabled,
+    telemetryEndpoint,
+    nokomisEnabled,
+    nokomisEndpoint,
+    operatorEndpoint,
     uiLocale,
     updateSettings,
     setUILocale,

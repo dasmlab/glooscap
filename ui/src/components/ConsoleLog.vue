@@ -3,8 +3,30 @@
     <div
       v-if="drawerOpen"
       class="console-drawer"
-      style="position: fixed; bottom: 0; left: 0; right: 0; height: 300px; max-height: 50vh; z-index: 2000; background: #1e1e1e; border-top: 2px solid #007acc; display: flex; flex-direction: column;"
+      :style="{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: `${consoleHeight}px`,
+        maxHeight: '80vh',
+        minHeight: '150px',
+        zIndex: 2000,
+        background: '#1e1e1e',
+        borderTop: '2px solid #007acc',
+        display: 'flex',
+        flexDirection: 'column',
+      }"
     >
+    <!-- Resize Handle -->
+    <div
+      class="resize-handle"
+      @mousedown="startResize"
+      @touchstart="startResize"
+    >
+      <q-icon name="drag_handle" size="sm" color="grey-5" />
+    </div>
+    
     <q-toolbar class="bg-grey-9 text-white">
       <q-toolbar-title>
         <q-icon name="terminal" class="q-mr-sm" />
@@ -13,7 +35,7 @@
       <q-btn flat dense icon="delete_sweep" :title="$t('console.clear')" @click="clearLogs" />
       <q-btn flat dense icon="close" :title="$t('console.close')" @click="closeDrawer" />
     </q-toolbar>
-    <q-scroll-area style="height: calc(100% - 50px); max-height: calc(50vh - 50px);" class="console-scroll">
+    <q-scroll-area :style="{ height: `calc(100% - 80px)`, maxHeight: 'calc(80vh - 80px)' }" class="console-scroll">
       <div class="console-logs q-pa-sm">
         <div
           v-for="(log, index) in logs"
@@ -34,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   modelValue: {
@@ -52,6 +74,69 @@ const drawerOpen = computed({
 
 const logs = ref([])
 const maxLogs = 500
+
+// Resize functionality
+const consoleHeight = ref(300) // Default height in pixels
+const isResizing = ref(false)
+const startY = ref(0)
+const startHeight = ref(0)
+
+// Load saved height from localStorage
+onMounted(() => {
+  const savedHeight = localStorage.getItem('glooscap-console-height')
+  if (savedHeight) {
+    const height = parseInt(savedHeight, 10)
+    if (height >= 150 && height <= window.innerHeight * 0.8) {
+      consoleHeight.value = height
+    }
+  }
+})
+
+function startResize(event) {
+  isResizing.value = true
+  const clientY = event.touches ? event.touches[0].clientY : event.clientY
+  startY.value = clientY
+  startHeight.value = consoleHeight.value
+  
+  document.addEventListener('mousemove', handleResize)
+  document.addEventListener('mouseup', stopResize)
+  document.addEventListener('touchmove', handleResize)
+  document.addEventListener('touchend', stopResize)
+  
+  event.preventDefault()
+}
+
+function handleResize(event) {
+  if (!isResizing.value) return
+  
+  const clientY = event.touches ? event.touches[0].clientY : event.clientY
+  const deltaY = startY.value - clientY // Inverted because we're resizing from bottom
+  const newHeight = startHeight.value + deltaY
+  
+  // Constrain height between min and max
+  const minHeight = 150
+  const maxHeight = window.innerHeight * 0.8 // 80% of viewport height
+  
+  if (newHeight >= minHeight && newHeight <= maxHeight) {
+    consoleHeight.value = newHeight
+    // Save to localStorage
+    localStorage.setItem('glooscap-console-height', newHeight.toString())
+  }
+  
+  event.preventDefault()
+}
+
+function stopResize() {
+  isResizing.value = false
+  document.removeEventListener('mousemove', handleResize)
+  document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener('touchmove', handleResize)
+  document.removeEventListener('touchend', stopResize)
+}
+
+onUnmounted(() => {
+  stopResize()
+})
 
 function addLog(level, message, data = null) {
   logs.value.push({
@@ -107,6 +192,26 @@ defineExpose({
 .console-drawer {
   background: #1e1e1e;
   color: #d4d4d4;
+  user-select: none;
+}
+
+.resize-handle {
+  height: 8px;
+  background: #2d2d2d;
+  border-top: 1px solid #007acc;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.resize-handle:hover {
+  background: #3d3d3d;
+}
+
+.resize-handle:active {
+  background: #4d4d4d;
 }
 
 .console-scroll {
