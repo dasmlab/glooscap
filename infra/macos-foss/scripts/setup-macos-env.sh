@@ -96,12 +96,52 @@ brew update
 
 # Install Docker CLI (for k3d compatibility)
 # We use Podman as the actual container runtime/daemon
+# Docker CLI needs to be recent enough to support API 1.44+ (required by k3d)
 if ! check_command docker; then
     log_info "Installing Docker CLI (for k3d compatibility)..."
     brew install docker
     log_success "Docker CLI installed"
 else
-    log_success "Docker CLI is installed"
+    # Check Docker CLI version and warn if too old
+    DOCKER_VERSION=$(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0.0")
+    DOCKER_MAJOR=$(echo "${DOCKER_VERSION}" | cut -d. -f1)
+    DOCKER_MINOR=$(echo "${DOCKER_VERSION}" | cut -d. -f2)
+    
+    # Docker 24.0+ supports API 1.44+, but we'll check for 20.10+ as minimum
+    if [ "${DOCKER_MAJOR}" -lt 20 ] || ([ "${DOCKER_MAJOR}" -eq 20 ] && [ "${DOCKER_MINOR}" -lt 10 ]); then
+        log_warn "Docker CLI version ${DOCKER_VERSION} may be too old (needs API 1.44+)"
+        log_info "Updating Docker CLI..."
+        brew upgrade docker || {
+            log_warn "Failed to upgrade Docker CLI, continuing anyway"
+            log_info "If you see API version errors, try: brew upgrade docker"
+        }
+    else
+        log_success "Docker CLI is installed: $(docker --version 2>/dev/null || echo 'installed')"
+    fi
+fi
+
+# Set DOCKER_API_VERSION to 1.44+ if not set (for compatibility with newer runtimes)
+if [ -z "${DOCKER_API_VERSION:-}" ]; then
+    export DOCKER_API_VERSION=1.44
+    log_info "Set DOCKER_API_VERSION=1.44 for compatibility"
+    
+    # Add to shell profile for persistence
+    SHELL_PROFILE=""
+    if [ -f "${HOME}/.zprofile" ]; then
+        SHELL_PROFILE="${HOME}/.zprofile"
+    elif [ -f "${HOME}/.zshrc" ]; then
+        SHELL_PROFILE="${HOME}/.zshrc"
+    fi
+    
+    if [ -n "${SHELL_PROFILE}" ]; then
+        if ! grep -q "DOCKER_API_VERSION" "${SHELL_PROFILE}" 2>/dev/null; then
+            log_info "Adding DOCKER_API_VERSION to ${SHELL_PROFILE} for persistence..."
+            echo "" >> "${SHELL_PROFILE}"
+            echo "# Docker API version for k3d compatibility (minimum 1.44)" >> "${SHELL_PROFILE}"
+            echo "export DOCKER_API_VERSION=1.44" >> "${SHELL_PROFILE}"
+            log_success "DOCKER_API_VERSION added to ${SHELL_PROFILE}"
+        fi
+    fi
 fi
 
 # Install Podman (container runtime/daemon)
