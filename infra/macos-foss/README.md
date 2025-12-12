@@ -1,6 +1,6 @@
 # Glooscap macOS FOSS Setup
 
-This directory contains everything needed to run Glooscap on macOS using Docker and k3d (k3s in containers).
+This directory contains everything needed to run Glooscap on macOS using Podman and k3d (k3s in containers).
 
 ## Overview
 
@@ -18,81 +18,127 @@ This setup provides a fully FOSS (Free and Open Source Software) stack for runni
 - macOS (tested on macOS 12+)
 - Homebrew (for package management)
 - Administrator access (for some installations)
+- GitHub Personal Access Token with `write:packages` permission (for pushing images)
 
-## Quick Start
+## For End Users: Simple Installation
 
-1. **Run the macOS environment setup:**
-   ```bash
-   ./scripts/setup-macos-env.sh
-   ```
+If you just want to **install and use Glooscap**, use these simple scripts:
 
-2. **Start the Kubernetes cluster:**
-   
-   ```bash
-   ./scripts/start-k3d.sh
-   ```
-   
-   k3d runs k3s in Podman containers:
-   - Uses Podman as the container runtime (FOSS)
-   - Docker CLI connects to Podman via `DOCKER_HOST`
-   - Fast startup and simple architecture
-   - Perfect for local development
+### Install Glooscap
 
-3. **Deploy Glooscap:**
-   ```bash
-   ./scripts/deploy-glooscap.sh
-   ```
+```bash
+cd infra/macos-foss
+export DASMLAB_GHCR_PAT=your_github_token
+./install_glooscap.sh
+```
 
-4. **Access the UI:**
-   ```bash
-   kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80
-   ```
-   Then open http://localhost:8080 in your browser.
+This will:
+1. Set up all dependencies (Docker CLI, Podman, k3d, kubectl, Go)
+2. Start the Kubernetes cluster
+3. Create registry credentials
+4. Build and push architecture-specific images
+5. Deploy Glooscap operator and UI
 
-## Detailed Setup
+### Access the UI
 
-### Step 1: Install Dependencies
+After installation:
 
-The `setup-macos-env.sh` script will install:
-- Docker CLI (via Homebrew, for k3d compatibility)
-- Podman (via Homebrew, the container runtime/daemon)
-- k3d (k3s in containers)
-- kubectl (Kubernetes CLI)
-- Helm (optional, for future use)
+```bash
+kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80
+```
 
-### Step 2: Start k3d Cluster
+Then open http://localhost:8080 in your browser.
 
-k3d runs k3s inside Docker containers, which:
-- Works on macOS (no systemd requirement)
-- Uses Docker directly (lightweight, no VM overhead)
-- Creates a lightweight Kubernetes cluster in containers
+### Uninstall Glooscap
 
-### Step 3: Deploy Glooscap
+To remove everything:
 
-The deployment scripts will:
-1. Create the `glooscap-system` namespace
-2. Apply CRDs (Custom Resource Definitions)
-3. Deploy the operator
-4. Deploy the UI
-5. Create necessary RBAC resources
+```bash
+./uninstall_glooscap.sh
+```
+
+This will:
+1. Remove Glooscap deployment
+2. Stop the Kubernetes cluster
+3. Remove the cluster
+
+---
+
+## For Developers: Advanced Usage
+
+If you're **developing or testing Glooscap**, you can use the individual scripts or the full cycle test:
+
+### Individual Scripts
+
+See the [scripts/](scripts/) directory for individual scripts:
+- `setup-macos-env.sh` - Install dependencies
+- `start-k3d.sh` - Start cluster
+- `build-and-load-images.sh` - Build and push images
+- `deploy-glooscap.sh` - Deploy Glooscap
+- `undeploy-glooscap.sh` - Remove Glooscap
+- `stop-k3d.sh` - Stop cluster
+- `remove-k3d.sh` - Remove cluster
+
+### Full Cycle Test
+
+Run the complete development cycle (setup → start → build → deploy → undeploy → stop → remove):
+
+```bash
+export DASMLAB_GHCR_PAT=your_github_token
+./scripts/cycle-test.sh
+```
+
+This is useful for:
+- Testing the complete setup process
+- Verifying all scripts work correctly
+- CI/CD validation
+
+## Architecture
+
+### Container Runtime
+
+- **Podman**: FOSS container runtime (replaces Docker Desktop)
+- **Docker CLI**: Used by k3d, connects to Podman via `DOCKER_HOST`
+- Podman runs in a lightweight VM (managed automatically)
+
+### Kubernetes
+
+- **k3d**: Runs k3s inside Podman containers
+- No systemd requirement (works on macOS)
+- Lightweight and fast startup
+- Perfect for local development
+
+### Image Management
+
+- Images are built locally for your architecture (ARM64/AMD64)
+- Tagged with architecture-specific tags: `local-arm64`, `local-amd64`
+- Pushed to `ghcr.io/dasmlab` for cluster to pull
+- Allows parallel development on different architectures
 
 ## Directory Structure
 
 ```
 macos-foss/
-├── README.md                 # This file
+├── README.md                 # This file (user/developer guide)
+├── QUICKSTART.md            # Quick start guide
+├── install_glooscap.sh      # Simple install script (for users)
+├── uninstall_glooscap.sh    # Simple uninstall script (for users)
 ├── manifests/                # Kubernetes manifests
 │   ├── namespace.yaml       # Namespace definition
 │   ├── crds/                # Custom Resource Definitions
 │   ├── operator/            # Operator deployment
 │   ├── ui/                  # UI deployment
 │   └── rbac/                # RBAC resources
-└── scripts/                 # Setup and deployment scripts
+└── scripts/                 # Individual scripts (for developers)
     ├── setup-macos-env.sh   # macOS environment setup
-    ├── start-k3d.sh         # Start k3d cluster (k3s in containers)
+    ├── start-k3d.sh         # Start k3d cluster
     ├── stop-k3d.sh          # Stop k3d cluster
+    ├── remove-k3d.sh        # Remove k3d cluster
+    ├── build-and-load-images.sh  # Build and push images
+    ├── create-registry-secret.sh  # Create registry credentials
     ├── deploy-glooscap.sh   # Deploy Glooscap
-    └── undeploy-glooscap.sh # Remove Glooscap
+    ├── undeploy-glooscap.sh # Remove Glooscap
+    └── cycle-test.sh        # Full cycle test (for developers)
 ```
 
 ## Configuration

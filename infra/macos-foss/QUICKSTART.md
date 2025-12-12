@@ -1,133 +1,102 @@
 # Glooscap macOS FOSS Quick Start Guide
 
-This guide will help you get Glooscap running on macOS using Docker and k3d (k3s in containers) in just a few steps.
+This guide will help you get Glooscap running on macOS in just a few steps.
 
 ## Prerequisites
 
 - macOS 12 or later
 - Administrator access (for some installations)
 - Internet connection
+- GitHub Personal Access Token with `write:packages` permission
 
-## Step 1: Setup macOS Environment
+## Quick Installation (Recommended)
 
-Run the setup script to install all required dependencies:
+For most users, the simplest way to install Glooscap:
+
+```bash
+cd infra/macos-foss
+export DASMLAB_GHCR_PAT=your_github_token
+./install_glooscap.sh
+```
+
+This single command will:
+1. Install all dependencies (Docker CLI, Podman, k3d, kubectl, Go)
+2. Start the Kubernetes cluster
+3. Create registry credentials
+4. Build and push architecture-specific images
+5. Deploy Glooscap operator and UI
+
+### Access the UI
+
+After installation completes:
+
+```bash
+kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80
+```
+
+Then open http://localhost:8080 in your browser.
+
+### Uninstall
+
+To remove everything:
+
+```bash
+./uninstall_glooscap.sh
+```
+
+---
+
+## Manual Installation (For Developers)
+
+If you prefer to run the steps individually or are developing Glooscap:
+
+### Step 1: Setup macOS Environment
 
 ```bash
 cd infra/macos-foss
 ./scripts/setup-macos-env.sh
 ```
 
-This will install:
+This installs:
 - Homebrew (if not already installed)
-- Docker (container runtime)
+- Docker CLI (for k3d compatibility)
+- Podman (container runtime)
 - kubectl (Kubernetes CLI)
 - k3d (runs k3s in containers)
+- Go (for building operator)
 
-**Note**: After installation, you may need to restart your terminal or run:
-```bash
-export PATH="${HOME}/.local/bin:$PATH"
-```
-
-## Step 2: Start Kubernetes Cluster
-
-Start k3d cluster:
+### Step 2: Start Kubernetes Cluster
 
 ```bash
 ./scripts/start-k3d.sh
 ```
 
-This will:
-- Create a k3d cluster (k3s in Docker containers)
-- Configure kubectl to use the cluster
-- Wait for Kubernetes to be ready
+This creates a k3d cluster (k3s in Podman containers).
 
-**Why k3d?**
-- No VM overhead (lighter than Colima)
-- Works reliably with Docker
-- Fast startup and simple architecture
-- Perfect for local development
-
-**To stop k3d:**
-```bash
-./scripts/stop-k3d.sh
-```
-
-**To delete k3d cluster:**
-```bash
-DELETE_CLUSTER=true ./scripts/stop-k3d.sh
-```
-
-## Step 3: Prepare CRDs
-
-Copy the Custom Resource Definitions from the operator:
+### Step 3: Create Registry Credentials
 
 ```bash
-./scripts/copy-crds.sh
+export DASMLAB_GHCR_PAT=your_github_token
+./scripts/create-registry-secret.sh
 ```
 
-This copies the CRD YAML files from `operator/config/crd/bases/` to `manifests/crd/`.
-
-## Step 4: Build and Load Images (Optional)
-
-If you're building images locally, you'll need to build and load them into k3s:
-
-### Build Operator Image
+### Step 4: Build and Push Images
 
 ```bash
-cd ../../operator
-docker build -t ghcr.io/dasmlab/glooscap-operator:latest .
+./scripts/build-and-load-images.sh
 ```
 
-### Build UI Image
+This builds architecture-specific images and pushes them to `ghcr.io/dasmlab`.
 
-```bash
-cd ../ui
-podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
-```
-
-### Load Images into k3d
-
-k3d uses Docker directly, so images are automatically available:
-
-```bash
-# Build images (they'll be available to k3d automatically)
-cd ../../operator
-docker build -t ghcr.io/dasmlab/glooscap-operator:latest .
-
-cd ../ui
-podman build -t ghcr.io/dasmlab/glooscap-ui:latest .
-
-# k3d will use these images from Docker
-# Or import into k3d cluster:
-k3d image import ghcr.io/dasmlab/glooscap-operator:latest -c glooscap
-k3d image import ghcr.io/dasmlab/glooscap-ui:latest -c glooscap
-```
-
-**Note**: For development, you can also set `imagePullPolicy: Never` in the deployment manifests to use local images.
-
-## Step 5: Deploy Glooscap
-
-Deploy the operator and UI:
+### Step 5: Deploy Glooscap
 
 ```bash
 ./scripts/deploy-glooscap.sh
 ```
 
-This will:
-1. Create the `glooscap-system` namespace
-2. Apply CRDs
-3. Deploy RBAC resources
-4. Deploy the operator
-5. Deploy the UI
+This deploys the operator and UI to the cluster.
 
-Wait for all pods to be ready:
-```bash
-kubectl get pods -n glooscap-system -w
-```
-
-## Step 6: Access the UI
-
-Port-forward the UI service:
+### Step 6: Access the UI
 
 ```bash
 kubectl port-forward -n glooscap-system svc/glooscap-ui 8080:80
