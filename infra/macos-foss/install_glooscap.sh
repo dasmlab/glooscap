@@ -2,6 +2,7 @@
 # install_glooscap.sh
 # Simple installation script for end users
 # Sets up everything needed to run Glooscap on macOS: dependencies, cluster, and deployment
+# Supports optional plugins: --plugins iskoces,nokomis or --all
 
 set -euo pipefail
 
@@ -14,6 +15,14 @@ NC='\033[0m'
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_PLUGIN_DIR="${HOME}/.glooscap-plugins"
+
+# Plugin repository URLs (adjust as needed)
+PLUGIN_REPOS=(
+    "iskoces:https://github.com/dasmlab/iskoces.git"
+    "nokomis:https://github.com/dasmlab/nokomis.git"
+    # nanabush is excluded - not suitable for macOS dev
+)
 
 # Functions
 log_info() {
@@ -40,6 +49,59 @@ log_step() {
     echo ""
 }
 
+# Parse arguments
+PLUGINS=""
+ALL_PLUGINS=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --plugins)
+            PLUGINS="$2"
+            shift 2
+            ;;
+        --all)
+            ALL_PLUGINS=true
+            shift
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            log_info "Usage: $0 [--plugins iskoces,nokomis] [--all]"
+            exit 1
+            ;;
+    esac
+done
+
+# Determine which plugins to install
+SELECTED_PLUGINS=()
+if [ "${ALL_PLUGINS}" = "true" ]; then
+    # --all includes all plugins except nanabush
+    for plugin_repo in "${PLUGIN_REPOS[@]}"; do
+        plugin_name="${plugin_repo%%:*}"
+        SELECTED_PLUGINS+=("${plugin_name}")
+    done
+    log_info "Installing all plugins: ${SELECTED_PLUGINS[*]}"
+elif [ -n "${PLUGINS}" ]; then
+    # Parse comma-separated list
+    IFS=',' read -ra PLUGIN_LIST <<< "${PLUGINS}"
+    for plugin in "${PLUGIN_LIST[@]}"; do
+        plugin=$(echo "${plugin}" | xargs) # trim whitespace
+        # Validate plugin name
+        valid=false
+        for plugin_repo in "${PLUGIN_REPOS[@]}"; do
+            if [ "${plugin_repo%%:*}" = "${plugin}" ]; then
+                valid=true
+                break
+            fi
+        done
+        if [ "${valid}" = "true" ]; then
+            SELECTED_PLUGINS+=("${plugin}")
+        else
+            log_warn "Unknown plugin: ${plugin} (skipping)"
+        fi
+    done
+    log_info "Installing plugins: ${SELECTED_PLUGINS[*]}"
+fi
+
 # Check if running on macOS
 if [[ "$(uname)" != "Darwin" ]]; then
     log_error "This script is designed for macOS only"
@@ -49,6 +111,9 @@ fi
 
 log_info "Glooscap Installation for macOS"
 log_info "This will set up everything needed to run Glooscap locally"
+if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
+    log_info "Plugins to install: ${SELECTED_PLUGINS[*]}"
+fi
 echo ""
 
 # Step 1: Setup environment
@@ -98,18 +163,113 @@ if ! bash "${SCRIPT_DIR}/scripts/deploy-glooscap.sh"; then
     exit 1
 fi
 
+# Step 6: Install plugins (if any)
+if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
+    log_step "Step 6: Installing plugins"
+    
+    # Create temp directory for plugin repos
+    mkdir -p "${TEMP_PLUGIN_DIR}"
+    
+    for plugin in "${SELECTED_PLUGINS[@]}"; do
+        log_info "Installing plugin: ${plugin}"
+        
+        # Find plugin repo URL
+        PLUGIN_REPO=""
+        for plugin_repo in "${PLUGIN_REPOS[@]}"; do
+            if [ "${plugin_repo%%:*}" = "${plugin}" ]; then
+                PLUGIN_REPO="${plugin_repo#*:}"
+                break
+            fi
+        done
+        
+        if [ -z "${PLUGIN_REPO}" ]; then
+            log_warn "Plugin ${plugin} not found in repository list (skipping)"
+            continue
+        fi
+        
+        PLUGIN_DIR="${TEMP_PLUGIN_DIR}/${plugin}"
+        
+        # Clone or update plugin repo
+        if [ -d "${PLUGIN_DIR}" ]; then
+            log_info "Updating existing plugin repo: ${plugin}"
+            cd "${PLUGIN_DIR}"
+            git pull origin main || {
+                log_warn "Failed to update ${plugin} repo, trying fresh clone..."
+                rm -rf "${PLUGIN_DIR}"
+            }
+        fi
+        
+        if [ ! -d "${PLUGIN_DIR}" ]; then
+            log_info "Cloning plugin repo: ${plugin}"
+            git clone "${PLUGIN_REPO}" "${PLUGIN_DIR}" || {
+                log_error "Failed to clone ${plugin} repository"
+                continue
+            }
+        fi
+        
+        # Check if plugin has infra/macos-foss directory
+        PLUGIN_INFRA_DIR="${PLUGIN_DIR}/infra/macos-foss"
+        if [ ! -d "${PLUGIN_INFRA_DIR}" ]; then
+            log_warn "Plugin ${plugin} does not have infra/macos-foss directory (skipping)"
+            continue
+        fi
+        
+        # Build and push plugin image
+        if [ -f "${PLUGIN_INFRA_DIR}/scripts/build-and-load-images.sh" ]; then
+            log_info "Building and pushing ${plugin} image..."
+            cd "${PLUGIN_INFRA_DIR}"
+            if ! bash scripts/build-and-load-images.sh; then
+                log_warn "Failed to build ${plugin} image (continuing)"
+                continue
+            fi
+        else
+            log_warn "Plugin ${plugin} does not have build-and-load-images.sh (skipping build)"
+        fi
+        
+        # Deploy plugin (try different script name patterns)
+        DEPLOY_SCRIPT=""
+        if [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh" ]; then
+            DEPLOY_SCRIPT="scripts/deploy-${plugin}.sh"
+        elif [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy.sh" ]; then
+            DEPLOY_SCRIPT="scripts/deploy.sh"
+        fi
+        
+        if [ -n "${DEPLOY_SCRIPT}" ]; then
+            log_info "Deploying ${plugin}..."
+            cd "${PLUGIN_INFRA_DIR}"
+            if ! bash "${DEPLOY_SCRIPT}"; then
+                log_warn "Failed to deploy ${plugin} (continuing)"
+                continue
+            fi
+            log_success "Plugin ${plugin} deployed"
+        else
+            log_warn "Plugin ${plugin} does not have deploy script (skipping deployment)"
+        fi
+    done
+fi
+
 # Success!
 echo ""
 log_success "Glooscap installation complete!"
+if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
+    log_success "Plugins installed: ${SELECTED_PLUGINS[*]}"
+fi
 echo ""
 log_info "Access the services directly on host ports:"
 echo "  UI: http://localhost:8080"
 echo "  Operator API: http://localhost:3000"
-echo "  Operator Health: Check operator logs for health endpoint"
+echo ""
+if [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
+    log_info "Iskoces service: iskoces-service.iskoces.svc:50051"
+    log_info "Configure in Glooscap UI: Settings → Translation Service"
+fi
 echo ""
 log_info "View logs:"
 echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"
 echo "  UI: kubectl logs -f -n glooscap-system deployment/glooscap-ui"
+if [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
+    echo "  Iskoces: kubectl logs -f -n iskoces deployment/iskoces-server"
+fi
 echo ""
 log_info "To uninstall, run: ./uninstall_glooscap.sh"
 echo ""

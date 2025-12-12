@@ -32,12 +32,22 @@ export DASMLAB_GHCR_PAT=your_github_token
 ./install_glooscap.sh
 ```
 
+**With plugins:**
+```bash
+# Install specific plugins
+./install_glooscap.sh --plugins iskoces,nokomis
+
+# Install all plugins (except nanabush - not suitable for macOS)
+./install_glooscap.sh --all
+```
+
 This will:
 1. Set up all dependencies (Docker CLI, Podman, k3d, kubectl, Go)
 2. Start the Kubernetes cluster
 3. Create registry credentials
 4. Build and push architecture-specific images
 5. Deploy Glooscap operator and UI
+6. (Optional) Clone, build, and deploy plugins (iskoces, nokomis, etc.)
 
 ### Access the Services
 
