@@ -71,14 +71,15 @@ run_step() {
 # Start
 echo ""
 log_info "Starting complete dev cycle test..."
-echo "This will run all 7 steps:"
+echo "This will run all 8 steps:"
 echo "  1. Setup macOS environment"
 echo "  2. Start k3d cluster"
 echo "  3. Create registry credentials"
-echo "  4. Deploy Glooscap"
-echo "  5. Undeploy Glooscap"
-echo "  6. Stop k3d cluster"
-echo "  7. Remove k3d cluster"
+echo "  4. Build and load images (ARM64 for macOS)"
+echo "  5. Deploy Glooscap"
+echo "  6. Undeploy Glooscap"
+echo "  7. Stop k3d cluster"
+echo "  8. Remove k3d cluster"
 echo ""
 
 # Check for registry credentials
@@ -104,7 +105,7 @@ if [ ${START_RESULT} -eq 0 ]; then
     else
         log_warn "Skipping registry secret creation (DASMLAB_GHCR_PAT not set)"
         RESULTS+=("3. Create Registry Credentials: ⊘ SKIPPED (DASMLAB_GHCR_PAT not set)")
-        REGISTRY_RESULT=1
+        REGISTRY_RESULT=0  # Not a failure, just skipped
     fi
 else
     log_warn "Skipping registry secret creation (start failed)"
@@ -112,31 +113,41 @@ else
     REGISTRY_RESULT=1
 fi
 
-# Step 4: Deploy
+# Step 4: Build and load images
 if [ ${START_RESULT} -eq 0 ]; then
+    run_step "Build and Load Images" "${SCRIPT_DIR}/build-and-load-images.sh"
+    BUILD_RESULT=$?
+else
+    log_warn "Skipping image build (start failed)"
+    RESULTS+=("4. Build and Load Images: ⊘ SKIPPED (start failed)")
+    BUILD_RESULT=1
+fi
+
+# Step 5: Deploy
+if [ ${START_RESULT} -eq 0 ] && [ ${BUILD_RESULT} -eq 0 ]; then
     run_step "Deploy Glooscap" "${SCRIPT_DIR}/deploy-glooscap.sh"
     DEPLOY_RESULT=$?
 else
-    log_warn "Skipping deploy (start failed)"
-    RESULTS+=("4. Deploy Glooscap: ⊘ SKIPPED (start failed)")
+    log_warn "Skipping deploy (start or build failed)"
+    RESULTS+=("5. Deploy Glooscap: ⊘ SKIPPED (start or build failed)")
     DEPLOY_RESULT=1
 fi
 
-# Step 5: Undeploy
+# Step 6: Undeploy
 if [ ${DEPLOY_RESULT} -eq 0 ]; then
     run_step "Undeploy Glooscap" "${SCRIPT_DIR}/undeploy-glooscap.sh"
     UNDEPLOY_RESULT=$?
 else
     log_warn "Skipping undeploy (deploy failed or skipped)"
-    RESULTS+=("5. Undeploy Glooscap: ⊘ SKIPPED")
+    RESULTS+=("6. Undeploy Glooscap: ⊘ SKIPPED")
     UNDEPLOY_RESULT=0
 fi
 
-# Step 6: Stop
+# Step 7: Stop
 run_step "Stop k3d Cluster" "${SCRIPT_DIR}/stop-k3d.sh"
 STOP_RESULT=$?
 
-# Step 7: Remove
+# Step 8: Remove
 run_step "Remove k3d Cluster" "${SCRIPT_DIR}/remove-k3d.sh"
 REMOVE_RESULT=$?
 
