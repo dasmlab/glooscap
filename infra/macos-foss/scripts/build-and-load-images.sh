@@ -77,8 +77,9 @@ if [ -f "./buildme.sh" ]; then
         exit 1
     }
 else
-    # Fallback to docker buildx build (modern approach, avoids deprecation warnings)
-    docker buildx build --load --tag "${UI_IMG}" . || {
+    # Fallback to docker build (buildx may not be available with Podman)
+    log_info "Using docker build (buildx not available or --load not supported)"
+    docker build --tag "${UI_IMG}" . || {
         log_error "Failed to build UI image"
         exit 1
     }

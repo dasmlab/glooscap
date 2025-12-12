@@ -26,14 +26,25 @@ else
   git_sha="unknown"
 fi
 
-echo "[buildme] docker buildx build --load --tag ${app}:${version} ."
+echo "[buildme] Building ${app}:${version}..."
 echo "  Build number: ${next}"
 echo "  Version tag: ${tag}"
 echo "  Git SHA: ${git_sha}"
 
-docker buildx build --load \
-  --build-arg BUILD_VERSION="${tag}" \
-  --build-arg BUILD_NUMBER="${next}" \
-  --build-arg BUILD_SHA="${git_sha}" \
-  --tag "${app}:${version}" .
+# Try buildx with --load first, fall back to regular build if not supported
+if docker buildx version >/dev/null 2>&1 && docker buildx build --help 2>&1 | grep -q "\--load"; then
+    echo "[buildme] Using docker buildx build --load"
+    docker buildx build --load \
+      --build-arg BUILD_VERSION="${tag}" \
+      --build-arg BUILD_NUMBER="${next}" \
+      --build-arg BUILD_SHA="${git_sha}" \
+      --tag "${app}:${version}" .
+else
+    echo "[buildme] Using docker build (buildx --load not available)"
+    docker build \
+      --build-arg BUILD_VERSION="${tag}" \
+      --build-arg BUILD_NUMBER="${next}" \
+      --build-arg BUILD_SHA="${git_sha}" \
+      --tag "${app}:${version}" .
+fi
 

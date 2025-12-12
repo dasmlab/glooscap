@@ -131,7 +131,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) buildx build --load --tag ${IMG} .
+	@if $(CONTAINER_TOOL) buildx version >/dev/null 2>&1 && $(CONTAINER_TOOL) buildx build --help 2>&1 | grep -q "\--load"; then \
+		$(CONTAINER_TOOL) buildx build --load --tag ${IMG} .; \
+	else \
+		$(CONTAINER_TOOL) build --tag ${IMG} .; \
+	fi
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
