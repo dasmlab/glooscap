@@ -60,7 +60,7 @@
     </q-banner>
 
     <!-- Dual Panel Layout -->
-    <div class="row q-gutter-md author-panels-container" style="height: calc(100vh - 250px);">
+    <div class="row q-gutter-md author-panels-container">
       <!-- English Panel -->
       <div class="col-12 col-md-6 author-panel-wrapper">
         <q-card class="author-panel">
@@ -526,27 +526,20 @@ watch(selectedTarget, (newTarget) => {
 <style scoped>
 .author-page {
   background: #f4f7fb;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
 }
 
 .author-panels-container {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
+  align-items: stretch;
 }
 
 .author-panel-wrapper {
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
 
 .author-panel {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-height: 600px;
   height: 100%;
 }
