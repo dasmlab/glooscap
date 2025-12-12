@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # build-and-load-images.sh
-# Builds Glooscap operator and UI images locally and loads them into k3d cluster
-# This ensures images are built for the correct architecture (ARM64 on macOS)
+# Builds Glooscap operator and UI images for the current architecture and pushes to ghcr.io
+# Images are tagged with architecture-specific tags (e.g., local-arm64, local-amd64)
+# This allows parallel development on different architectures
 
 set -euo pipefail
 
@@ -33,38 +34,67 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if k3d cluster exists
-K3D_CLUSTER_NAME="${K3D_CLUSTER_NAME:-glooscap}"
-if ! k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then
-    log_error "k3d cluster '${K3D_CLUSTER_NAME}' not found"
-    log_info "Please start the cluster first: ./scripts/start-k3d.sh"
+# Detect architecture
+ARCH=$(uname -m)
+case "${ARCH}" in
+    arm64|aarch64)
+        ARCH_TAG="arm64"
+        ;;
+    x86_64|amd64)
+        ARCH_TAG="amd64"
+        ;;
+    *)
+        log_warn "Unknown architecture: ${ARCH}, defaulting to 'unknown'"
+        ARCH_TAG="unknown"
+        ;;
+esac
+
+log_info "Detected architecture: ${ARCH} (tag: ${ARCH_TAG})"
+
+# Registry configuration
+REGISTRY="ghcr.io/dasmlab"
+OPERATOR_IMG="${REGISTRY}/glooscap-operator:local-${ARCH_TAG}"
+UI_IMG="${REGISTRY}/glooscap-ui:local-${ARCH_TAG}"
+
+# Check for GitHub token
+GHCR_PAT="${DASMLAB_GHCR_PAT:-}"
+if [ -z "${GHCR_PAT}" ]; then
+    log_error "DASMLAB_GHCR_PAT environment variable is required"
+    log_info "Set it with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "The token should be a GitHub PAT with 'write:packages' permission"
     exit 1
 fi
 
-log_info "Building and loading images for k3d cluster '${K3D_CLUSTER_NAME}'..."
+# Authenticate with GitHub Container Registry
+log_info "Authenticating with GitHub Container Registry..."
+echo "${GHCR_PAT}" | docker login ghcr.io -u lmcdasm --password-stdin || {
+    log_error "Failed to authenticate with ghcr.io"
+    exit 1
+}
+log_success "Authenticated with ghcr.io"
+
+log_info "Building and pushing images for architecture: ${ARCH_TAG}..."
 
 # Build operator image
 log_info "Building operator image..."
 cd "${PROJECT_ROOT}/operator"
-OPERATOR_IMG="glooscap-operator:local"
 make docker-build IMG="${OPERATOR_IMG}" || {
     log_error "Failed to build operator image"
     exit 1
 }
 log_success "Operator image built: ${OPERATOR_IMG}"
 
-# Load operator image into k3d
-log_info "Loading operator image into k3d cluster..."
-k3d image import "${OPERATOR_IMG}" -c "${K3D_CLUSTER_NAME}" || {
-    log_error "Failed to load operator image into k3d"
+# Push operator image
+log_info "Pushing operator image to registry..."
+docker push "${OPERATOR_IMG}" || {
+    log_error "Failed to push operator image"
     exit 1
 }
-log_success "Operator image loaded into k3d"
+log_success "Operator image pushed: ${OPERATOR_IMG}"
 
 # Build UI image
 log_info "Building UI image..."
 cd "${PROJECT_ROOT}/ui"
-UI_IMG="glooscap-ui:local"
 # Use buildme.sh if available, otherwise use docker build directly
 if [ -f "./buildme.sh" ]; then
     # buildme.sh builds with tag "scratch", we'll retag
@@ -86,20 +116,20 @@ else
 fi
 log_success "UI image built: ${UI_IMG}"
 
-# Load UI image into k3d
-log_info "Loading UI image into k3d cluster..."
-k3d image import "${UI_IMG}" -c "${K3D_CLUSTER_NAME}" || {
-    log_error "Failed to load UI image into k3d"
+# Push UI image
+log_info "Pushing UI image to registry..."
+docker push "${UI_IMG}" || {
+    log_error "Failed to push UI image"
     exit 1
 }
-log_success "UI image loaded into k3d"
+log_success "UI image pushed: ${UI_IMG}"
 
-log_success "All images built and loaded successfully!"
-log_info "Images available in cluster:"
+log_success "All images built and pushed successfully!"
+log_info "Images available in registry:"
 echo "  - ${OPERATOR_IMG}"
 echo "  - ${UI_IMG}"
 echo ""
-log_info "Update deployment manifests to use these local images:"
+log_info "Deployment manifests should use these images:"
 echo "  operator: image: ${OPERATOR_IMG}"
 echo "  ui: image: ${UI_IMG}"
 

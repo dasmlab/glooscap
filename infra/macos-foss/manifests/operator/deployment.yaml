@@ -31,11 +31,13 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        # For local development on macOS (ARM64), use local image built for correct architecture
-        # To use registry image, change to: ghcr.io/dasmlab/glooscap-operator:latest
-        image: glooscap-operator:local
-        # Never pull - use local image only (built with build-and-load-images.sh)
-        imagePullPolicy: Never
+        # Architecture-specific local development images
+        # Built and pushed by build-and-load-images.sh with tags like:
+        # - ghcr.io/dasmlab/glooscap-operator:local-arm64 (for macOS ARM/Apple Silicon)
+        # - ghcr.io/dasmlab/glooscap-operator:local-amd64 (for macOS Intel/Linux)
+        # To use production image, change to: ghcr.io/dasmlab/glooscap-operator:latest
+        image: ghcr.io/dasmlab/glooscap-operator:local-arm64
+        imagePullPolicy: IfNotPresent
         name: manager
         ports:
         - containerPort: 3000
