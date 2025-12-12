@@ -65,6 +65,13 @@
               <div class="col-12 col-md-6">
                 <q-item>
                   <q-item-section avatar>
+                    <q-checkbox
+                      v-model="form.operatorEnabled"
+                      color="primary"
+                      dense
+                    />
+                  </q-item-section>
+                  <q-item-section avatar>
                     <q-icon
                       :name="operatorStatusIcon"
                       :color="operatorStatusColor"
@@ -77,7 +84,7 @@
                       :label="$t('settings.operatorEndpoint')"
                       outlined
                       dense
-                      disable
+                      :disable="!form.operatorEnabled"
                       :hint="$t('settings.operatorHint')"
                     />
                   </q-item-section>
@@ -443,7 +450,8 @@ const form = reactive({
   destinationTarget: settingsStore.destinationTarget,
   pathPrefix: settingsStore.pathPrefix,
   defaultLanguage: settingsStore.defaultLanguage,
-  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.glooscap-system.svc.cluster.local:3000',
+  operatorEnabled: settingsStore.operatorEnabled ?? true,
+  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000',
   telemetryEnabled: settingsStore.telemetryEnabled ?? true,
   telemetryEndpoint: settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317',
   nokomisEnabled: settingsStore.nokomisEnabled || false,
@@ -473,6 +481,7 @@ const nokomisStatus = ref({
 
 // Computed properties for operator status display
 const operatorStatusIcon = computed(() => {
+  if (!form.operatorEnabled) return 'fiber_manual_record'
   switch (operatorStatus.value.status) {
     case 'connected':
       return 'fiber_manual_record'
@@ -484,6 +493,7 @@ const operatorStatusIcon = computed(() => {
 })
 
 const operatorStatusColor = computed(() => {
+  if (!form.operatorEnabled) return 'grey'
   switch (operatorStatus.value.status) {
     case 'connected':
       return 'positive'
@@ -546,6 +556,11 @@ const nokomisStatusColor = computed(() => {
 
 // Fetch operator connection status
 async function fetchOperatorStatus() {
+  if (!form.operatorEnabled) {
+    operatorStatus.value = { connected: false, status: 'disabled', lastCheck: new Date() }
+    return
+  }
+  
   try {
     // Try to make a simple API call to check connection
     const response = await api.get('/health', { timeout: 3000 }).catch(() => null)
@@ -1085,7 +1100,8 @@ function reset() {
   form.destinationTarget = settingsStore.destinationTarget
   form.pathPrefix = settingsStore.pathPrefix
   form.defaultLanguage = settingsStore.defaultLanguage
-  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.glooscap-system.svc.cluster.local:3000'
+  form.operatorEnabled = settingsStore.operatorEnabled ?? true
+  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000'
   form.telemetryEnabled = settingsStore.telemetryEnabled ?? true
   form.telemetryEndpoint = settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317'
   form.nokomisEnabled = settingsStore.nokomisEnabled || false
@@ -1094,17 +1110,41 @@ function reset() {
 }
 
 function save() {
+  const oldOperatorEndpoint = settingsStore.operatorEndpoint
+  const oldOperatorEnabled = settingsStore.operatorEnabled
+  
   settingsStore.updateSettings({
     remoteWikiTarget: form.remoteWikiTarget,
     destinationTarget: form.destinationTarget,
     pathPrefix: form.remoteWikiTarget ? '' : form.pathPrefix, // Clear path prefix if remote
     defaultLanguage: form.defaultLanguage,
+    operatorEnabled: form.operatorEnabled,
     operatorEndpoint: form.operatorEndpoint,
     telemetryEnabled: form.telemetryEnabled,
     telemetryEndpoint: form.telemetryEndpoint,
     nokomisEnabled: form.nokomisEnabled,
     nokomisEndpoint: form.nokomisEndpoint,
   })
+  
+  // Update API base URL if operator endpoint changed or was enabled/disabled
+  const operatorChanged = oldOperatorEndpoint !== form.operatorEndpoint || oldOperatorEnabled !== form.operatorEnabled
+  if (operatorChanged && form.operatorEnabled && form.operatorEndpoint) {
+    const apiBaseUrl = `http://${form.operatorEndpoint}/api/v1`
+    if (typeof window !== 'undefined') {
+      window.__API_BASE_URL__ = apiBaseUrl
+      // Reload to apply new API base URL
+      $q.notify({ 
+        type: 'info', 
+        message: t('settings.operatorEndpointChanged'),
+        timeout: 2000,
+      })
+      setTimeout(() => {
+        location.reload()
+      }, 1000)
+      return
+    }
+  }
+  
   // Refresh status after saving
   fetchOperatorStatus()
   fetchTelemetryStatus()

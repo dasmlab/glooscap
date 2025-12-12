@@ -30,9 +30,10 @@ spec:
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
-          # For local development, use port-forward or NodePort/Ingress
-          # This will be the operator service (Kubernetes DNS format)
-          value: http://glooscap-operator.glooscap-system.svc.cluster.local:3000/api/v1
+          # For local development on macOS, use testdev.dasmlab.org hostnames
+          # These are configured in /etc/hosts to point to 127.0.0.1
+          # For production, use Kubernetes DNS: glooscap-operator.glooscap-system.svc.cluster.local:3000
+          value: http://glooscap-operator.testdev.dasmlab.org:3000/api/v1
         ports:
         - containerPort: 8080
           name: http

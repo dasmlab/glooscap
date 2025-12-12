@@ -341,6 +341,52 @@ fi
 # Create kubeconfig directory
 mkdir -p "${HOME}/.kube"
 
+# Setup /etc/hosts entries for local development
+log_info "Setting up /etc/hosts entries for local development..."
+HOST_IP="127.0.0.1"
+HOSTS_FILE="/etc/hosts"
+HOSTS_ENTRIES=(
+  "glooscap-ui.testdev.dasmlab.org"
+  "glooscap-operator.testdev.dasmlab.org"
+)
+
+# Check if we need sudo
+NEEDS_SUDO=false
+if [ ! -w "${HOSTS_FILE}" ]; then
+    NEEDS_SUDO=true
+fi
+
+for HOSTNAME in "${HOSTS_ENTRIES[@]}"; do
+    if grep -q "${HOSTNAME}" "${HOSTS_FILE}" 2>/dev/null; then
+        # Entry exists, check if it points to correct IP
+        if grep -q "^${HOST_IP}.*${HOSTNAME}" "${HOSTS_FILE}" 2>/dev/null; then
+            log_info "  ✓ ${HOSTNAME} already configured in /etc/hosts"
+        else
+            log_warn "  ⚠ ${HOSTNAME} exists in /etc/hosts but points to different IP"
+            log_info "    You may need to manually update /etc/hosts"
+            log_info "    Expected: ${HOST_IP} ${HOSTNAME}"
+        fi
+    else
+        # Entry doesn't exist, add it
+        log_info "  Adding ${HOSTNAME} to /etc/hosts..."
+        if [ "${NEEDS_SUDO}" = "true" ]; then
+            if sudo sh -c "echo '${HOST_IP} ${HOSTNAME}' >> ${HOSTS_FILE}"; then
+                log_success "  ✓ Added ${HOSTNAME} to /etc/hosts"
+            else
+                log_warn "  ⚠ Failed to add ${HOSTNAME} to /etc/hosts (requires sudo)"
+                log_info "    Manually add this line to /etc/hosts:"
+                log_info "    ${HOST_IP} ${HOSTNAME}"
+            fi
+        else
+            if echo "${HOST_IP} ${HOSTNAME}" >> "${HOSTS_FILE}"; then
+                log_success "  ✓ Added ${HOSTNAME} to /etc/hosts"
+            else
+                log_warn "  ⚠ Failed to add ${HOSTNAME} to /etc/hosts"
+            fi
+        fi
+    fi
+done
+
 # Summary
 log_success "macOS environment setup complete!"
 echo ""
