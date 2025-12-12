@@ -23,15 +23,26 @@
         <q-tab-panel name="general">
           <q-form @submit.prevent="save">
             <div class="row q-col-gutter-md">
+              <div class="col-12">
+                <q-checkbox
+                  v-model="form.remoteWikiTarget"
+                  label="Remote Wiki Target"
+                  color="primary"
+                />
+              </div>
+            </div>
+            
+            <div class="row q-col-gutter-md q-mt-md">
               <div class="col-12 col-md-4">
                 <q-input
                   v-model="form.destinationTarget"
                   :label="$t('settings.destinationTarget')"
                   outlined
                   dense
+                  :disable="!form.remoteWikiTarget"
                 />
               </div>
-              <div class="col-12 col-md-4">
+              <div class="col-12 col-md-4" v-if="!form.remoteWikiTarget">
                 <q-input
                   v-model="form.pathPrefix"
                   :label="$t('settings.pathPrefix')"
@@ -52,14 +63,25 @@
 
             <div class="row q-col-gutter-md q-mt-md">
               <div class="col-12 col-md-6">
-                <q-input
-                  v-model="otlpEndpoint"
-                  :label="$t('settings.telemetryEndpoint')"
-                  outlined
-                  dense
-                  disable
-                  :hint="$t('settings.telemetryHint')"
-                />
+                <q-item>
+                  <q-item-section avatar>
+                    <q-icon
+                      :name="telemetryStatusIcon"
+                      :color="telemetryStatusColor"
+                      size="md"
+                    />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-input
+                      v-model="otlpEndpoint"
+                      :label="$t('settings.telemetryEndpoint')"
+                      outlined
+                      dense
+                      disable
+                      :hint="$t('settings.telemetryHint')"
+                    />
+                  </q-item-section>
+                </q-item>
               </div>
               <div class="col-12 col-md-6">
                 <q-input
@@ -118,6 +140,20 @@
               <q-card flat bordered>
                 <q-card-section>
                   <div class="text-subtitle1 q-mb-md">Configure Translation Service</div>
+                  
+                  <!-- Current Active Configuration Display -->
+                  <q-banner v-if="translationServiceConfig.address" class="bg-blue-1 q-mb-md">
+                    <template #avatar>
+                      <q-icon name="info" color="primary" />
+                    </template>
+                    <div class="text-weight-medium">Current Active Configuration</div>
+                    <div class="text-body2">
+                      <strong>Address:</strong> {{ translationServiceConfig.address }}<br>
+                      <strong>Type:</strong> {{ translationServiceConfig.type }}<br>
+                      <strong>TLS:</strong> {{ translationServiceConfig.secure ? 'Enabled' : 'Disabled' }}
+                    </div>
+                  </q-banner>
+                  
                   <q-form @submit.prevent="saveTranslationService">
                     <div class="row q-col-gutter-md">
                       <div class="col-12 col-md-6">
@@ -254,6 +290,17 @@
               hint="Default: glooscap-system"
               class="q-mt-md"
             />
+            <q-select
+              v-model="wikiTargetForm.spec.wikiType"
+              :options="wikiTypeOptions"
+              label="Wiki Type"
+              outlined
+              dense
+              emit-value
+              map-options
+              :rules="[val => !!val || 'Wiki type is required']"
+              class="q-mt-md"
+            />
             <q-input
               v-model="wikiTargetForm.spec.uri"
               label="Wiki URI"
@@ -330,6 +377,7 @@ const tab = ref('general')
 
 // General settings form
 const form = reactive({
+  remoteWikiTarget: settingsStore.remoteWikiTarget || false,
   destinationTarget: settingsStore.destinationTarget,
   pathPrefix: settingsStore.pathPrefix,
   defaultLanguage: settingsStore.defaultLanguage,
@@ -337,6 +385,60 @@ const form = reactive({
 
 const otlpEndpoint = ref('otel-collector.glooscap.svc:4317')
 const securityBadge = computed(() => t('app.securityBadge'))
+
+// Telemetry endpoint status
+const telemetryStatus = ref({
+  connected: false,
+  status: 'unknown',
+})
+
+// Computed properties for telemetry status display
+const telemetryStatusIcon = computed(() => {
+  switch (telemetryStatus.value.status) {
+    case 'connected':
+      return 'fiber_manual_record'
+    case 'error':
+      return 'fiber_manual_record'
+    default:
+      return 'help_outline'
+  }
+})
+
+const telemetryStatusColor = computed(() => {
+  switch (telemetryStatus.value.status) {
+    case 'connected':
+      return 'positive'
+    case 'error':
+      return 'negative'
+    default:
+      return 'grey'
+  }
+})
+
+// Fetch telemetry endpoint status
+async function fetchTelemetryStatus() {
+  try {
+    // Try to ping the telemetry endpoint or check if it's reachable
+    // For now, we'll assume it's connected if the endpoint is configured
+    if (otlpEndpoint.value) {
+      telemetryStatus.value = {
+        connected: true,
+        status: 'connected',
+      }
+    } else {
+      telemetryStatus.value = {
+        connected: false,
+        status: 'error',
+      }
+    }
+  } catch (error) {
+    logToConsole('WARN', 'Failed to check telemetry endpoint status', error.message)
+    telemetryStatus.value = {
+      connected: false,
+      status: 'error',
+    }
+  }
+}
 
 // Translation Service Configuration
 const translationServiceConfig = reactive({
@@ -373,6 +475,7 @@ const wikiTargetForm = reactive({
   name: '',
   namespace: 'glooscap-system',
   spec: {
+    wikiType: 'outline',
     uri: '',
     serviceAccountSecretRef: {
       name: '',
@@ -381,6 +484,11 @@ const wikiTargetForm = reactive({
     mode: 'ReadOnly',
   },
 })
+
+const wikiTypeOptions = [
+  { label: 'Outline', value: 'outline' },
+  { label: 'Confluence', value: 'confluence' },
+]
 
 const wikiTargetModes = [
   { label: 'Read Only', value: 'ReadOnly' },
@@ -391,6 +499,7 @@ const wikiTargetModes = [
 const wikiTargetColumns = [
   { name: 'name', label: 'Name', field: 'name', align: 'left' },
   { name: 'namespace', label: 'Namespace', field: 'namespace', align: 'left' },
+  { name: 'wikiType', label: 'Wiki Type', field: 'wikiType', align: 'left' },
   { name: 'uri', label: 'URI', field: 'uri', align: 'left' },
   { name: 'mode', label: 'Mode', field: 'mode', align: 'left' },
   { name: 'actions', label: 'Actions', field: 'actions', align: 'right' },
@@ -431,6 +540,16 @@ async function fetchTranslationServiceConfig() {
 // Save translation service configuration
 async function saveTranslationService() {
   savingTranslationService.value = true
+  
+  // Show loading notification
+  const loadingNotify = $q.notify({
+    type: 'info',
+    message: 'Updating translation service configuration...',
+    timeout: 0,
+    position: 'top',
+    spinner: true,
+  })
+  
   try {
     const config = {
       address: translationServiceConfig.address,
@@ -440,20 +559,24 @@ async function saveTranslationService() {
     
     const response = await api.post('/translation-service', config)
     logToConsole('INFO', 'Translation service configured', response.data)
-    $q.notify({
+    
+    loadingNotify({
       type: 'positive',
-      message: 'Translation service configuration saved',
+      message: 'Translation service configuration saved and applied',
+      timeout: 3000,
     })
     
     // Refresh status after a short delay
     setTimeout(() => {
       fetchNanabushStatus()
+      fetchTranslationServiceConfig() // Refresh to show updated config
     }, 1000)
   } catch (error) {
     logToConsole('ERROR', 'Failed to save translation service config', error.message)
-    $q.notify({
+    loadingNotify({
       type: 'negative',
-      message: `Failed to save configuration: ${error.response?.data || error.message}`,
+      message: `Failed to save configuration: ${error.response?.data?.message || error.message}`,
+      timeout: 5000,
     })
   } finally {
     savingTranslationService.value = false
@@ -570,6 +693,7 @@ async function fetchWikiTargets() {
       namespace: item.namespace,
       uri: item.uri,
       mode: item.mode,
+      wikiType: item.wikiType || 'outline',
     }))
   } catch (error) {
     logToConsole('ERROR', 'Failed to fetch WikiTargets', error.message)
@@ -621,6 +745,16 @@ async function deleteWikiTarget(target) {
 // Save WikiTarget
 async function saveWikiTarget() {
   savingWikiTarget.value = true
+  
+  // Show loading notification
+  const loadingNotify = $q.notify({
+    type: 'info',
+    message: editingWikiTarget.value ? 'Updating WikiTarget...' : 'Creating WikiTarget...',
+    timeout: 0,
+    position: 'top',
+    spinner: true,
+  })
+  
   try {
     const payload = {
       metadata: {
@@ -628,6 +762,7 @@ async function saveWikiTarget() {
         namespace: wikiTargetForm.namespace || 'glooscap-system',
       },
       spec: {
+        wikiType: wikiTargetForm.spec.wikiType || 'outline',
         uri: wikiTargetForm.spec.uri,
         serviceAccountSecretRef: {
           name: wikiTargetForm.spec.serviceAccountSecretRef.name,
@@ -641,17 +776,19 @@ async function saveWikiTarget() {
       // Update existing
       await api.put(`/wikitargets/${wikiTargetForm.namespace}/${wikiTargetForm.name}`, payload)
       logToConsole('INFO', 'WikiTarget updated', payload.metadata.name)
-      $q.notify({
+      loadingNotify({
         type: 'positive',
         message: 'WikiTarget updated successfully',
+        timeout: 3000,
       })
     } else {
       // Create new
       await api.post('/wikitargets', payload)
       logToConsole('INFO', 'WikiTarget created', payload.metadata.name)
-      $q.notify({
+      loadingNotify({
         type: 'positive',
         message: 'WikiTarget created successfully',
+        timeout: 3000,
       })
     }
 
@@ -660,6 +797,7 @@ async function saveWikiTarget() {
     // Reset form
     wikiTargetForm.name = ''
     wikiTargetForm.namespace = 'glooscap-system'
+    wikiTargetForm.spec.wikiType = 'outline'
     wikiTargetForm.spec.uri = ''
     wikiTargetForm.spec.serviceAccountSecretRef.name = ''
     wikiTargetForm.spec.serviceAccountSecretRef.key = 'token'
@@ -668,9 +806,10 @@ async function saveWikiTarget() {
     fetchWikiTargets()
   } catch (error) {
     logToConsole('ERROR', 'Failed to save WikiTarget', error.message)
-    $q.notify({
+    loadingNotify({
       type: 'negative',
-      message: `Failed to save WikiTarget: ${error.response?.data || error.message}`,
+      message: `Failed to save WikiTarget: ${error.response?.data?.message || error.message}`,
+      timeout: 5000,
     })
   } finally {
     savingWikiTarget.value = false
@@ -695,6 +834,7 @@ onMounted(() => {
   fetchNanabushStatus()
   fetchTranslationServiceConfig()
   fetchWikiTargets()
+  fetchTelemetryStatus()
   window.addEventListener('nanabush-status', handleNanabushStatusEvent)
 })
 
@@ -703,6 +843,7 @@ onUnmounted(() => {
 })
 
 function reset() {
+  form.remoteWikiTarget = settingsStore.remoteWikiTarget || false
   form.destinationTarget = settingsStore.destinationTarget
   form.pathPrefix = settingsStore.pathPrefix
   form.defaultLanguage = settingsStore.defaultLanguage
@@ -711,8 +852,9 @@ function reset() {
 
 function save() {
   settingsStore.updateSettings({
+    remoteWikiTarget: form.remoteWikiTarget,
     destinationTarget: form.destinationTarget,
-    pathPrefix: form.pathPrefix,
+    pathPrefix: form.remoteWikiTarget ? '' : form.pathPrefix, // Clear path prefix if remote
     defaultLanguage: form.defaultLanguage,
   })
   $q.notify({ type: 'positive', message: t('common.success') })

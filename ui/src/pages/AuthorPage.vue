@@ -60,10 +60,10 @@
     </q-banner>
 
     <!-- Dual Panel Layout -->
-    <div class="row q-gutter-md">
+    <div class="row q-gutter-md author-panels-container">
       <!-- English Panel -->
-      <div class="col-12 col-md-6">
-        <q-card class="author-panel">
+      <div class="col-12 col-md-6 author-panel-wrapper">
+        <q-card class="author-panel full-height">
           <q-card-section class="bg-blue-1">
             <div class="row items-center justify-between">
               <div class="text-h6 text-weight-bold">
@@ -148,8 +148,8 @@
       </div>
 
       <!-- French Panel -->
-      <div class="col-12 col-md-6">
-        <q-card class="author-panel">
+      <div class="col-12 col-md-6 author-panel-wrapper">
+        <q-card class="author-panel full-height">
           <q-card-section class="bg-red-1">
             <div class="row items-center justify-between">
               <div class="text-h6 text-weight-bold">
@@ -528,18 +528,31 @@ watch(selectedTarget, (newTarget) => {
   background: #f4f7fb;
 }
 
-.author-panel {
-  height: calc(100vh - 250px);
-  min-height: 600px;
+.author-panels-container {
+  display: flex;
+  align-items: stretch;
+}
+
+.author-panel-wrapper {
   display: flex;
   flex-direction: column;
 }
 
+.author-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 600px;
+}
+
+.author-panel .q-card__section {
+  flex-shrink: 0;
+}
+
 .markdown-container {
-  flex: 1;
+  flex: 1 1 auto;
   overflow: auto;
   min-height: 300px;
-  max-height: calc(100vh - 450px);
 }
 
 .markdown-view {
