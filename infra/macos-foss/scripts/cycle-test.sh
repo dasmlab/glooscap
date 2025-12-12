@@ -71,14 +71,22 @@ run_step() {
 # Start
 echo ""
 log_info "Starting complete dev cycle test..."
-echo "This will run all 6 steps:"
+echo "This will run all 7 steps:"
 echo "  1. Setup macOS environment"
 echo "  2. Start k3d cluster"
-echo "  3. Deploy Glooscap"
-echo "  4. Undeploy Glooscap"
-echo "  5. Stop k3d cluster"
-echo "  6. Remove k3d cluster"
+echo "  3. Create registry credentials"
+echo "  4. Deploy Glooscap"
+echo "  5. Undeploy Glooscap"
+echo "  6. Stop k3d cluster"
+echo "  7. Remove k3d cluster"
 echo ""
+
+# Check for registry credentials
+if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+    log_warn "DASMLAB_GHCR_PAT not set - registry secret creation will fail"
+    log_info "Set it with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "The token should be a GitHub PAT with 'read:packages' permission"
+fi
 
 # Step 1: Setup
 run_step "Setup macOS Environment" "${SCRIPT_DIR}/setup-macos-env.sh"
@@ -88,31 +96,47 @@ SETUP_RESULT=$?
 run_step "Start k3d Cluster" "${SCRIPT_DIR}/start-k3d.sh"
 START_RESULT=$?
 
-# Step 3: Deploy
+# Step 3: Create registry secret
+if [ ${START_RESULT} -eq 0 ]; then
+    if [ -n "${DASMLAB_GHCR_PAT:-}" ]; then
+        run_step "Create Registry Credentials" "${SCRIPT_DIR}/create-registry-secret.sh"
+        REGISTRY_RESULT=$?
+    else
+        log_warn "Skipping registry secret creation (DASMLAB_GHCR_PAT not set)"
+        RESULTS+=("3. Create Registry Credentials: ⊘ SKIPPED (DASMLAB_GHCR_PAT not set)")
+        REGISTRY_RESULT=1
+    fi
+else
+    log_warn "Skipping registry secret creation (start failed)"
+    RESULTS+=("3. Create Registry Credentials: ⊘ SKIPPED (start failed)")
+    REGISTRY_RESULT=1
+fi
+
+# Step 4: Deploy
 if [ ${START_RESULT} -eq 0 ]; then
     run_step "Deploy Glooscap" "${SCRIPT_DIR}/deploy-glooscap.sh"
     DEPLOY_RESULT=$?
 else
     log_warn "Skipping deploy (start failed)"
-    RESULTS+=("3. Deploy Glooscap: ⊘ SKIPPED (start failed)")
+    RESULTS+=("4. Deploy Glooscap: ⊘ SKIPPED (start failed)")
     DEPLOY_RESULT=1
 fi
 
-# Step 4: Undeploy
+# Step 5: Undeploy
 if [ ${DEPLOY_RESULT} -eq 0 ]; then
     run_step "Undeploy Glooscap" "${SCRIPT_DIR}/undeploy-glooscap.sh"
     UNDEPLOY_RESULT=$?
 else
     log_warn "Skipping undeploy (deploy failed or skipped)"
-    RESULTS+=("4. Undeploy Glooscap: ⊘ SKIPPED")
+    RESULTS+=("5. Undeploy Glooscap: ⊘ SKIPPED")
     UNDEPLOY_RESULT=0
 fi
 
-# Step 5: Stop
+# Step 6: Stop
 run_step "Stop k3d Cluster" "${SCRIPT_DIR}/stop-k3d.sh"
 STOP_RESULT=$?
 
-# Step 6: Remove
+# Step 7: Remove
 run_step "Remove k3d Cluster" "${SCRIPT_DIR}/remove-k3d.sh"
 REMOVE_RESULT=$?
 
