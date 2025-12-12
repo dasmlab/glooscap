@@ -189,15 +189,15 @@ if podman machine list 2>/dev/null | grep -q "${MACHINE_NAME}"; then
 else
     log_info "No Podman machine found, creating new one in rootful mode..."
     log_info "Rootful mode is required for k3d to work properly"
-    log_info "Setting resources: 4 CPUs, 4GB RAM (minimum for k3d)"
+    log_info "Setting resources: 6 CPUs, 8GB RAM (recommended for k3d and workloads)"
     
     # Create machine in rootful mode with explicit resources
-    podman machine init --rootful --cpus 4 --memory 4096 "${MACHINE_NAME}" || {
+    podman machine init --rootful --cpus 6 --memory 8192 "${MACHINE_NAME}" || {
         log_error "Failed to create Podman machine"
-        log_info "Try manually: podman machine init --rootful --cpus 4 --memory 4096 ${MACHINE_NAME}"
+        log_info "Try manually: podman machine init --rootful --cpus 6 --memory 8192 ${MACHINE_NAME}"
         exit 1
     }
-    log_success "Podman machine created in rootful mode (4 CPUs, 4GB RAM)"
+    log_success "Podman machine created in rootful mode (6 CPUs, 8GB RAM)"
     MACHINE_EXISTS=true
 fi
 
