@@ -494,7 +494,6 @@ const form = reactive({
   nokomisEndpoint: settingsStore.nokomisEndpoint || 'nokomis-service.nokomis.svc.cluster.local:8080',
 })
 
-const securityBadge = computed(() => t('app.securityBadge'))
 
 // Operator connection status
 const operatorStatus = ref({
