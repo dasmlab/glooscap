@@ -253,9 +253,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useSettingsStore } from 'src/stores/settings-store'
-import api from 'src/services/api'
+// import api from 'src/services/api' // Will be used when Nokomis API is implemented
 import {
-  structureTemplates,
   templateCategories,
   getTemplatesByCategory,
   flattenTemplateStructure,
@@ -392,6 +391,8 @@ function connectToNokomis() {
 }
 
 // Handle SSE events from Nokomis
+// This function will be used when SSE connection is implemented
+// eslint-disable-next-line no-unused-vars
 function handleNokomisEvent(data) {
   switch (data.type) {
     case 'structure.created':
