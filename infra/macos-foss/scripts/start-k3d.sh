@@ -145,22 +145,18 @@ if k3d cluster list &> /dev/null 2>&1; then
             "--api-port" "6443"
             "--agents" "1"
             "--k3s-arg" "--disable=traefik@server:0"
-            "--k3s-arg" "--disable=servicelb@server:0"
+            # servicelb is enabled by default - allows LoadBalancer services to work
         )
         
-        # NodePort services don't need explicit port mappings in k3d
-        # They are automatically accessible on the host on their NodePort ports
-        # UI: 30080, Operator API: 30000, Operator Health: 30081
+        # Port mappings for LoadBalancer services
+        # UI: 8080 (host) -> 80 (container) via LoadBalancer
+        # Operator API: 3000 (host) -> 3000 (container) via LoadBalancer
+        K3D_ARGS+=(
+            "--port" "8080:80@loadbalancer"  # UI
+            "--port" "3000:3000@loadbalancer"  # Operator API
+        )
         
-        if [ "${USING_PODMAN}" = "true" ]; then
-            # Podman: disable loadbalancer (doesn't work with rootful Podman in some cases)
-            K3D_ARGS+=("--no-lb")
-            log_info "Loadbalancer disabled for Podman - using NodePort services (accessible on host)"
-        else
-            # Docker: can use loadbalancer, but we'll use NodePort for consistency
-            K3D_ARGS+=("--no-lb")
-            log_info "Using NodePort services (accessible directly on host ports)"
-        fi
+        log_info "Using k3d's built-in LoadBalancer (servicelb) for service exposure"
         
         # Podman-specific: Add compatibility flags
         if [ "${USING_PODMAN}" = "true" ]; then
