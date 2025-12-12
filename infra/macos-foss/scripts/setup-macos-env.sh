@@ -145,12 +145,28 @@ if [ -z "${DOCKER_API_VERSION:-}" ]; then
 fi
 
 # Install Podman (container runtime/daemon)
+# Podman 5.0+ supports API 1.44+ compatibility
 if ! check_command podman; then
     log_info "Installing Podman (container runtime)..."
     brew install podman
     log_success "Podman installed"
 else
-    log_info "Podman already installed: $(podman --version)"
+    # Check Podman version and warn if too old
+    PODMAN_VERSION=$(podman --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0.0")
+    PODMAN_MAJOR=$(echo "${PODMAN_VERSION}" | cut -d. -f1)
+    PODMAN_MINOR=$(echo "${PODMAN_VERSION}" | cut -d. -f2)
+    
+    # Podman 4.0+ should work, but 5.0+ is better for API 1.44+ compatibility
+    if [ "${PODMAN_MAJOR}" -lt 4 ]; then
+        log_warn "Podman version ${PODMAN_VERSION} may be too old (needs 4.0+ for API 1.44+ compatibility)"
+        log_info "Updating Podman..."
+        brew upgrade podman || {
+            log_warn "Failed to upgrade Podman, continuing anyway"
+            log_info "If you see API version errors, try: brew upgrade podman"
+        }
+    else
+        log_info "Podman already installed: $(podman --version)"
+    fi
 fi
 
 # Handle Podman machine setup
