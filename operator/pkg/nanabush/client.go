@@ -120,14 +120,14 @@ func NewClient(cfg Config) (*Client, error) {
 	// Log connection state
 	state := conn.GetState()
 	fmt.Printf("[nanabush] gRPC connection established to %s (state: %s)\n", cfg.Address, state.String())
-	
+
 	// Wait for connection to be ready before proceeding
 	// This ensures the connection is fully established before we try to register
 	if state != connectivity.Ready {
 		fmt.Printf("[nanabush] Connection not ready (state: %s), waiting for Ready state...\n", state.String())
 		ctxReady, cancelReady := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelReady()
-		
+
 		// Wait for state to change from current state
 		for {
 			if !conn.WaitForStateChange(ctxReady, state) {
@@ -216,22 +216,22 @@ func (c *Client) register(ctx context.Context) error {
 	// Check connection state before making RPC call
 	connState := c.conn.GetState()
 	fmt.Printf("[nanabush] Connection state before RegisterClient: %s\n", connState.String())
-	
+
 	if connState != connectivity.Ready && connState != connectivity.Idle {
 		fmt.Printf("[nanabush] Warning: Connection not in Ready/Idle state (state: %s), RPC may fail\n", connState.String())
 	}
-	
+
 	fmt.Printf("[nanabush] RegisterClient request sent, waiting for response...\n")
 	startTime := time.Now()
 	resp, err := c.client.RegisterClient(ctx, req)
 	duration := time.Since(startTime)
-	
+
 	if err != nil {
 		fmt.Printf("[nanabush] RegisterClient RPC failed after %v: %v\n", duration, err)
 		fmt.Printf("[nanabush] Connection state after error: %s\n", c.conn.GetState().String())
 		return fmt.Errorf("register client: %w", err)
 	}
-	
+
 	fmt.Printf("[nanabush] RegisterClient response received after %v: success=%v, client_id=%q, message=%q, heartbeat_interval=%ds\n",
 		duration, resp.Success, resp.ClientId, resp.Message, resp.HeartbeatIntervalSeconds)
 	fmt.Printf("[nanabush] Connection state after successful response: %s\n", c.conn.GetState().String())

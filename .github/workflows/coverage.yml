@@ -50,7 +50,7 @@ jobs:
         working-directory: operator
         run: |
           KUBEBUILDER_ASSETS="$(make -s setup-envtest | grep KUBEBUILDER_ASSETS | cut -d'=' -f2 | tr -d '"')" \
-          go test $$(go list ./... | grep -v /e2e) \
+          go test $(go list ./... | grep -v /e2e) \
             -coverprofile=coverage.out \
             -covermode=atomic \
             -v
