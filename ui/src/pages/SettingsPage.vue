@@ -643,18 +643,24 @@ async function testConnection(endpoint, serviceName) {
   
   try {
     // Try to connect to the endpoint
-    // For HTTP endpoints, try a simple fetch
+    // For HTTP endpoints, try a simple fetch (without no-cors so we can check status)
     const url = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`
-    await fetch(url, { 
-      method: 'GET', 
-      mode: 'no-cors',
-      signal: AbortSignal.timeout(3000)
-    }).catch(() => null)
+    const fetchResponse = await fetch(url, { 
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+      // Don't use no-cors - we need to check the actual response status
+    })
     
-    // If we get here without error, consider it connected
-    // (no-cors mode doesn't give us response status, so we assume success if no error)
-    return { connected: true, status: 'connected' }
+    // Check if response is successful (2xx or 3xx)
+    if (fetchResponse.ok || (fetchResponse.status >= 200 && fetchResponse.status < 400)) {
+      return { connected: true, status: 'connected' }
+    } else {
+      // 4xx or 5xx - error
+      logToConsole('WARN', `${serviceName} connection failed with status: ${fetchResponse.status}`)
+      return { connected: false, status: 'error' }
+    }
   } catch (error) {
+    // Network error, DNS failure, timeout, etc.
     logToConsole('WARN', `Failed to test ${serviceName} connection`, error.message)
     return { connected: false, status: 'error' }
   }
@@ -1302,9 +1308,17 @@ onMounted(() => {
   window.addEventListener('nanabush-status', handleNanabushStatusEvent)
   window.addEventListener('api-connection-status', handleApiConnectionStatus)
   
-  // Periodically check operator status
+  // Periodically check all service statuses
   statusInterval = setInterval(() => {
-    fetchOperatorStatus()
+    if (form.operatorEnabled) {
+      fetchOperatorStatus()
+    }
+    if (form.telemetryEnabled) {
+      fetchTelemetryStatus()
+    }
+    if (form.nokomisEnabled) {
+      fetchNokomisStatus()
+    }
   }, 30000) // Check every 30 seconds
 })
 
