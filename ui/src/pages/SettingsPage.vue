@@ -122,37 +122,6 @@
                   <div class="text-subtitle1 q-mb-md">Service Configuration</div>
                   <q-form @submit.prevent="save">
                     <q-list>
-                      <!-- Remote Wiki Target -->
-                      <q-item>
-                        <q-item-section>
-                          <q-item-label class="text-weight-medium">Remote Wiki Target</q-item-label>
-                          <q-item-label caption>Enable to use a remote wiki as destination</q-item-label>
-                        </q-item-section>
-                        <q-item-section side>
-                          <q-checkbox
-                            v-model="form.remoteWikiTarget"
-                            color="primary"
-                            dense
-                          />
-                        </q-item-section>
-                      </q-item>
-                      <q-separator />
-                      
-                      <!-- Destination Wiki Target -->
-                      <q-item>
-                        <q-item-section>
-                          <q-input
-                            v-model="form.destinationTarget"
-                            :label="$t('settings.destinationTarget')"
-                            outlined
-                            dense
-                            :disable="!form.remoteWikiTarget"
-                            class="q-mt-sm"
-                          />
-                        </q-item-section>
-                      </q-item>
-                      <q-separator />
-                      
                       <!-- Operator Endpoint -->
                       <q-item>
                         <q-item-section>
@@ -192,6 +161,37 @@
                             outlined
                             dense
                             :hint="$t('settings.nokomisHint')"
+                            class="q-mt-sm"
+                          />
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      
+                      <!-- Remote Wiki Target -->
+                      <q-item>
+                        <q-item-section>
+                          <q-item-label class="text-weight-medium">Remote Wiki Target</q-item-label>
+                          <q-item-label caption>Enable to use a remote wiki as destination</q-item-label>
+                        </q-item-section>
+                        <q-item-section side>
+                          <q-checkbox
+                            v-model="form.remoteWikiTarget"
+                            color="primary"
+                            dense
+                          />
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      
+                      <!-- Destination Wiki Target -->
+                      <q-item>
+                        <q-item-section>
+                          <q-input
+                            v-model="form.destinationTarget"
+                            :label="$t('settings.destinationTarget')"
+                            outlined
+                            dense
+                            :disable="!form.remoteWikiTarget"
                             class="q-mt-sm"
                           />
                         </q-item-section>
@@ -689,37 +689,48 @@ async function fetchOperatorStatus() {
   
   try {
     // Try to make a simple API call to check connection
-    const response = await api.get('/health', { timeout: 3000 }).catch(() => null)
+    // Use /targets endpoint as health check (more reliable than /health which may not exist)
+    const response = await api.get('/targets', { timeout: 3000 }).catch(() => null)
     
-    if (response && response.status === 200) {
+    if (response && response.status >= 200 && response.status < 400) {
+      // Green for 2xx and 3xx responses
       operatorStatus.value = {
         connected: true,
         status: 'connected',
         lastCheck: new Date(),
       }
+    } else if (response && response.status >= 400) {
+      // Red for 4xx and 5xx responses
+      operatorStatus.value = {
+        connected: false,
+        status: 'error',
+        lastCheck: new Date(),
+      }
     } else {
-      // Try alternative endpoint
-      try {
-        await api.get('/targets', { timeout: 3000 })
-        operatorStatus.value = {
-          connected: true,
-          status: 'connected',
-          lastCheck: new Date(),
-        }
-      } catch {
-        operatorStatus.value = {
-          connected: false,
-          status: 'error',
-          lastCheck: new Date(),
-        }
+      // No response or network error
+      operatorStatus.value = {
+        connected: false,
+        status: 'error',
+        lastCheck: new Date(),
       }
     }
   } catch (error) {
     logToConsole('WARN', 'Failed to check operator connection status', error.message)
-    operatorStatus.value = {
-      connected: false,
-      status: 'error',
-      lastCheck: new Date(),
+    // Check if it's an HTTP error (4xx/5xx)
+    const statusCode = error.response?.status
+    if (statusCode && statusCode >= 400) {
+      operatorStatus.value = {
+        connected: false,
+        status: 'error',
+        lastCheck: new Date(),
+      }
+    } else {
+      // Network error or other issue
+      operatorStatus.value = {
+        connected: false,
+        status: 'error',
+        lastCheck: new Date(),
+      }
     }
   }
 }
@@ -870,13 +881,16 @@ async function saveTranslationService() {
   savingTranslationService.value = true
   
   // Show loading notification
-  const loadingNotify = $q.notify({
-    type: 'info',
-    message: 'Updating translation service configuration...',
-    timeout: 0,
-    position: 'top',
-    spinner: true,
-  })
+  let loadingNotify = null
+  if ($q && typeof $q.notify === 'function') {
+    loadingNotify = $q.notify({
+      type: 'info',
+      message: 'Updating translation service configuration...',
+      timeout: 0,
+      position: 'top',
+      spinner: true,
+    })
+  }
   
   try {
     const config = {
@@ -888,11 +902,19 @@ async function saveTranslationService() {
     const response = await api.post('/translation-service', config)
     logToConsole('INFO', 'Translation service configured', response.data)
     
-    loadingNotify({
-      type: 'positive',
-      message: 'Translation service configuration saved and applied',
-      timeout: 3000,
-    })
+    if (loadingNotify && typeof loadingNotify === 'function') {
+      loadingNotify({
+        type: 'positive',
+        message: 'Translation service configuration saved and applied',
+        timeout: 3000,
+      })
+    } else if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'positive',
+        message: 'Translation service configuration saved and applied',
+        timeout: 3000,
+      })
+    }
     
     // Refresh status after a short delay
     setTimeout(() => {
@@ -901,11 +923,19 @@ async function saveTranslationService() {
     }, 1000)
   } catch (error) {
     logToConsole('ERROR', 'Failed to save translation service config', error.message)
-    loadingNotify({
-      type: 'negative',
-      message: `Failed to save configuration: ${error.response?.data?.message || error.message}`,
-      timeout: 5000,
-    })
+    if (loadingNotify && typeof loadingNotify === 'function') {
+      loadingNotify({
+        type: 'negative',
+        message: `Failed to save configuration: ${error.response?.data?.message || error.message}`,
+        timeout: 5000,
+      })
+    } else if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to save configuration: ${error.response?.data?.message || error.message}`,
+        timeout: 5000,
+      })
+    }
   } finally {
     savingTranslationService.value = false
   }
