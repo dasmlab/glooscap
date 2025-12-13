@@ -641,10 +641,20 @@ async function testConnection(endpoint, serviceName) {
     return { connected: false, status: 'error' }
   }
   
+  // Check if this is a Kubernetes internal DNS name - can't test from browser
+  if (endpoint.includes('.svc.cluster.local') || endpoint.includes('.svc:')) {
+    logToConsole('INFO', `${serviceName} endpoint is Kubernetes internal DNS - cannot test from browser`)
+    // For Kubernetes internal services, we can't test from browser
+    // Return error since we can't verify connection
+    return { connected: false, status: 'error' }
+  }
+  
   try {
     // Try to connect to the endpoint
     // For HTTP endpoints, try a simple fetch (without no-cors so we can check status)
     const url = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`
+    logToConsole('INFO', `Testing ${serviceName} connection to: ${url}`)
+    
     const fetchResponse = await fetch(url, { 
       method: 'GET',
       signal: AbortSignal.timeout(3000),
@@ -653,6 +663,7 @@ async function testConnection(endpoint, serviceName) {
     
     // Check if response is successful (2xx or 3xx)
     if (fetchResponse.ok || (fetchResponse.status >= 200 && fetchResponse.status < 400)) {
+      logToConsole('INFO', `${serviceName} connection successful: ${fetchResponse.status}`)
       return { connected: true, status: 'connected' }
     } else {
       // 4xx or 5xx - error
@@ -661,7 +672,13 @@ async function testConnection(endpoint, serviceName) {
     }
   } catch (error) {
     // Network error, DNS failure, timeout, etc.
-    logToConsole('WARN', `Failed to test ${serviceName} connection`, error.message)
+    logToConsole('WARN', `Failed to test ${serviceName} connection to ${endpoint}`, error.message)
+    // Check error type
+    if (error.name === 'AbortError' || error.message.includes('timeout')) {
+      logToConsole('WARN', `${serviceName} connection timed out`)
+    } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      logToConsole('WARN', `${serviceName} network error - service may not be reachable`)
+    }
     return { connected: false, status: 'error' }
   }
 }
