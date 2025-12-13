@@ -54,7 +54,8 @@ jobs:
       - name: Run tests with coverage
         working-directory: operator
         run: |
-          export KUBEBUILDER_ASSETS="$$(bin/setup-envtest use ${{ steps.get-k8s-version.outputs.version }} --bin-dir bin -p path)"
+          K8S_VERSION=$$(go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+          export KUBEBUILDER_ASSETS=$$(bin/setup-envtest use $$K8S_VERSION --bin-dir bin -p path)
           go test $$(go list ./... | grep -v /e2e) \
             -coverprofile=coverage.out \
             -covermode=atomic \
