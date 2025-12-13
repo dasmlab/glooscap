@@ -688,9 +688,13 @@ async function fetchOperatorStatus() {
   }
   
   try {
-    // Try to make a simple API call to check connection
-    // Use /targets endpoint as health check (more reliable than /health which may not exist)
-    const response = await api.get('/targets', { timeout: 3000 }).catch(() => null)
+    // Try healthz endpoint first (lightweight health check)
+    let response = await api.get('/healthz', { timeout: 3000 }).catch(() => null)
+    
+    // If healthz doesn't work, try /targets as fallback
+    if (!response || response.status >= 400) {
+      response = await api.get('/targets', { timeout: 3000 }).catch(() => null)
+    }
     
     if (response && response.status >= 200 && response.status < 400) {
       // Green for 2xx and 3xx responses
