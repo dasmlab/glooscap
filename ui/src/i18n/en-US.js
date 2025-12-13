@@ -73,7 +73,7 @@ export default {
     nokomisEndpoint: 'Nokomis Endpoint',
     nokomisHint: 'Nokomis service address',
     operatorEndpoint: 'Operator API Endpoint',
-    operatorHint: 'Glooscap operator service address (e.g., glooscap-operator.testdev.dasmlab.org:3000)',
+    operatorHint: 'Glooscap operator service address (e.g., glooscap-operator.testdev.dasmlab.org:8080)',
     operatorEndpointChanged: 'Operator endpoint changed. Reloading page...',
     save: 'Save',
     cancel: 'Cancel',

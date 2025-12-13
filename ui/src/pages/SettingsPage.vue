@@ -700,9 +700,18 @@ async function fetchOperatorStatus() {
       const operatorBase = baseUrl.replace('/api/v1', '')
       const healthzUrl = `${operatorBase}/healthz`
       
-      // Use axios directly to bypass the /api/v1 prefix
-      const axios = (await import('axios')).default
-      response = await axios.get(healthzUrl, { timeout: 3000 })
+      // Use fetch directly to bypass the /api/v1 prefix
+      const fullUrl = healthzUrl.startsWith('http') ? healthzUrl : `http://${healthzUrl}`
+      const fetchResponse = await fetch(fullUrl, { 
+        method: 'GET',
+        signal: AbortSignal.timeout(3000),
+      })
+      
+      if (fetchResponse.ok) {
+        response = { status: fetchResponse.status }
+      } else {
+        error = { response: { status: fetchResponse.status } }
+      }
     } catch (healthzError) {
       error = healthzError
       // If healthz fails, try /api/v1/targets as fallback
