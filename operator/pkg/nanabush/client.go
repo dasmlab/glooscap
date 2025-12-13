@@ -116,9 +116,10 @@ func NewClient(cfg Config) (*Client, error) {
 		fmt.Printf("[nanabush] Failed to dial %s: %v\n", cfg.Address, err)
 		return nil, fmt.Errorf("nanabush: dial %s: %w", cfg.Address, err)
 	}
-	
-	fmt.Printf("[nanabush] gRPC connection established to %s (state: %s)\n", 
-		cfg.Address, conn.GetState().String())
+
+	// Log connection state
+	state := conn.GetState()
+	fmt.Printf("[nanabush] gRPC connection established to %s (state: %s)\n", cfg.Address, state.String())
 
 	// Initialize generated client stub
 	client := nanabushv1.NewTranslationServiceClient(conn)
@@ -166,18 +167,29 @@ func (c *Client) register(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	
-	resp, err := c.client.RegisterClient(ctx, &nanabushv1.RegisterClientRequest{
+	fmt.Printf("[nanabush] Calling RegisterClient RPC: name=%q, version=%q, namespace=%q\n",
+		c.clientName, c.clientVersion, c.namespace)
+	
+	req := &nanabushv1.RegisterClientRequest{
 		ClientName:    c.clientName,
 		ClientVersion: c.clientVersion,
 		Namespace:     c.namespace,
 		Metadata:      c.metadata,
 		RegisteredAt:  timestamppb.Now(),
-	})
+	}
+	
+	fmt.Printf("[nanabush] RegisterClient request sent, waiting for response...\n")
+	resp, err := c.client.RegisterClient(ctx, req)
 	if err != nil {
+		fmt.Printf("[nanabush] RegisterClient RPC failed: %v\n", err)
 		return fmt.Errorf("register client: %w", err)
 	}
 	
+	fmt.Printf("[nanabush] RegisterClient response received: success=%v, client_id=%q, message=%q, heartbeat_interval=%ds\n",
+		resp.Success, resp.ClientId, resp.Message, resp.HeartbeatIntervalSeconds)
+	
 	if !resp.Success {
+		fmt.Printf("[nanabush] Registration failed: %s\n", resp.Message)
 		return fmt.Errorf("registration failed: %s", resp.Message)
 	}
 	
@@ -186,8 +198,12 @@ func (c *Client) register(ctx context.Context) error {
 	
 	// Update heartbeat interval from server response
 	if resp.HeartbeatIntervalSeconds > 0 {
+		oldInterval := c.heartbeatInterval
 		c.heartbeatInterval = time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
+		fmt.Printf("[nanabush] Heartbeat interval updated: %v -> %v\n", oldInterval, c.heartbeatInterval)
 	}
+	
+	fmt.Printf("[nanabush] Client registration complete: client_id=%q, registered=%v\n", c.clientID, c.registered)
 	
 	// Notify status change
 	if c.onStatusChange != nil {
