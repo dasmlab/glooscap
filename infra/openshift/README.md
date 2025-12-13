@@ -253,9 +253,48 @@ oc delete -f operator/config/crd/bases/
 oc delete namespace glooscap-system
 ```
 
+## Quick Installation
+
+For a complete installation, use the provided install script:
+
+```bash
+cd infra/openshift
+./install_glooscap.sh
+```
+
+This script will:
+1. Generate manifests and CRDs
+2. Build and push operator and UI images
+3. Create namespace and registry secret
+4. Install CRDs and deploy operator
+5. Deploy UI and create API route
+6. Deploy WikiTarget (if manifest exists)
+
+### Installing with Plugins
+
+To install Glooscap with plugins (e.g., Iskoces):
+
+```bash
+./install_glooscap.sh --plugins iskoces
+```
+
+Or install all available plugins:
+
+```bash
+./install_glooscap.sh --all
+```
+
+### Uninstallation
+
+To remove Glooscap:
+
+```bash
+./uninstall_glooscap.sh
+```
+
 ## Additional Resources
 
-- **Keycloak**: OIDC authentication setup (see `keycloak/README.md`)
-- **Outline**: Wiki integration (see `outline/README.md`)
+- **Keycloak**: OIDC authentication setup (see `3pps/keycloak/README.md`)
+- **Outline**: Wiki integration (see `3pps/outline/README.md`)
 - **WikiTargets**: Example WikiTarget CR (see `wikitarget-infra-dasmlab-org.yaml`)
 
