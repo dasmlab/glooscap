@@ -242,13 +242,13 @@ func (c *Client) sendHeartbeat() {
 	c.mu.RUnlock()
 	
 	if !registered || clientID == "" {
+		fmt.Printf("[nanabush] Skipping heartbeat: registered=%v, client_id=%q\n", registered, clientID)
 		return
 	}
 	
+	fmt.Printf("[nanabush] Sending heartbeat: client_id=%q, client_name=%q\n", clientID, clientName)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
-	fmt.Printf("[nanabush] Sending heartbeat: client_id=%q, client_name=%q\n", clientID, clientName)
 	
 	resp, err := c.client.Heartbeat(ctx, &nanabushv1.HeartbeatRequest{
 		ClientId:  clientID,
