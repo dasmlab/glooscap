@@ -8,7 +8,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const pathPrefix = ref('/fr')
   const remoteWikiTarget = ref(false)
   const operatorEnabled = ref(true)
-  const operatorEndpoint = ref('glooscap-operator.testdev.dasmlab.org:3000')
+  const operatorEndpoint = ref('glooscap-operator.testdev.dasmlab.org:8080')
   const telemetryEnabled = ref(true)
   const telemetryEndpoint = ref('otel-collector.glooscap-system.svc.cluster.local:4317')
   const nokomisEnabled = ref(false)

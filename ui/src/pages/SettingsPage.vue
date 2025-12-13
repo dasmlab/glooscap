@@ -490,7 +490,7 @@ const form = reactive({
   remoteWikiTarget: settingsStore.remoteWikiTarget || false,
   destinationTarget: settingsStore.destinationTarget,
   operatorEnabled: settingsStore.operatorEnabled ?? true,
-  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000',
+  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:8080',
   telemetryEnabled: settingsStore.telemetryEnabled ?? true,
   telemetryEndpoint: settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317',
   nokomisEnabled: settingsStore.nokomisEnabled || false,
@@ -688,14 +688,33 @@ async function fetchOperatorStatus() {
   }
   
   try {
-    // Try healthz endpoint first (lightweight health check)
-    let response = await api.get('/healthz', { timeout: 3000 }).catch(() => null)
+    // Try /healthz endpoint first (lightweight health check, not under /api/v1)
+    // The healthz endpoint is at the root, not under /api/v1
+    let response = null
+    let error = null
     
-    // If healthz doesn't work, try /targets as fallback
-    if (!response || response.status >= 400) {
-      response = await api.get('/targets', { timeout: 3000 }).catch(() => null)
+    try {
+      // Create a direct request to /healthz (not using api client which prefixes /api/v1)
+      const baseUrl = api.defaults.baseURL || ''
+      // Extract the base URL without /api/v1
+      const operatorBase = baseUrl.replace('/api/v1', '')
+      const healthzUrl = `${operatorBase}/healthz`
+      
+      // Use axios directly to bypass the /api/v1 prefix
+      const axios = (await import('axios')).default
+      response = await axios.get(healthzUrl, { timeout: 3000 })
+    } catch (healthzError) {
+      error = healthzError
+      // If healthz fails, try /api/v1/targets as fallback
+      try {
+        response = await api.get('/targets', { timeout: 3000 })
+        error = null // Clear error if targets works
+      } catch (targetsError) {
+        error = targetsError
+      }
     }
     
+    // Check if we have a successful response
     if (response && response.status >= 200 && response.status < 400) {
       // Green for 2xx and 3xx responses
       operatorStatus.value = {
@@ -703,15 +722,26 @@ async function fetchOperatorStatus() {
         status: 'connected',
         lastCheck: new Date(),
       }
-    } else if (response && response.status >= 400) {
-      // Red for 4xx and 5xx responses
-      operatorStatus.value = {
-        connected: false,
-        status: 'error',
-        lastCheck: new Date(),
+    } else if (error) {
+      // Check error status code
+      const statusCode = error.response?.status
+      if (statusCode && statusCode >= 400) {
+        // 4xx or 5xx - definitely an error (red)
+        operatorStatus.value = {
+          connected: false,
+          status: 'error',
+          lastCheck: new Date(),
+        }
+      } else {
+        // Network/DNS error (red)
+        operatorStatus.value = {
+          connected: false,
+          status: 'error',
+          lastCheck: new Date(),
+        }
       }
     } else {
-      // No response or network error
+      // Unexpected case
       operatorStatus.value = {
         connected: false,
         status: 'error',
@@ -723,13 +753,14 @@ async function fetchOperatorStatus() {
     // Check if it's an HTTP error (4xx/5xx)
     const statusCode = error.response?.status
     if (statusCode && statusCode >= 400) {
+      // HTTP error - definitely not connected (red)
       operatorStatus.value = {
         connected: false,
         status: 'error',
         lastCheck: new Date(),
       }
     } else {
-      // Network error or other issue
+      // Network error, DNS failure, or other issue (red)
       operatorStatus.value = {
         connected: false,
         status: 'error',
@@ -1272,7 +1303,7 @@ function reset() {
   form.remoteWikiTarget = settingsStore.remoteWikiTarget || false
   form.destinationTarget = settingsStore.destinationTarget
   form.operatorEnabled = settingsStore.operatorEnabled ?? true
-  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000'
+  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:8080'
   form.telemetryEnabled = settingsStore.telemetryEnabled ?? true
   form.telemetryEndpoint = settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317'
   form.nokomisEnabled = settingsStore.nokomisEnabled || false
