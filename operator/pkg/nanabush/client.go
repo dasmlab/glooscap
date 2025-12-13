@@ -127,15 +127,32 @@ func NewClient(cfg Config) (*Client, error) {
 		fmt.Printf("[nanabush] Connection not ready (state: %s), waiting for Ready state...\n", state.String())
 		ctxReady, cancelReady := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelReady()
-		if !conn.WaitForStateChange(ctxReady, state) {
-			fmt.Printf("[nanabush] Warning: Connection state did not change from %s within timeout\n", state.String())
-		}
-		newState := conn.GetState()
-		fmt.Printf("[nanabush] Connection state after wait: %s\n", newState.String())
 		
-		// If still not ready, try one more time with a shorter timeout
-		if newState != connectivity.Ready && newState != connectivity.Idle {
-			fmt.Printf("[nanabush] Connection still not ready, attempting registration anyway (state: %s)\n", newState.String())
+		// Wait for state to change from current state
+		for {
+			if !conn.WaitForStateChange(ctxReady, state) {
+				// Timeout or context cancelled
+				newState := conn.GetState()
+				fmt.Printf("[nanabush] Connection state wait timeout/cancelled, current state: %s\n", newState.String())
+				if newState == connectivity.Ready {
+					break
+				}
+				// If not ready, we'll try anyway but log a warning
+				fmt.Printf("[nanabush] Warning: Proceeding with registration despite connection not being Ready (state: %s)\n", newState.String())
+				break
+			}
+			newState := conn.GetState()
+			fmt.Printf("[nanabush] Connection state changed: %s -> %s\n", state.String(), newState.String())
+			if newState == connectivity.Ready {
+				fmt.Printf("[nanabush] Connection is now Ready!\n")
+				break
+			}
+			if newState == connectivity.TransientFailure || newState == connectivity.Shutdown {
+				fmt.Printf("[nanabush] Connection failed or shutdown (state: %s), registration will likely fail\n", newState.String())
+				break
+			}
+			// Update state for next iteration
+			state = newState
 		}
 	}
 
