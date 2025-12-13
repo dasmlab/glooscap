@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# pushme.sh - Push Glooscap operator Docker image to registry
+# This script tags and pushes the image with version and latest tags
+
 # --- config ----------------------------------------------------
 app=glooscap
 scratch="scratch"          # your local image tag, e.g., myapp:scratch
 repo="ghcr.io/dasmlab"     # base repo
 buildfile=".lastbuild"     # build counter file
+token_file="/home/dasm/gh_token"  # GitHub token file
 # ---------------------------------------------------------------
 
 # ensure .lastbuild exists
@@ -33,6 +37,18 @@ echo "  Source:     ${src}"
 echo "  VersionTag: ${dst_version}"
 echo "  LatestTag:  ${dst_latest}"
 echo
+
+# Authenticate with GitHub Container Registry
+if [[ -f "$token_file" ]]; then
+    token=$(cat "$token_file" | tr -d '\n\r')
+    echo "$token" | docker login ghcr.io -u lmcdasm --password-stdin || {
+        echo "⚠️  Warning: Failed to authenticate with ghcr.io"
+        echo "   Attempting push without authentication (may fail)..."
+    }
+else
+    echo "⚠️  Warning: Token file not found at $token_file"
+    echo "   Attempting push without authentication (may fail)..."
+fi
 
 # tag operations
 docker tag "$src" "$dst_version"
