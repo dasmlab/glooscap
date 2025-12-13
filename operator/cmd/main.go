@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -374,7 +373,7 @@ func main() {
 				"type", cfg.Type,
 				"secure", cfg.Secure)
 
-				client, err := createTranslationServiceClient(cfg.Address, cfg.Type, cfg.Secure)
+			client, err := createTranslationServiceClient(cfg.Address, cfg.Type, cfg.Secure)
 			if err != nil {
 				setupLog.Error(err, "failed to create translation service client",
 					"address", cfg.Address,

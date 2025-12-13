@@ -20,11 +20,11 @@ import (
 
 // Options controls the API server.
 type Options struct {
-	Addr        string
-	Catalogue   *catalog.Store
-	Jobs        *catalog.JobStore
-	Client      client.Client
-	Nanabush    *nanabush.Client
+	Addr      string
+	Catalogue *catalog.Store
+	Jobs      *catalog.JobStore
+	Client    client.Client
+	Nanabush  *nanabush.Client
 	// NanabushStatusCh is a channel that receives nanabush status updates to trigger SSE broadcasts
 	NanabushStatusCh <-chan struct{}
 	// ConfigStore manages runtime configuration
@@ -178,23 +178,23 @@ func Start(ctx context.Context, opts Options) error {
 	router.Get("/api/v1/status/nanabush", func(w http.ResponseWriter, _ *http.Request) {
 		if opts.Nanabush == nil {
 			writeJSON(w, nanabush.Status{
-				Connected: false,
+				Connected:  false,
 				Registered: false,
-				Status: "error",
+				Status:     "error",
 			})
 			return
 		}
 		status := opts.Nanabush.Status()
 		writeJSON(w, status)
 	})
-	
+
 	// Generic translation service status endpoint (alias for backward compatibility)
 	router.Get("/api/v1/status/translation", func(w http.ResponseWriter, _ *http.Request) {
 		if opts.Nanabush == nil {
 			writeJSON(w, nanabush.Status{
-				Connected: false,
+				Connected:  false,
 				Registered: false,
-				Status: "error",
+				Status:     "error",
 			})
 			return
 		}
@@ -764,13 +764,13 @@ func buildStateResponse(opts Options) map[string]any {
 	if opts.Nanabush != nil {
 		status := opts.Nanabush.Status()
 		result["nanabush"] = map[string]any{
-			"connected":        status.Connected,
-			"registered":       status.Registered,
-			"clientId":         status.ClientID,
-			"lastHeartbeat":    status.LastHeartbeat,
-			"missedHeartbeats": status.MissedHeartbeats,
+			"connected":                status.Connected,
+			"registered":               status.Registered,
+			"clientId":                 status.ClientID,
+			"lastHeartbeat":            status.LastHeartbeat,
+			"missedHeartbeats":         status.MissedHeartbeats,
 			"heartbeatIntervalSeconds": status.HeartbeatInterval,
-			"status":           status.Status,
+			"status":                   status.Status,
 		}
 	} else {
 		// No nanabush client configured

@@ -21,25 +21,25 @@ type Client struct {
 	addr   string
 	secure bool
 	client nanabushv1.TranslationServiceClient
-	
+
 	// Registration
-	clientID   string
-	clientName string
+	clientID      string
+	clientName    string
 	clientVersion string
-	namespace  string
-	metadata   map[string]string
-	
+	namespace     string
+	metadata      map[string]string
+
 	// Heartbeat
 	heartbeatInterval time.Duration
 	heartbeatStop     chan struct{}
 	heartbeatWg       sync.WaitGroup
 	lastHeartbeatTime time.Time
 	missedHeartbeats  int
-	
+
 	// Connection state
-	mu       sync.RWMutex
+	mu         sync.RWMutex
 	registered bool
-	
+
 	// Status change callback (called when status changes)
 	onStatusChange func(Status)
 }
@@ -58,13 +58,13 @@ type Config struct {
 	TLSCAPath string
 	// Timeout is the connection timeout
 	Timeout time.Duration
-	
+
 	// Client registration
 	ClientName    string            // Name of the client (e.g., "glooscap")
 	ClientVersion string            // Version of the client
 	Namespace     string            // Kubernetes namespace
 	Metadata      map[string]string // Additional metadata
-	
+
 	// OnStatusChange is called when the client status changes (connect, disconnect, heartbeat, etc.)
 	OnStatusChange func(Status)
 }
@@ -74,7 +74,7 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.Address == "" {
 		return nil, fmt.Errorf("nanabush: address is required")
 	}
-	
+
 	if cfg.ClientName == "" {
 		cfg.ClientName = "glooscap" // Default client name
 	}
@@ -108,7 +108,7 @@ func NewClient(cfg Config) (*Client, error) {
 	defer cancel()
 
 	// Log connection attempt
-	fmt.Printf("[nanabush] Attempting gRPC connection to %s (secure=%v, timeout=%v)\n", 
+	fmt.Printf("[nanabush] Attempting gRPC connection to %s (secure=%v, timeout=%v)\n",
 		cfg.Address, cfg.Secure, timeout)
 
 	conn, err := grpc.DialContext(ctx, cfg.Address, opts...)
@@ -120,45 +120,63 @@ func NewClient(cfg Config) (*Client, error) {
 	// Log connection state
 	state := conn.GetState()
 	fmt.Printf("[nanabush] gRPC connection established to %s (state: %s)\n", cfg.Address, state.String())
+	
+	// Wait for connection to be ready before proceeding
+	// This ensures the connection is fully established before we try to register
+	if state != connectivity.Ready {
+		fmt.Printf("[nanabush] Connection not ready (state: %s), waiting for Ready state...\n", state.String())
+		ctxReady, cancelReady := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelReady()
+		if !conn.WaitForStateChange(ctxReady, state) {
+			fmt.Printf("[nanabush] Warning: Connection state did not change from %s within timeout\n", state.String())
+		}
+		newState := conn.GetState()
+		fmt.Printf("[nanabush] Connection state after wait: %s\n", newState.String())
+		
+		// If still not ready, try one more time with a shorter timeout
+		if newState != connectivity.Ready && newState != connectivity.Idle {
+			fmt.Printf("[nanabush] Connection still not ready, attempting registration anyway (state: %s)\n", newState.String())
+		}
+	}
 
 	// Initialize generated client stub
 	client := nanabushv1.NewTranslationServiceClient(conn)
 
 	c := &Client{
-		conn:          conn,
-		addr:          cfg.Address,
-		secure:        cfg.Secure,
-		client:        client,
-		clientName:    cfg.ClientName,
-		clientVersion: cfg.ClientVersion,
-		namespace:     cfg.Namespace,
-		metadata:      cfg.Metadata,
+		conn:              conn,
+		addr:              cfg.Address,
+		secure:            cfg.Secure,
+		client:            client,
+		clientName:        cfg.ClientName,
+		clientVersion:     cfg.ClientVersion,
+		namespace:         cfg.Namespace,
+		metadata:          cfg.Metadata,
 		heartbeatInterval: 5 * time.Second, // Default: 5 seconds
-		heartbeatStop: make(chan struct{}),
-		onStatusChange: cfg.OnStatusChange,
+		heartbeatStop:     make(chan struct{}),
+		onStatusChange:    cfg.OnStatusChange,
 	}
-	
+
 	// Register with server
-	fmt.Printf("[nanabush] Registering client: name=%q, version=%q, namespace=%q\n", 
+	fmt.Printf("[nanabush] Registering client: name=%q, version=%q, namespace=%q\n",
 		cfg.ClientName, cfg.ClientVersion, cfg.Namespace)
 	if err := c.register(ctx); err != nil {
 		conn.Close()
 		fmt.Printf("[nanabush] Registration failed: %v\n", err)
 		return nil, fmt.Errorf("nanabush: register: %w", err)
 	}
-	
-	fmt.Printf("[nanabush] Client registered successfully: client_id=%q, heartbeat_interval=%v\n", 
+
+	fmt.Printf("[nanabush] Client registered successfully: client_id=%q, heartbeat_interval=%v\n",
 		c.clientID, c.heartbeatInterval)
-	
+
 	// Start heartbeat goroutine
 	c.startHeartbeat()
 	fmt.Printf("[nanabush] Heartbeat goroutine started (interval: %v)\n", c.heartbeatInterval)
-	
+
 	// Notify initial status after successful registration
 	if c.onStatusChange != nil {
 		c.onStatusChange(c.Status())
 	}
-	
+
 	return c, nil
 }
 
@@ -166,10 +184,10 @@ func NewClient(cfg Config) (*Client, error) {
 func (c *Client) register(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	fmt.Printf("[nanabush] Calling RegisterClient RPC: name=%q, version=%q, namespace=%q\n",
 		c.clientName, c.clientVersion, c.namespace)
-	
+
 	req := &nanabushv1.RegisterClientRequest{
 		ClientName:    c.clientName,
 		ClientVersion: c.clientVersion,
@@ -177,39 +195,39 @@ func (c *Client) register(ctx context.Context) error {
 		Metadata:      c.metadata,
 		RegisteredAt:  timestamppb.Now(),
 	}
-	
+
 	fmt.Printf("[nanabush] RegisterClient request sent, waiting for response...\n")
 	resp, err := c.client.RegisterClient(ctx, req)
 	if err != nil {
 		fmt.Printf("[nanabush] RegisterClient RPC failed: %v\n", err)
 		return fmt.Errorf("register client: %w", err)
 	}
-	
+
 	fmt.Printf("[nanabush] RegisterClient response received: success=%v, client_id=%q, message=%q, heartbeat_interval=%ds\n",
 		resp.Success, resp.ClientId, resp.Message, resp.HeartbeatIntervalSeconds)
-	
+
 	if !resp.Success {
 		fmt.Printf("[nanabush] Registration failed: %s\n", resp.Message)
 		return fmt.Errorf("registration failed: %s", resp.Message)
 	}
-	
+
 	c.clientID = resp.ClientId
 	c.registered = true
-	
+
 	// Update heartbeat interval from server response
 	if resp.HeartbeatIntervalSeconds > 0 {
 		oldInterval := c.heartbeatInterval
 		c.heartbeatInterval = time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
 		fmt.Printf("[nanabush] Heartbeat interval updated: %v -> %v\n", oldInterval, c.heartbeatInterval)
 	}
-	
+
 	fmt.Printf("[nanabush] Client registration complete: client_id=%q, registered=%v\n", c.clientID, c.registered)
-	
+
 	// Notify status change
 	if c.onStatusChange != nil {
 		c.onStatusChange(c.Status())
 	}
-	
+
 	return nil
 }
 
@@ -218,10 +236,10 @@ func (c *Client) startHeartbeat() {
 	c.heartbeatWg.Add(1)
 	go func() {
 		defer c.heartbeatWg.Done()
-		
+
 		ticker := time.NewTicker(c.heartbeatInterval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -240,21 +258,21 @@ func (c *Client) sendHeartbeat() {
 	clientName := c.clientName
 	registered := c.registered
 	c.mu.RUnlock()
-	
+
 	if !registered || clientID == "" {
 		fmt.Printf("[nanabush] Skipping heartbeat: registered=%v, client_id=%q\n", registered, clientID)
 		return
 	}
-	
+
 	fmt.Printf("[nanabush] Sending heartbeat: client_id=%q, client_name=%q\n", clientID, clientName)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	resp, err := c.client.Heartbeat(ctx, &nanabushv1.HeartbeatRequest{
-		ClientId:  clientID,
+		ClientId:   clientID,
 		ClientName: clientName,
-		SentAt:    timestamppb.Now(),
-		Metadata:  c.metadata,
+		SentAt:     timestamppb.Now(),
+		Metadata:   c.metadata,
 	})
 	if err != nil {
 		// Connection error - need to re-register
@@ -264,27 +282,27 @@ func (c *Client) sendHeartbeat() {
 		c.missedHeartbeats++ // Increment missed heartbeats on error
 		fmt.Printf("[nanabush] Missed heartbeats: %d\n", c.missedHeartbeats)
 		c.mu.Unlock()
-		
+
 		// Notify status change on error
 		if c.onStatusChange != nil {
 			c.onStatusChange(c.Status())
 		}
-		
+
 		// Try to reconnect and re-register
 		fmt.Printf("[nanabush] Attempting to reconnect and re-register...\n")
 		go c.reconnectAndRegister()
 		return
 	}
-	
-	fmt.Printf("[nanabush] Heartbeat acknowledged: client_id=%q, success=%v, message=%q\n", 
+
+	fmt.Printf("[nanabush] Heartbeat acknowledged: client_id=%q, success=%v, message=%q\n",
 		clientID, resp.Success, resp.Message)
-	
+
 	if resp.ReRegisterRequired {
 		// Server requested re-registration
 		c.mu.Lock()
 		c.registered = false
 		c.mu.Unlock()
-		
+
 		// Re-register
 		if err := c.register(context.Background()); err != nil {
 			// If registration fails, try to reconnect
@@ -292,7 +310,7 @@ func (c *Client) sendHeartbeat() {
 		}
 		return
 	}
-	
+
 	// Update heartbeat interval if server changed it
 	if resp.HeartbeatIntervalSeconds > 0 {
 		newInterval := time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
@@ -302,18 +320,18 @@ func (c *Client) sendHeartbeat() {
 		}
 		c.mu.Unlock()
 	}
-	
+
 	// Mark heartbeat as successful
 	c.mu.Lock()
 	previousMissed := c.missedHeartbeats
 	c.lastHeartbeatTime = time.Now()
 	c.missedHeartbeats = 0 // Reset missed heartbeats on success
 	c.mu.Unlock()
-	
+
 	if previousMissed > 0 {
 		fmt.Printf("[nanabush] Heartbeat recovered: client_id=%q, missed_heartbeats_reset=0\n", clientID)
 	}
-	
+
 	// Notify status change on successful heartbeat
 	if c.onStatusChange != nil {
 		c.onStatusChange(c.Status())
@@ -327,18 +345,18 @@ func (c *Client) reconnectAndRegister() {
 	c.mu.Lock()
 	isRegistered := c.registered
 	c.mu.Unlock()
-	
+
 	// Only attempt reconnection if we were previously registered
 	// (to avoid reconnection storms)
 	if !isRegistered {
 		// Not registered, skip reconnection attempt
 		return
 	}
-	
+
 	// Retry logic with exponential backoff
 	maxRetries := 5
 	backoff := 1 * time.Second
-	
+
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Close old connection
 		c.mu.Lock()
@@ -346,11 +364,11 @@ func (c *Client) reconnectAndRegister() {
 		addr := c.addr
 		secure := c.secure
 		c.mu.Unlock()
-		
+
 		if oldConn != nil {
 			oldConn.Close()
 		}
-		
+
 		// Wait before retry (exponential backoff)
 		if attempt > 0 {
 			time.Sleep(backoff)
@@ -359,7 +377,7 @@ func (c *Client) reconnectAndRegister() {
 				backoff = 30 * time.Second
 			}
 		}
-		
+
 		// Re-dial the server
 		var opts []grpc.DialOption
 		if secure {
@@ -368,42 +386,42 @@ func (c *Client) reconnectAndRegister() {
 		} else {
 			opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		}
-		
+
 		opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
 			Timeout:             10 * time.Second,
 			PermitWithoutStream: true,
 		}))
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		conn, err := grpc.DialContext(ctx, addr, opts...)
 		cancel()
-		
+
 		if err != nil {
 			// Log error and retry
 			continue
 		}
-		
+
 		// Initialize new client stub
 		newClient := nanabushv1.NewTranslationServiceClient(conn)
-		
+
 		// Update connection
 		c.mu.Lock()
 		c.conn = conn
 		c.client = newClient
 		c.mu.Unlock()
-		
+
 		// Re-register with server
 		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
 		err = c.register(ctx)
 		cancel()
-		
+
 		if err != nil {
 			conn.Close()
 			// Log error and retry
 			continue
 		}
-		
+
 		// Restart heartbeat if needed
 		c.mu.Lock()
 		if c.registered {
@@ -420,11 +438,11 @@ func (c *Client) reconnectAndRegister() {
 		} else {
 			c.mu.Unlock()
 		}
-		
+
 		// Success!
 		return
 	}
-	
+
 	// All retries failed - mark as unregistered
 	c.mu.Lock()
 	c.registered = false
@@ -447,9 +465,9 @@ func (c *Client) Close() error {
 	}
 	heartbeatWg := c.heartbeatWg
 	c.mu.Unlock()
-	
+
 	heartbeatWg.Wait()
-	
+
 	// Close connection
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -475,20 +493,20 @@ func (c *Client) ClientID() string {
 
 // Status returns the current connection status.
 type Status struct {
-	Connected          bool      `json:"connected"`
-	Registered         bool      `json:"registered"`
-	ClientID           string    `json:"clientId,omitempty"`
-	LastHeartbeat      time.Time `json:"lastHeartbeat,omitempty"`
-	MissedHeartbeats   int       `json:"missedHeartbeats"`
-	HeartbeatInterval  int64     `json:"heartbeatIntervalSeconds"`
-	Status             string    `json:"status"` // "healthy", "warning", "error"
+	Connected         bool      `json:"connected"`
+	Registered        bool      `json:"registered"`
+	ClientID          string    `json:"clientId,omitempty"`
+	LastHeartbeat     time.Time `json:"lastHeartbeat,omitempty"`
+	MissedHeartbeats  int       `json:"missedHeartbeats"`
+	HeartbeatInterval int64     `json:"heartbeatIntervalSeconds"`
+	Status            string    `json:"status"` // "healthy", "warning", "error"
 }
 
 // Status returns the current connection status.
 func (c *Client) Status() Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	now := time.Now()
 	// Check connection state - consider connected if:
 	// 1. Connection exists and is Ready, OR
@@ -498,12 +516,12 @@ func (c *Client) Status() Status {
 		connState = c.conn.GetState()
 	}
 	connReady := connState == connectivity.Ready
-	
+
 	// Consider "connected" if registered with recent heartbeat, even if gRPC state isn't Ready
 	// This handles transient connection states gracefully
 	hasRecentHeartbeat := !c.lastHeartbeatTime.IsZero() && now.Sub(c.lastHeartbeatTime) < 3*c.heartbeatInterval
 	effectivelyConnected := connReady || (c.registered && hasRecentHeartbeat)
-	
+
 	// Determine status based on registration and heartbeat state
 	status := "error"
 	if !c.registered {
@@ -522,7 +540,7 @@ func (c *Client) Status() Status {
 		// Haven't received heartbeat in too long
 		status = "error"
 	}
-	
+
 	return Status{
 		Connected:         effectivelyConnected, // Use effective connection state
 		Registered:        c.registered,
@@ -669,14 +687,14 @@ func (c *Client) Translate(ctx context.Context, req TranslateRequest) (*Translat
 	}
 
 	return &TranslateResponse{
-		JobID:              resp.JobId,
-		Success:            resp.Success,
-		TranslatedTitle:    resp.TranslatedTitle,
-		TranslatedMarkdown: resp.TranslatedMarkdown,
-		ErrorMessage:       resp.ErrorMessage,
-		TokensUsed:         resp.TokensUsed,
+		JobID:                resp.JobId,
+		Success:              resp.Success,
+		TranslatedTitle:      resp.TranslatedTitle,
+		TranslatedMarkdown:   resp.TranslatedMarkdown,
+		ErrorMessage:         resp.ErrorMessage,
+		TokensUsed:           resp.TokensUsed,
 		InferenceTimeSeconds: resp.InferenceTimeSeconds,
-		CompletedAt:        completedAt,
+		CompletedAt:          completedAt,
 	}, nil
 }
 
