@@ -490,7 +490,7 @@ const form = reactive({
   remoteWikiTarget: settingsStore.remoteWikiTarget || false,
   destinationTarget: settingsStore.destinationTarget,
   operatorEnabled: settingsStore.operatorEnabled ?? true,
-  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:8080',
+  operatorEndpoint: settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000',
   telemetryEnabled: settingsStore.telemetryEnabled ?? true,
   telemetryEndpoint: settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317',
   nokomisEnabled: settingsStore.nokomisEnabled || false,
@@ -1312,7 +1312,7 @@ function reset() {
   form.remoteWikiTarget = settingsStore.remoteWikiTarget || false
   form.destinationTarget = settingsStore.destinationTarget
   form.operatorEnabled = settingsStore.operatorEnabled ?? true
-  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:8080'
+  form.operatorEndpoint = settingsStore.operatorEndpoint || 'glooscap-operator.testdev.dasmlab.org:3000'
   form.telemetryEnabled = settingsStore.telemetryEnabled ?? true
   form.telemetryEndpoint = settingsStore.telemetryEndpoint || 'otel-collector.glooscap-system.svc.cluster.local:4317'
   form.nokomisEnabled = settingsStore.nokomisEnabled || false
