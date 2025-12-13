@@ -54,13 +54,11 @@ jobs:
       - name: Run tests with coverage
         working-directory: operator
         run: |
+          set -e
           K8S_VERSION=$$(go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-          KUBEBUILDER_ASSETS=$$(bin/setup-envtest use $$K8S_VERSION --bin-dir bin -p path)
+          KUBEBUILDER_ASSETS=$$(bin/setup-envtest use "$$K8S_VERSION" --bin-dir bin -p path)
           export KUBEBUILDER_ASSETS
-          go test $$(go list ./... | grep -v /e2e) \
-            -coverprofile=coverage.out \
-            -covermode=atomic \
-            -v
+          go test $$(go list ./... | grep -v /e2e) -coverprofile=coverage.out -covermode=atomic -v
 
       - name: Generate coverage report
         working-directory: operator
