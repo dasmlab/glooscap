@@ -501,20 +501,20 @@ const form = reactive({
 // Operator connection status
 const operatorStatus = ref({
   connected: false,
-  status: 'unknown',
+  status: 'error', // Start with error, not unknown - will be updated on first check
   lastCheck: null,
 })
 
 // Telemetry endpoint status
 const telemetryStatus = ref({
   connected: false,
-  status: 'unknown',
+  status: 'error', // Start with error, not unknown - will be updated on first check
 })
 
 // Nokomis endpoint status
 const nokomisStatus = ref({
   connected: false,
-  status: 'unknown',
+  status: 'error', // Start with error, not unknown - will be updated on first check
 })
 
 // Computed properties for operator status display
