@@ -43,18 +43,22 @@ jobs:
         run: |
           make manifests generate
 
+      - name: Get Kubernetes version for envtest
+        working-directory: operator
+        id: get-k8s-version
+        run: |
+          ENVTEST_K8S_VERSION=$$(go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+          echo "version=$$ENVTEST_K8S_VERSION" >> $GITHUB_OUTPUT
+          echo "Using Kubernetes version: $$ENVTEST_K8S_VERSION"
+
       - name: Run tests with coverage
         working-directory: operator
         run: |
-          export KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)"
+          export KUBEBUILDER_ASSETS="$$(bin/setup-envtest use ${{ steps.get-k8s-version.outputs.version }} --bin-dir bin -p path)"
           go test $$(go list ./... | grep -v /e2e) \
             -coverprofile=coverage.out \
             -covermode=atomic \
             -v
-        env:
-          ENVTEST: bin/setup-envtest
-          LOCALBIN: bin
-          ENVTEST_K8S_VERSION: ${{ env.ENVTEST_K8S_VERSION || '1.31' }}
 
       - name: Generate coverage report
         working-directory: operator
