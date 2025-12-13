@@ -46,11 +46,15 @@ jobs:
       - name: Run tests with coverage
         working-directory: operator
         run: |
-          KUBEBUILDER_ASSETS="$(make -s setup-envtest | grep KUBEBUILDER_ASSETS | cut -d'=' -f2 | tr -d '"')" \
+          export KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)"
           go test $$(go list ./... | grep -v /e2e) \
             -coverprofile=coverage.out \
             -covermode=atomic \
             -v
+        env:
+          ENVTEST: bin/setup-envtest
+          LOCALBIN: bin
+          ENVTEST_K8S_VERSION: ${{ env.ENVTEST_K8S_VERSION || '1.31' }}
 
       - name: Generate coverage report
         working-directory: operator
