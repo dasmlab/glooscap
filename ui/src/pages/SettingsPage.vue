@@ -697,20 +697,33 @@ async function fetchOperatorStatus() {
       // Create a direct request to /healthz (not using api client which prefixes /api/v1)
       const baseUrl = api.defaults.baseURL || ''
       // Extract the base URL without /api/v1
-      const operatorBase = baseUrl.replace('/api/v1', '')
+      // Handle both absolute URLs (http://host:port/api/v1) and relative paths (/api/v1)
+      let operatorBase = baseUrl.replace('/api/v1', '').replace(/\/+$/, '') // Remove trailing slashes
+      
+      // If baseUrl was relative (starts with /), we need to construct from form.operatorEndpoint
+      if (operatorBase.startsWith('/') || operatorBase === '') {
+        // Use the operator endpoint from the form instead
+        operatorBase = `http://${form.operatorEndpoint}`
+      } else if (!operatorBase.startsWith('http')) {
+        // If it doesn't have protocol, add it
+        operatorBase = `http://${operatorBase}`
+      }
+      
       const healthzUrl = `${operatorBase}/healthz`
+      logToConsole('INFO', `Checking operator health at: ${healthzUrl}`)
       
       // Use fetch directly to bypass the /api/v1 prefix
-      const fullUrl = healthzUrl.startsWith('http') ? healthzUrl : `http://${healthzUrl}`
-      const fetchResponse = await fetch(fullUrl, { 
+      const fetchResponse = await fetch(healthzUrl, { 
         method: 'GET',
         signal: AbortSignal.timeout(3000),
       })
       
       if (fetchResponse.ok) {
         response = { status: fetchResponse.status }
+        logToConsole('INFO', `Operator health check successful: ${fetchResponse.status}`)
       } else {
         error = { response: { status: fetchResponse.status } }
+        logToConsole('WARN', `Operator health check failed: ${fetchResponse.status}`)
       }
     } catch (healthzError) {
       error = healthzError
