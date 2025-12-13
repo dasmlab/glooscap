@@ -345,37 +345,58 @@ func main() {
 	}
 
 	// Reconfiguration function for runtime updates
+	// This runs asynchronously to avoid blocking the HTTP request
 	reconfigureTranslationService := func(cfg server.TranslationServiceConfig) error {
-		nanabushClientMu.Lock()
-		defer nanabushClientMu.Unlock()
+		// Close existing client asynchronously (don't block)
+		go func() {
+			nanabushClientMu.Lock()
+			oldClient := nanabushClient
+			nanabushClient = nil // Clear immediately so getter returns nil
+			nanabushClientMu.Unlock()
 
-		// Close existing client if any
-		if nanabushClient != nil {
-			if err := nanabushClient.Close(); err != nil {
-				setupLog.Error(err, "error closing old translation service client")
+			if oldClient != nil {
+				setupLog.Info("Closing old translation service client...")
+				if err := oldClient.Close(); err != nil {
+					setupLog.Error(err, "error closing old translation service client")
+				}
+				setupLog.Info("Old translation service client closed")
 			}
-			nanabushClient = nil
-		}
 
-		// If address is empty, just clear the client
-		if cfg.Address == "" {
-			setupLog.Info("Translation service configuration cleared")
-			return nil
-		}
+			// If address is empty, just clear the client (already done above)
+			if cfg.Address == "" {
+				setupLog.Info("Translation service configuration cleared")
+				return
+			}
 
-		// Create new client
-		client, err := createTranslationServiceClient(cfg.Address, cfg.Type, cfg.Secure)
-		if err != nil {
-			return fmt.Errorf("failed to create translation service client: %w", err)
-		}
+			// Create new client asynchronously
+			setupLog.Info("Creating new translation service client...",
+				"address", cfg.Address,
+				"type", cfg.Type,
+				"secure", cfg.Secure)
 
-		nanabushClient = client
+				client, err := createTranslationServiceClient(cfg.Address, cfg.Type, cfg.Secure)
+			if err != nil {
+				setupLog.Error(err, "failed to create translation service client",
+					"address", cfg.Address,
+					"type", cfg.Type)
+				return
+			}
 
-		setupLog.Info("Translation service reconfigured",
+			// Update client atomically
+			nanabushClientMu.Lock()
+			nanabushClient = client
+			nanabushClientMu.Unlock()
+
+			setupLog.Info("Translation service reconfigured successfully",
+				"address", cfg.Address,
+				"type", cfg.Type,
+				"secure", cfg.Secure)
+		}()
+
+		// Return immediately - reconfiguration happens in background
+		setupLog.Info("Translation service reconfiguration initiated (async)",
 			"address", cfg.Address,
-			"type", cfg.Type,
-			"secure", cfg.Secure)
-
+			"type", cfg.Type)
 		return nil
 	}
 

@@ -495,16 +495,23 @@ func Start(ctx context.Context, opts Options) error {
 			config.Type = "nanabush"
 		}
 
-		// Store configuration
+		// Store configuration first (so UI can read it back immediately)
 		opts.ConfigStore.SetTranslationServiceConfig(&config)
 
-		// Reconfigure the translation service client
+		// Reconfigure the translation service client (async - returns immediately)
+		// The actual connection/registration happens in the background
 		if err := opts.ReconfigureTranslationService(config); err != nil {
-			http.Error(w, fmt.Sprintf("failed to reconfigure translation service: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to initiate translation service reconfiguration: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		writeJSON(w, map[string]string{"status": "configured", "address": config.Address, "type": config.Type})
+		// Return success immediately - reconfiguration is happening in background
+		writeJSON(w, map[string]string{
+			"status":  "reconfiguration_initiated",
+			"address": config.Address,
+			"type":    config.Type,
+			"message": "Translation service reconfiguration started. Connection will be established in the background.",
+		})
 	})
 
 	router.Put("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
@@ -534,16 +541,22 @@ func Start(ctx context.Context, opts Options) error {
 			config.Type = "nanabush"
 		}
 
-		// Store configuration
+		// Store configuration first (so UI can read it back immediately)
 		opts.ConfigStore.SetTranslationServiceConfig(&config)
 
-		// Reconfigure the translation service client
+		// Reconfigure the translation service client (async - returns immediately)
 		if err := opts.ReconfigureTranslationService(config); err != nil {
-			http.Error(w, fmt.Sprintf("failed to reconfigure translation service: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to initiate translation service reconfiguration: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		writeJSON(w, map[string]string{"status": "configured", "address": config.Address, "type": config.Type})
+		// Return success immediately - reconfiguration is happening in background
+		writeJSON(w, map[string]string{
+			"status":  "reconfiguration_initiated",
+			"address": config.Address,
+			"type":    config.Type,
+			"message": "Translation service reconfiguration started. Connection will be established in the background.",
+		})
 	})
 
 	router.Delete("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
