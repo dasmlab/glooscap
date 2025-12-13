@@ -213,15 +213,28 @@ func (c *Client) register(ctx context.Context) error {
 		RegisteredAt:  timestamppb.Now(),
 	}
 
+	// Check connection state before making RPC call
+	connState := c.conn.GetState()
+	fmt.Printf("[nanabush] Connection state before RegisterClient: %s\n", connState.String())
+	
+	if connState != connectivity.Ready && connState != connectivity.Idle {
+		fmt.Printf("[nanabush] Warning: Connection not in Ready/Idle state (state: %s), RPC may fail\n", connState.String())
+	}
+	
 	fmt.Printf("[nanabush] RegisterClient request sent, waiting for response...\n")
+	startTime := time.Now()
 	resp, err := c.client.RegisterClient(ctx, req)
+	duration := time.Since(startTime)
+	
 	if err != nil {
-		fmt.Printf("[nanabush] RegisterClient RPC failed: %v\n", err)
+		fmt.Printf("[nanabush] RegisterClient RPC failed after %v: %v\n", duration, err)
+		fmt.Printf("[nanabush] Connection state after error: %s\n", c.conn.GetState().String())
 		return fmt.Errorf("register client: %w", err)
 	}
-
-	fmt.Printf("[nanabush] RegisterClient response received: success=%v, client_id=%q, message=%q, heartbeat_interval=%ds\n",
-		resp.Success, resp.ClientId, resp.Message, resp.HeartbeatIntervalSeconds)
+	
+	fmt.Printf("[nanabush] RegisterClient response received after %v: success=%v, client_id=%q, message=%q, heartbeat_interval=%ds\n",
+		duration, resp.Success, resp.ClientId, resp.Message, resp.HeartbeatIntervalSeconds)
+	fmt.Printf("[nanabush] Connection state after successful response: %s\n", c.conn.GetState().String())
 
 	if !resp.Success {
 		fmt.Printf("[nanabush] Registration failed: %s\n", resp.Message)
