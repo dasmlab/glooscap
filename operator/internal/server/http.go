@@ -678,7 +678,7 @@ func Start(ctx context.Context, opts Options) error {
 			PageSlug:       pageContent.Slug,
 		}
 
-		translateResp, err := opts.Nanabush.Translate(ctx, grpcReq)
+		translateResp, err := nanabushClient.Translate(ctx, grpcReq)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("translation failed: %v", err), http.StatusInternalServerError)
 			return
