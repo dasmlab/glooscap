@@ -964,6 +964,53 @@ func Start(ctx context.Context, opts Options) error {
 		writeJSON(w, map[string]string{"status": "deleted", "name": name, "namespace": namespace})
 	})
 
+	// POST endpoint to trigger a WikiTarget refresh by adding a force-refresh annotation
+	router.Post("/api/v1/wikitargets/{namespace}/{name}/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		if namespace == "" || name == "" {
+			http.Error(w, "namespace and name are required", http.StatusBadRequest)
+			return
+		}
+
+		var target wikiv1alpha1.WikiTarget
+		if err := opts.Client.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, &target); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "WikiTarget not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Add annotation to force refresh - controller will see this and immediately refresh
+		if target.Annotations == nil {
+			target.Annotations = make(map[string]string)
+		}
+		target.Annotations["glooscap.dasmlab.org/force-refresh"] = metav1.Now().Format(time.RFC3339)
+
+		// Clear LastSyncTime to force immediate refresh
+		target.Status.LastSyncTime = nil
+
+		if err := opts.Client.Status().Update(r.Context(), &target); err != nil {
+			http.Error(w, fmt.Sprintf("failed to update WikiTarget status: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Also update the annotations
+		if err := opts.Client.Update(r.Context(), &target); err != nil {
+			http.Error(w, fmt.Sprintf("failed to update WikiTarget: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, map[string]string{"status": "refresh triggered", "name": name, "namespace": namespace})
+	})
+
 	server := &http.Server{
 		Addr:              opts.Addr,
 		Handler:           router,

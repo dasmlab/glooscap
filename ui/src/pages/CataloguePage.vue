@@ -316,12 +316,48 @@ function formatDate(value) {
 }
 
 async function refresh() {
-  await catalogueStore.fetchWikiTargets()
-  await catalogueStore.refreshCatalogue()
-  $q.notify({
-    type: 'info',
-    message: 'Catalogue refresh triggered',
-  })
+  try {
+    await catalogueStore.fetchWikiTargets()
+    
+    // Trigger a refresh on the operator side for the selected target
+    const target = activeTarget.value
+    if (target) {
+      const namespace = target.namespace || 'glooscap-system'
+      const targetName = target.resourceName || target.name || target.id
+      try {
+        await api.post(`/wikitargets/${namespace}/${targetName}/refresh`)
+        logToConsole('INFO', `Triggered refresh for WikiTarget: ${namespace}/${targetName}`)
+      } catch (err) {
+        logToConsole('WARN', `Failed to trigger WikiTarget refresh: ${err.message}`)
+        // Continue anyway - we'll still refresh the catalogue
+      }
+    }
+    
+    // Wait a bit for the operator to process the refresh
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    // Refresh the catalogue from the operator
+    await catalogueStore.refreshCatalogue()
+    
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'positive',
+        message: 'Catalogue refresh triggered',
+        timeout: 3000,
+      })
+    }
+  } catch (err) {
+    logToConsole('ERROR', `Failed to refresh catalogue: ${err.message}`)
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to refresh catalogue: ${err.message || 'Unknown error'}`,
+        timeout: 5000,
+      })
+    } else {
+      console.error('Quasar notify not available:', $q)
+    }
+  }
 }
 
 function statusColor(status) {

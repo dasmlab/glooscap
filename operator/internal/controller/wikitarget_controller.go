@@ -103,20 +103,34 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	status.Paused = false
 
-	// Check if we should refresh (either first time, or Ready for more than 15 seconds)
+	// Check if we should refresh (either first time, or Ready for more than 15 seconds, or force-refresh annotation)
 	shouldRefresh := false
 	refreshReason := ""
 
-	if !status.Ready || status.LastSyncTime == nil {
-		// First discovery - always refresh
-		shouldRefresh = true
-		refreshReason = "initial discovery"
-	} else if status.Ready {
-		// Check if we've been ready for more than 15 seconds
-		timeSinceLastSync := now.Time.Sub(status.LastSyncTime.Time)
-		if timeSinceLastSync >= DefaultRefreshInterval {
+	// Check for force-refresh annotation
+	needsAnnotationUpdate := false
+	if target.Annotations != nil {
+		if _, hasForceRefresh := target.Annotations["glooscap.dasmlab.org/force-refresh"]; hasForceRefresh {
 			shouldRefresh = true
-			refreshReason = "periodic refresh"
+			refreshReason = "force refresh requested"
+			// Remove the annotation after processing
+			delete(target.Annotations, "glooscap.dasmlab.org/force-refresh")
+			needsAnnotationUpdate = true
+		}
+	}
+
+	if !shouldRefresh {
+		if !status.Ready || status.LastSyncTime == nil {
+			// First discovery - always refresh
+			shouldRefresh = true
+			refreshReason = "initial discovery"
+		} else if status.Ready {
+			// Check if we've been ready for more than 15 seconds
+			timeSinceLastSync := now.Time.Sub(status.LastSyncTime.Time)
+			if timeSinceLastSync >= DefaultRefreshInterval {
+				shouldRefresh = true
+				refreshReason = "periodic refresh"
+			}
 		}
 	}
 
@@ -265,7 +279,8 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		LastTransitionTime: metav1.Now(),
 	})
 
-	return nil
+	// Update status (this is already handled above at line 188-194, so this is redundant)
+	// The status update happens in the main flow above
 }
 
 func statusChanged(oldStatus *wikiv1alpha1.WikiTargetStatus, newStatus *wikiv1alpha1.WikiTargetStatus) bool {
