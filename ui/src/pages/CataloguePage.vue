@@ -78,6 +78,7 @@
       :loading="catalogueStore.loading"
       :rows-per-page-options="[10, 25, 50]"
       :row-class="(row) => row.isTemplate ? 'template-row' : ''"
+      @update:selected="(val) => { console.log('[CataloguePage] Table selection updated:', val); selectedRowKeys = val }"
     >
       <template #top-right>
         <div class="row items-center q-gutter-sm">
