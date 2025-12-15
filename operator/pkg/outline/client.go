@@ -263,9 +263,23 @@ func (c *Client) GetPageContent(ctx context.Context, pageID string) (*PageConten
 		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, bodyStr)
 	}
 
+	// Read the full response body first to debug
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("outline: read response body: %w", err)
+	}
+
+	// Log raw response for debugging (first 1000 chars)
+	bodyPreview := string(bodyBytes)
+	if len(bodyPreview) > 1000 {
+		bodyPreview = bodyPreview[:1000] + "..."
+	}
+	fmt.Printf("[outline] GetPageContent raw response for pageID=%s (status=%d): %q\n",
+		pageID, resp.StatusCode, bodyPreview)
+
 	var exportResp documentsExportResponse
-	if err := json.NewDecoder(resp.Body).Decode(&exportResp); err != nil {
-		return nil, fmt.Errorf("outline: decode response: %w", err)
+	if err := json.Unmarshal(bodyBytes, &exportResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w (body: %s)", err, bodyPreview)
 	}
 
 	// Log the response for debugging (first 500 chars to avoid huge logs)
