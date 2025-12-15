@@ -398,6 +398,27 @@ watch(rightPanelLang, (newVal) => {
   rightPageContent.value = ''
 })
 
+// Find matching page in opposite language
+function findMatchingPage(pageId, targetLang) {
+  const page = catalogueStore.pages.find((p) => p.id === pageId)
+  if (!page) return null
+  
+  const title = page.title || ''
+  // Extract base title (remove language prefix)
+  const baseTitle = title.replace(/^(EN|FR)\s*-\s*/i, '').trim()
+  
+  // Find matching pages in target language
+  const candidates = catalogueStore.pages.filter((p) => {
+    if (p.id === pageId) return false
+    const pTitle = p.title || ''
+    const pBaseTitle = pTitle.replace(/^(EN|FR)\s*-\s*/i, '').trim()
+    const pLang = detectPageLanguage(p)
+    return pBaseTitle === baseTitle && pLang === targetLang
+  })
+  
+  // If multiple candidates, return the first one (we can prompt user later)
+  return candidates.length > 0 ? candidates[0] : null
+}
 
 // Handle left panel page selection
 async function onLeftPageSelected(pageId) {
