@@ -278,9 +278,6 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		Message:            fmt.Sprintf("Discovered %d pages", len(pages)),
 		LastTransitionTime: metav1.Now(),
 	})
-
-	// Update status (this is already handled above at line 188-194, so this is redundant)
-	// The status update happens in the main flow above
 }
 
 func statusChanged(oldStatus *wikiv1alpha1.WikiTargetStatus, newStatus *wikiv1alpha1.WikiTargetStatus) bool {
