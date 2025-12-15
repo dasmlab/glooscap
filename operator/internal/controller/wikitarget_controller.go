@@ -108,14 +108,18 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	refreshReason := ""
 
 	// Check for force-refresh annotation
-	needsAnnotationUpdate := false
 	if target.Annotations != nil {
 		if _, hasForceRefresh := target.Annotations["glooscap.dasmlab.org/force-refresh"]; hasForceRefresh {
 			shouldRefresh = true
 			refreshReason = "force refresh requested"
 			// Remove the annotation after processing
 			delete(target.Annotations, "glooscap.dasmlab.org/force-refresh")
-			needsAnnotationUpdate = true
+			if err := r.Update(ctx, &target); err != nil {
+				logger.Error(err, "failed to remove force-refresh annotation")
+				return ctrl.Result{}, err
+			}
+			logger.Info("force-refresh annotation processed and removed")
+			
 		}
 	}
 
@@ -278,6 +282,7 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		Message:            fmt.Sprintf("Discovered %d pages", len(pages)),
 		LastTransitionTime: metav1.Now(),
 	})
+	return nil
 }
 
 func statusChanged(oldStatus *wikiv1alpha1.WikiTargetStatus, newStatus *wikiv1alpha1.WikiTargetStatus) bool {

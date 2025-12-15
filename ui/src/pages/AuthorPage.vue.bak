@@ -96,58 +96,6 @@
               <q-icon name="link" size="xs" />
               {{ leftPageUri }}
             </div>
-            <!-- Action Buttons -->
-            <div class="row q-gutter-sm q-mt-md">
-              <q-btn
-                color="primary"
-                :label="$t('author.edit')"
-                outline
-                size="sm"
-                :disable="!selectedLeftPage"
-                @click="onEdit('left')"
-              />
-              <q-btn
-                color="positive"
-                :label="$t('author.create')"
-                outline
-                size="sm"
-                :disable="selectedLeftPage || !selectedRightPage"
-                @click="onCreate('left')"
-              />
-              <q-btn
-                color="secondary"
-                :label="$t('author.publish')"
-                outline
-                size="sm"
-                :disable="!selectedLeftPage"
-                @click="onPublish('left')"
-              />
-              <q-btn
-                color="warning"
-                :label="$t('author.revert')"
-                outline
-                size="sm"
-                :disable="!selectedLeftPage"
-                @click="onRevert('left')"
-              />
-              <q-btn
-                color="info"
-                :label="$t('author.info')"
-                outline
-                size="sm"
-                :disable="!selectedLeftPage"
-                @click="onInfo('left')"
-              />
-              <q-btn
-                color="accent"
-                icon="translate"
-                :label="$t('author.translate')"
-                outline
-                size="sm"
-                :disable="!selectedLeftPage"
-                @click="showTranslateDialog('left')"
-              />
-            </div>
           </q-card-section>
           <q-separator />
           <q-card-section class="markdown-container">
@@ -241,58 +189,6 @@
               <q-icon name="link" size="xs" />
               {{ rightPageUri }}
             </div>
-            <!-- Action Buttons -->
-            <div class="row q-gutter-sm q-mt-md">
-              <q-btn
-                color="primary"
-                :label="$t('author.edit')"
-                outline
-                size="sm"
-                :disable="!selectedRightPage"
-                @click="onEdit('right')"
-              />
-              <q-btn
-                color="positive"
-                :label="$t('author.create')"
-                outline
-                size="sm"
-                :disable="selectedRightPage || !selectedLeftPage"
-                @click="onCreate('right')"
-              />
-              <q-btn
-                color="secondary"
-                :label="$t('author.publish')"
-                outline
-                size="sm"
-                :disable="!selectedRightPage"
-                @click="onPublish('right')"
-              />
-              <q-btn
-                color="warning"
-                :label="$t('author.revert')"
-                outline
-                size="sm"
-                :disable="!selectedRightPage"
-                @click="onRevert('right')"
-              />
-              <q-btn
-                color="info"
-                :label="$t('author.info')"
-                outline
-                size="sm"
-                :disable="!selectedRightPage"
-                @click="onInfo('right')"
-              />
-              <q-btn
-                color="accent"
-                icon="translate"
-                :label="$t('author.translate')"
-                outline
-                size="sm"
-                :disable="!selectedRightPage"
-                @click="showTranslateDialog('right')"
-              />
-            </div>
           </q-card-section>
           <q-separator />
           <q-card-section class="markdown-container">
@@ -353,30 +249,6 @@
         </q-card>
       </div>
     </div>
-    <!-- Translate Confirmation Dialog -->
-    <q-dialog v-model="showTranslateDialogRef">
-      <q-card style="min-width: 350px">
-        <q-card-section>
-          <div class="text-h6">Generate Translation?</div>
-        </q-card-section>
-
-        <q-card-section v-if="translatePageRef">
-          <div class="text-body2">
-            <strong>Page:</strong> {{ translatePageRef.title }}<br>
-            <strong>ID:</strong> {{ translatePageRef.id }}<br>
-            <strong>Language:</strong> {{ translatePageRef.language || 'EN' }} → 
-            {{ typeof settingsStore.defaultLanguage === 'string' 
-              ? settingsStore.defaultLanguage 
-              : settingsStore.defaultLanguage?.value ?? 'fr-CA' }}
-          </div>
-        </q-card-section>
-
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="primary" @click="showTranslateDialogRef = false" />
-          <q-btn flat label="Yes" color="primary" @click="confirmTranslate" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
   </q-page>
 </template>
 
@@ -385,13 +257,9 @@ import { computed, ref, watch, onMounted, inject } from 'vue'
 import { useQuasar } from 'quasar'
 import { useCatalogueStore } from 'src/stores/catalogue-store'
 import api from 'src/services/api'
-import { useJobStore } from 'src/stores/job-store'
-import { useSettingsStore } from 'src/stores/settings-store'
 
 const $q = useQuasar()
 const catalogueStore = useCatalogueStore()
-const jobStore = useJobStore()
-const settingsStore = useSettingsStore()
 const consoleRef = inject('console', null)
 
 // Log to console component if available
@@ -431,12 +299,6 @@ const leftPageMetadata = ref(null)
 const rightPageMetadata = ref(null)
 const loadingLeftContent = ref(false)
 const loadingRightContent = ref(false)
-
-
-// Translate dialog
-const showTranslateDialogRef = ref(false)
-const translatePageRef = ref(null)
-const translatePanelRef = ref(null)
 
 // Filters
 const selectedTarget = ref(null)
