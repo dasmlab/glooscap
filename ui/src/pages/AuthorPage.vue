@@ -420,6 +420,143 @@ function findMatchingPage(pageId, targetLang) {
   return candidates.length > 0 ? candidates[0] : null
 }
 
+// Main page selector handler
+async function onPageSelected(pageId) {
+  if (!pageId) {
+    selectedLeftPage.value = null
+    selectedRightPage.value = null
+    leftPageContent.value = ''
+    rightPageContent.value = ''
+    leftPageUri.value = ''
+    rightPageUri.value = ''
+    return
+  }
+
+  logToConsole('INFO', `Page selected: ${pageId}`)
+  
+  const page = catalogueStore.pages.find((p) => p.id === pageId)
+  if (!page) {
+    logToConsole('WARN', `Page not found: ${pageId}`)
+    return
+  }
+
+  const pageLang = detectPageLanguage(page)
+  logToConsole('DEBUG', `Detected page language: ${pageLang}`, {
+    pageId,
+    title: page.title,
+    language: page.language,
+  })
+
+  // Determine which panel to display in
+  if (pageLang === 'en') {
+    // Display in left panel (English)
+    selectedLeftPage.value = pageId
+    await loadPageContent('left', pageId, page)
+    
+    // Try to find matching French page
+    const matchingFr = findMatchingPage(pageId, 'fr')
+    if (matchingFr) {
+      logToConsole('INFO', `Found matching French page: ${matchingFr.id}`, {
+        title: matchingFr.title,
+      })
+      selectedRightPage.value = matchingFr.id
+      await loadPageContent('right', matchingFr.id, matchingFr)
+    } else {
+      logToConsole('INFO', 'No matching French page found')
+      selectedRightPage.value = null
+      rightPageContent.value = ''
+      rightPageUri.value = ''
+    }
+  } else if (pageLang === 'fr') {
+    // Display in right panel (French)
+    selectedRightPage.value = pageId
+    await loadPageContent('right', pageId, page)
+    
+    // Try to find matching English page
+    const matchingEn = findMatchingPage(pageId, 'en')
+    if (matchingEn) {
+      logToConsole('INFO', `Found matching English page: ${matchingEn.id}`, {
+        title: matchingEn.title,
+      })
+      selectedLeftPage.value = matchingEn.id
+      await loadPageContent('left', matchingEn.id, matchingEn)
+    } else {
+      logToConsole('INFO', 'No matching English page found')
+      selectedLeftPage.value = null
+      leftPageContent.value = ''
+      leftPageUri.value = ''
+    }
+  } else {
+    // Unknown language - prompt user or default to left panel
+    logToConsole('WARN', `Unknown page language, defaulting to left panel`, {
+      pageId,
+      title: page.title,
+    })
+    selectedLeftPage.value = pageId
+    await loadPageContent('left', pageId, page)
+  }
+}
+
+// Load page content from API
+async function loadPageContent(panel, pageId, pageMetadata) {
+  const loadingRef = panel === 'left' ? loadingLeftContent : loadingRightContent
+  const contentRef = panel === 'left' ? leftPageContent : rightPageContent
+  const uriRef = panel === 'left' ? leftPageUri : rightPageUri
+  const metadataRef = panel === 'left' ? leftPageMetadata : rightPageMetadata
+
+  loadingRef.value = true
+  contentRef.value = ''
+  uriRef.value = ''
+
+  try {
+    const target = catalogueStore.targets.find((t) => t.id === selectedTarget.value)
+    if (!target) {
+      throw new Error('No target selected')
+    }
+
+    const namespace = target?.namespace || 'glooscap-system'
+    const targetRef = target?.resourceName || target?.id || ''
+
+    logToConsole('DEBUG', `Fetching page content for ${panel} panel`, {
+      pageId,
+      targetRef,
+      namespace,
+    })
+
+    const response = await api.get(`/pages/${targetRef}/${pageId}/content`, {
+      params: { namespace },
+    })
+
+    const content = response.data
+    contentRef.value = content.markdown || ''
+    uriRef.value = content.metadata?.uri || pageMetadata?.uri || `/${content.slug || pageId}`
+    metadataRef.value = content.metadata || pageMetadata
+
+    logToConsole('INFO', `Page content loaded for ${panel} panel`, {
+      pageId,
+      title: content.title,
+      uri: uriRef.value,
+      contentLength: content.rawLength || 0,
+    })
+  } catch (err) {
+    logToConsole('ERROR', `Failed to load page content for ${panel} panel`, {
+      pageId,
+      error: err.message,
+    })
+    contentRef.value = `Error loading content: ${err.message || 'Unknown error'}`
+    uriRef.value = pageMetadata?.uri || `/${pageMetadata?.slug || pageId}`
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to load page content: ${err.message || 'Unknown error'}`,
+        timeout: 5000,
+      })
+    }
+  } finally {
+    loadingRef.value = false
+  }
+}
+
 // Handle left panel page selection
 async function onLeftPageSelected(pageId) {
   if (!pageId) {
