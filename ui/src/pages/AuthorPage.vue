@@ -15,13 +15,15 @@
       </div>
       <div class="col-xs-12 col-sm-3">
         <q-select
-          v-model="selectedArea"
-          :options="areaOptions"
-          :label="$t('author.selectArea')"
+          v-model="selectedPage"
+          :options="pageOptions"
+          :label="$t('author.selectPage')"
           emit-value
           map-options
           dense
           outlined
+          clearable
+          @update:model-value="onPageSelected"
         />
       </div>
       <div class="col-xs-12 col-sm-3">
@@ -90,6 +92,10 @@
               clearable
               @update:model-value="onLeftPageSelected"
             />
+            <div v-if="leftPageUri" class="text-caption text-grey-7 q-mt-xs">
+              <q-icon name="link" size="xs" />
+              {{ leftPageUri }}
+            </div>
           </q-card-section>
           <q-separator />
           <q-card-section class="markdown-container">
@@ -176,6 +182,10 @@
               clearable
               @update:model-value="onRightPageSelected"
             />
+            <div v-if="rightPageUri" class="text-caption text-grey-7 q-mt-xs">
+              <q-icon name="link" size="xs" />
+              {{ rightPageUri }}
+            </div>
           </q-card-section>
           <q-separator />
           <q-card-section class="markdown-container">
@@ -237,14 +247,35 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useCatalogueStore } from 'src/stores/catalogue-store'
+import api from 'src/services/api'
 
 const { t } = useI18n()
 const $q = useQuasar()
 const catalogueStore = useCatalogueStore()
+const consoleRef = inject('console', null)
+
+// Log to console component if available
+function logToConsole(level, message, data = null) {
+  if (consoleRef && consoleRef.value && typeof consoleRef.value.addLog === 'function') {
+    try {
+      consoleRef.value.addLog(level, message, data)
+    } catch (err) {
+      console.error('Failed to log to console:', err)
+    }
+  }
+  // Also log to browser console
+  if (level === 'ERROR') {
+    console.error(`[${level}]`, message, data || '')
+  } else if (level === 'WARN') {
+    console.warn(`[${level}]`, message, data || '')
+  } else {
+    console.log(`[${level}]`, message, data || '')
+  }
+}
 
 // Panel language toggles (opposite of each other)
 const leftPanelLang = ref('en')
@@ -253,24 +284,21 @@ const rightPanelLang = ref('fr')
 // Selected pages
 const selectedLeftPage = ref(null)
 const selectedRightPage = ref(null)
+const selectedPage = ref(null) // Main page selector at top
 
-// Page content
+// Page content and metadata
 const leftPageContent = ref('')
 const rightPageContent = ref('')
+const leftPageUri = ref('')
+const rightPageUri = ref('')
+const leftPageMetadata = ref(null)
+const rightPageMetadata = ref(null)
 const loadingLeftContent = ref(false)
 const loadingRightContent = ref(false)
 
 // Filters
 const selectedTarget = ref(null)
-const selectedArea = ref(null)
 const search = ref('')
-
-// Area options
-const areaOptions = [
-  { label: t('author.areaIaaS'), value: 'IaaS' },
-  { label: t('author.areaSC'), value: 'SC' },
-  { label: t('author.areaPaaS'), value: 'PaaS' },
-]
 
 // Target options
 const targetOptions = computed(() =>
@@ -281,47 +309,34 @@ const targetOptions = computed(() =>
   })),
 )
 
-// Filtered pages by area and language
-const filteredPagesByArea = computed(() => {
-  if (!selectedArea.value) return []
-  
+// All pages filtered by target and search (like catalog)
+const filteredPages = computed(() => {
   const term = search.value.trim().toLowerCase()
-  const areaPrefix = selectedArea.value === 'IaaS' ? 'IaaS' : selectedArea.value === 'SC' ? 'SC' : 'PaaS'
-  
-  return catalogueStore.pages.filter((page) => {
-    // Filter by target
+  return catalogueStore.filteredPages.filter((page) => {
     const matchesTarget = !selectedTarget.value || page.targetId === selectedTarget.value
-    
-    // Filter by area - check if title starts with "EN -" or "FR -" followed by area
-    const title = page.title || ''
-    const matchesArea = title.includes(`${areaPrefix}`) || 
-                       title.includes(`EN - ${areaPrefix}`) || 
-                       title.includes(`FR - ${areaPrefix}`) ||
-                       title.includes(`EN-${areaPrefix}`) ||
-                       title.includes(`FR-${areaPrefix}`)
-    
-    // Filter by search term
     const matchesTerm =
       !term ||
-      title.toLowerCase().includes(term) ||
+      (page.title && page.title.toLowerCase().includes(term)) ||
       (page.slug && page.slug.toLowerCase().includes(term))
-    
-    return matchesTarget && matchesArea && matchesTerm
+    return matchesTarget && matchesTerm
   })
 })
+
+// Page options for main selector (all pages)
+const pageOptions = computed(() =>
+  filteredPages.value.map((page) => ({
+    label: page.title || page.slug || 'Untitled',
+    value: page.id,
+    caption: `${page.language || 'N/A'} • ${page.slug || ''}`,
+  })),
+)
 
 // Left panel pages (filtered by leftPanelLang)
 const leftPanelPageOptions = computed(() => {
   const lang = leftPanelLang.value.toUpperCase()
-  return filteredPagesByArea.value
+  return filteredPages.value
     .filter((page) => {
-      const title = page.title || ''
-      const langTag = page.language || ''
-      // Check if page title starts with language prefix or language tag matches
-      return title.startsWith(`${lang} -`) || 
-             title.startsWith(`${lang}-`) ||
-             langTag === lang ||
-             langTag === lang.toLowerCase()
+      return detectPageLanguage(page) === lang.toLowerCase()
     })
     .map((page) => ({
       label: page.title || page.slug || 'Untitled',
@@ -333,15 +348,9 @@ const leftPanelPageOptions = computed(() => {
 // Right panel pages (filtered by rightPanelLang)
 const rightPanelPageOptions = computed(() => {
   const lang = rightPanelLang.value.toUpperCase()
-  return filteredPagesByArea.value
+  return filteredPages.value
     .filter((page) => {
-      const title = page.title || ''
-      const langTag = page.language || ''
-      // Check if page title starts with language prefix or language tag matches
-      return title.startsWith(`${lang} -`) || 
-             title.startsWith(`${lang}-`) ||
-             langTag === lang ||
-             langTag === lang.toLowerCase()
+      return detectPageLanguage(page) === lang.toLowerCase()
     })
     .map((page) => ({
       label: page.title || page.slug || 'Untitled',
@@ -349,6 +358,26 @@ const rightPanelPageOptions = computed(() => {
       caption: page.slug || '',
     }))
 })
+
+// Detect page language from title or language field
+function detectPageLanguage(page) {
+  if (!page) return null
+  
+  // Check language field first
+  if (page.language) {
+    const lang = page.language.toUpperCase()
+    if (lang === 'EN' || lang === 'EN-US' || lang.startsWith('EN')) return 'en'
+    if (lang === 'FR' || lang === 'FR-CA' || lang.startsWith('FR')) return 'fr'
+  }
+  
+  // Check title prefix
+  const title = (page.title || '').toUpperCase()
+  if (title.startsWith('EN -') || title.startsWith('EN-')) return 'en'
+  if (title.startsWith('FR -') || title.startsWith('FR-')) return 'fr'
+  
+  // Default to English if unsure
+  return 'en'
+}
 
 // Watch for language toggle changes - ensure panels are opposite
 watch(leftPanelLang, (newVal) => {
@@ -392,56 +421,50 @@ function findMatchingPage(pageId) {
 }
 
 // Handle left panel page selection
-function onLeftPageSelected(pageId) {
+async function onLeftPageSelected(pageId) {
   if (!pageId) {
     leftPageContent.value = ''
+    leftPageUri.value = ''
     return
   }
   
-  // Load content (stub for now)
-  loadingLeftContent.value = true
-  setTimeout(() => {
-    // TODO: Fetch actual page content from API
-    leftPageContent.value = '# Sample Markdown Content\n\nThis is a placeholder for the actual page content.\n\n**Note:** Content loading will be implemented when the API endpoint is ready.'
-    loadingLeftContent.value = false
-  }, 500)
+  const page = catalogueStore.pages.find((p) => p.id === pageId)
+  await loadPageContent('left', pageId, page)
   
   // Try to find matching page in right panel
-  const matchingPage = findMatchingPage(pageId)
+  const matchingPage = findMatchingPage(pageId, 'fr')
   if (matchingPage) {
     selectedRightPage.value = matchingPage.id
-    onRightPageSelected(matchingPage.id)
+    await onRightPageSelected(matchingPage.id)
   } else {
     // Clear right panel if no match
     selectedRightPage.value = null
     rightPageContent.value = ''
+    rightPageUri.value = ''
   }
 }
 
 // Handle right panel page selection
-function onRightPageSelected(pageId) {
+async function onRightPageSelected(pageId) {
   if (!pageId) {
     rightPageContent.value = ''
+    rightPageUri.value = ''
     return
   }
   
-  // Load content (stub for now)
-  loadingRightContent.value = true
-  setTimeout(() => {
-    // TODO: Fetch actual page content from API
-    rightPageContent.value = '# Contenu Markdown Exemple\n\nCeci est un espace réservé pour le contenu réel de la page.\n\n**Note:** Le chargement du contenu sera implémenté lorsque le point de terminaison API sera prêt.'
-    loadingRightContent.value = false
-  }, 500)
+  const page = catalogueStore.pages.find((p) => p.id === pageId)
+  await loadPageContent('right', pageId, page)
   
   // Try to find matching page in left panel
-  const matchingPage = findMatchingPage(pageId)
+  const matchingPage = findMatchingPage(pageId, 'en')
   if (matchingPage) {
     selectedLeftPage.value = matchingPage.id
-    onLeftPageSelected(matchingPage.id)
+    await onLeftPageSelected(matchingPage.id)
   } else {
     // Clear left panel if no match
     selectedLeftPage.value = null
     leftPageContent.value = ''
+    leftPageUri.value = ''
   }
 }
 
