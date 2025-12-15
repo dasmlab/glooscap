@@ -562,7 +562,15 @@ func Start(ctx context.Context, opts Options) error {
 			http.Error(w, "translation not configured", http.StatusServiceUnavailable)
 			return
 		}
-		if opts.Nanabush == nil {
+		// Use getter function if available (for runtime updates), otherwise use direct reference
+		var nanabushClient *nanabush.Client
+		if opts.GetNanabushClient != nil {
+			nanabushClient = opts.GetNanabushClient()
+		} else if opts.Nanabush != nil {
+			nanabushClient = opts.Nanabush
+		}
+
+		if nanabushClient == nil {
 			http.Error(w, "translation service not available", http.StatusServiceUnavailable)
 			return
 		}
