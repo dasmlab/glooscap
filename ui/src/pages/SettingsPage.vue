@@ -861,8 +861,8 @@ async function fetchNokomisStatus() {
 
 // Translation Service Configuration
 const translationServiceConfig = reactive({
-  address: '',
-  type: 'nanabush',
+  address: 'iskoces-service.iskoces.svc:50051',
+  type: 'iskoces',
   secure: false,
 })
 
@@ -947,9 +947,14 @@ async function fetchTranslationServiceConfig() {
   try {
     const response = await api.get('/translation-service')
     if (response.data && response.data.address) {
-      translationServiceConfig.address = response.data.address || ''
-      translationServiceConfig.type = response.data.type || 'nanabush'
+      translationServiceConfig.address = response.data.address || 'iskoces-service.iskoces.svc:50051'
+      translationServiceConfig.type = response.data.type || 'iskoces'
       translationServiceConfig.secure = response.data.secure || false
+    } else {
+      // If no config exists, use Iskoces defaults
+      translationServiceConfig.address = 'iskoces-service.iskoces.svc:50051'
+      translationServiceConfig.type = 'iskoces'
+      translationServiceConfig.secure = false
     }
   } catch (error) {
     logToConsole('WARN', 'Failed to fetch translation service config', error.message)
@@ -1032,8 +1037,8 @@ async function clearTranslationService() {
     savingTranslationService.value = true
     try {
       await api.delete('/translation-service')
-      translationServiceConfig.address = ''
-      translationServiceConfig.type = 'nanabush'
+      translationServiceConfig.address = 'iskoces-service.iskoces.svc:50051'
+      translationServiceConfig.type = 'iskoces'
       translationServiceConfig.secure = false
       logToConsole('INFO', 'Translation service configuration cleared')
       $q.notify({

@@ -275,9 +275,15 @@ func main() {
 		if translationServiceAddr != "" {
 			if strings.Contains(strings.ToLower(translationServiceAddr), "iskoces") {
 				serviceType = "iskoces"
+			} else if strings.Contains(strings.ToLower(translationServiceAddr), "nanabush") {
+				serviceType = "nanabush"
 			} else {
-				serviceType = "nanabush" // default
+				serviceType = "iskoces" // default to iskoces
 			}
+		} else {
+			// Default to Iskoces if no address is set
+			serviceType = "iskoces"
+			translationServiceAddr = "iskoces-service.iskoces.svc:50051"
 		}
 	}
 
