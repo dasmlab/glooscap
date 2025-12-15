@@ -308,21 +308,55 @@ async function queueSelection() {
       ? settingsStore.defaultLanguage
       : settingsStore.defaultLanguage?.value ?? 'fr-CA'
 
+  // Debug: Log selection state
+  console.log('[CataloguePage] Queue translation clicked', {
+    selectedRowKeys: selectedRowKeys.value,
+    selectedRowKeysLength: selectedRowKeys.value.length,
+    totalPages: catalogueStore.pages.length,
+    pages: catalogueStore.pages.map(p => ({ id: p.id, title: p.title, isTemplate: p.isTemplate })),
+  })
+
+  // Check if anything is selected first
+  if (!selectedRowKeys.value || selectedRowKeys.value.length === 0) {
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'warning',
+        message: 'No pages selected',
+        timeout: 3000,
+      })
+    } else {
+      alert('No pages selected')
+    }
+    return
+  }
+
   // Get selected pages and filter out templates
   const selectedPages = selectedRowKeys.value
     .map((pageId) => {
       const page = catalogueStore.pages.find((item) => item.id === pageId)
       if (!page) {
-        console.warn(`Page not found in catalogue: ${pageId}`)
+        console.warn(`[CataloguePage] Page not found in catalogue: ${pageId}`, {
+          availableIds: catalogueStore.pages.map(p => p.id),
+        })
         return null
       }
       return page
     })
     .filter((page) => page !== null)
 
+  console.log('[CataloguePage] Selected pages after lookup', {
+    count: selectedPages.length,
+    pages: selectedPages.map(p => ({ id: p.id, title: p.title, isTemplate: p.isTemplate })),
+  })
+
   // Separate templates from valid pages
   const templates = selectedPages.filter((page) => page.isTemplate === true)
   const validPages = selectedPages.filter((page) => !page.isTemplate)
+
+  console.log('[CataloguePage] Filtered pages', {
+    templates: templates.length,
+    validPages: validPages.length,
+  })
 
   // Warn if templates were selected
   if (templates.length > 0) {
@@ -338,19 +372,27 @@ async function queueSelection() {
   // Check if we have any valid pages to translate
   if (validPages.length === 0) {
     if (selectedPages.length === 0) {
+      // Pages were selected but not found in catalogue
+      console.error('[CataloguePage] Selected page IDs not found in catalogue', {
+        selectedIds: selectedRowKeys.value,
+        availableIds: catalogueStore.pages.map(p => p.id),
+      })
       if ($q && typeof $q.notify === 'function') {
         $q.notify({
-          type: 'warning',
-          message: 'No pages selected',
+          type: 'negative',
+          message: 'Selected pages not found in catalogue. Please refresh.',
+          timeout: 5000,
         })
       } else {
-        alert('No pages selected')
+        alert('Selected pages not found in catalogue. Please refresh.')
       }
     } else {
+      // Only templates were selected
       if ($q && typeof $q.notify === 'function') {
         $q.notify({
           type: 'warning',
           message: 'Only templates were selected. Templates cannot be queued for translation.',
+          timeout: 3000,
         })
       } else {
         alert('Only templates were selected. Templates cannot be queued for translation.')
