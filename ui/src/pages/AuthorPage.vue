@@ -248,12 +248,10 @@
 
 <script setup>
 import { computed, ref, watch, onMounted, inject } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useCatalogueStore } from 'src/stores/catalogue-store'
 import api from 'src/services/api'
 
-const { t } = useI18n()
 const $q = useQuasar()
 const catalogueStore = useCatalogueStore()
 const consoleRef = inject('console', null)
