@@ -845,10 +845,12 @@ async function confirmTranslate() {
   const target = catalogueStore.targets.find((t) => t.id === selectedTarget.value)
   if (!target) {
     logToConsole('ERROR', 'No wiki target selected')
-    $q.notify({
-      type: 'negative',
-      message: 'No wiki target selected',
-    })
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: 'No wiki target selected',
+      })
+    }
     return
   }
 
@@ -884,23 +886,27 @@ async function confirmTranslate() {
       pageTitle: page.title,
     })
 
-    $q.notify({
-      type: 'positive',
-      message: `Translation Scheduled: ${jobName}`,
-      timeout: 5000,
-      actions: [{ icon: 'close', color: 'white' }],
-    })
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'positive',
+        message: `Translation Scheduled: ${jobName}`,
+        timeout: 5000,
+        actions: [{ icon: 'close', color: 'white' }],
+      })
+    }
   } catch (err) {
     logToConsole('ERROR', `Failed to create TranslationJob`, {
       error: err.message,
       pageId: page.id,
       pageTitle: page.title,
     })
-    $q.notify({
-      type: 'negative',
-      message: `Failed to schedule translation: ${err.message || 'Unknown error'}`,
-      timeout: 5000,
-    })
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to schedule translation: ${err.message || 'Unknown error'}`,
+        timeout: 5000,
+      })
+    }
   }
 
   translatePageRef.value = null

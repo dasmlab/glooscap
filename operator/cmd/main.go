@@ -414,15 +414,39 @@ func main() {
 			nanabushClient = client
 			nanabushClientMu.Unlock()
 
-			// Wait a bit for registration to complete and clientId to be set
+			// Wait for registration to complete and clientId to be set
+			// Registration happens asynchronously, so we need to wait before broadcasting
 			setupLog.Info("Waiting for client registration to complete...")
-			time.Sleep(2 * time.Second)
-			status := client.Status()
-			if status.ClientID != "" {
-				setupLog.Info("Client registered successfully", "client_id", status.ClientID)
+			
+			// Wait up to 5 seconds for registration, checking every 500ms
+			maxWait := 5 * time.Second
+			checkInterval := 500 * time.Millisecond
+			waited := time.Duration(0)
+			var finalStatus nanabush.Status
+			
+			for waited < maxWait {
+				time.Sleep(checkInterval)
+				waited += checkInterval
+				finalStatus = client.Status()
+				if finalStatus.ClientID != "" {
+					setupLog.Info("Client registered successfully",
+						"client_id", finalStatus.ClientID,
+						"connected", finalStatus.Connected,
+						"registered", finalStatus.Registered,
+						"waited_ms", waited.Milliseconds())
+					break
+				}
+			}
+			
+			if finalStatus.ClientID == "" {
+				setupLog.Info("Client registration still in progress after wait",
+					"connected", finalStatus.Connected,
+					"registered", finalStatus.Registered,
+					"status", finalStatus.Status)
 			}
 
 			// Trigger SSE broadcast now that we've waited for registration
+			// This ensures UI gets the correct status
 			select {
 			case nanabushStatusCh <- struct{}{}:
 			default:

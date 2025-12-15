@@ -1078,14 +1078,26 @@ func buildStateResponse(opts Options) map[string]any {
 
 	if nanabushClient != nil {
 		status := nanabushClient.Status()
-		result["nanabush"] = map[string]any{
-			"connected":                status.Connected,
-			"registered":               status.Registered,
-			"clientId":                 status.ClientID,
-			"lastHeartbeat":            status.LastHeartbeat,
-			"missedHeartbeats":         status.MissedHeartbeats,
-			"heartbeatIntervalSeconds": status.HeartbeatInterval,
-			"status":                   status.Status,
+		// Only return error status if we have a client but it's not registered after reasonable time
+		// If clientId is empty but we just created the client, return "connecting" status
+		if status.ClientID == "" && status.Status != "error" {
+			// Client is still registering - return connecting status
+			result["nanabush"] = map[string]any{
+				"connected":                false,
+				"registered":               false,
+				"clientId":                 "",
+				"status":                   "connecting",
+			}
+		} else {
+			result["nanabush"] = map[string]any{
+				"connected":                status.Connected,
+				"registered":               status.Registered,
+				"clientId":                 status.ClientID,
+				"lastHeartbeat":            status.LastHeartbeat,
+				"missedHeartbeats":         status.MissedHeartbeats,
+				"heartbeatIntervalSeconds": status.HeartbeatInterval,
+				"status":                   status.Status,
+			}
 		}
 	} else {
 		// No nanabush client configured

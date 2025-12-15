@@ -247,32 +247,31 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 						}
 					}
 
-					// Check for duplicate by title (simplified - could be improved)
+					// Check for existing page with AUTOTRANSLATED prefix
+					// We NEVER overwrite existing pages - if one exists, we'll create a unique one
+					existingTranslatedPage := ""
 					for _, destPage := range destPages {
-						if destPage.Title == sourcePageTitle {
-							// Found duplicate - set to AwaitingApproval
-							updated.State = wikiv1alpha1.TranslationJobStateAwaitingApproval
-							updated.DuplicateInfo = &wikiv1alpha1.DuplicateInfo{
-								PageID:    destPage.ID,
-								PageTitle: destPage.Title,
-								PageURI:   fmt.Sprintf("%s/doc/%s", strings.TrimSuffix(destTarget.Spec.URI, "/"), destPage.Slug),
-								Message:   fmt.Sprintf("Page with title '%s' already exists at destination", destPage.Title),
+						// Check if this is an AUTOTRANSLATED page for our source
+						if strings.HasPrefix(destPage.Title, "AUTOTRANSLATED--> ") {
+							// Extract source title from AUTOTRANSLATED page
+							extractedSource := strings.TrimPrefix(destPage.Title, "AUTOTRANSLATED--> ")
+							if extractedSource == sourcePageTitle {
+								existingTranslatedPage = destPage.ID
+								logger.Info("found existing AUTOTRANSLATED page for source",
+									"source_title", sourcePageTitle,
+									"existing_page_id", destPage.ID,
+									"existing_page_title", destPage.Title)
+								break
 							}
-							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-								Type:               "Ready",
-								Status:             metav1.ConditionFalse,
-								Reason:             "DuplicateFound",
-								Message:            updated.DuplicateInfo.Message,
-								LastTransitionTime: now,
-							})
-							updated.Message = "Duplicate page found - awaiting approval"
-							job.Status = *updated
-							if err := r.Status().Update(ctx, &job); err != nil {
-								return ctrl.Result{}, err
-							}
-							logger.Info("duplicate page found, awaiting approval", "duplicate", updated.DuplicateInfo.PageURI)
-							return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 						}
+					}
+					
+					// If we found an existing translated page, we'll create a unique one
+					// Store this info for later use in publishing
+					if existingTranslatedPage != "" {
+						logger.Info("existing AUTOTRANSLATED page found - will create unique page",
+							"source_title", sourcePageTitle,
+							"existing_page_id", existingTranslatedPage)
 					}
 				}
 			}
@@ -504,17 +503,147 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 							updated.Message = fmt.Sprintf("Translation completed (tokens: %d, time: %.2fs)", translateResp.TokensUsed, translateResp.InferenceTimeSeconds)
 							logger.Info("translation completed", "tokens", translateResp.TokensUsed, "time", translateResp.InferenceTimeSeconds)
 
-							// TODO: Publish translated content to destination wiki
-							// For now, mark as completed
-							updated.State = wikiv1alpha1.TranslationJobStateCompleted
-							updated.FinishedAt = &now
-							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-								Type:               "Ready",
-								Status:             metav1.ConditionTrue,
-								Reason:             "Completed",
-								Message:            "Translation job completed successfully",
-								LastTransitionTime: now,
-							})
+							// Publish translated content to destination wiki
+							// SAFETY CHECKS:
+							// 1. NEVER overwrite existing pages - create unique pages if needed
+							// 2. Always prefix with "AUTOTRANSLATED--> <SOURCE TITLE>"
+							// 3. Create at same level as source (same collection/parent)
+							// 4. NEVER modify source pages
+							
+							// Get destination target (re-fetch to ensure we have it)
+							destTargetRef := job.Spec.Source.TargetRef
+							if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
+								destTargetRef = job.Spec.Destination.TargetRef
+							}
+							var destTarget wikiv1alpha1.WikiTarget
+							if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: destTargetRef}, &destTarget); err != nil {
+								logger.Error(err, "failed to get destination target")
+								meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+									Type:               "Ready",
+									Status:             metav1.ConditionFalse,
+									Reason:             "PublishFailed",
+									Message:            fmt.Sprintf("Failed to get destination target: %v", err),
+									LastTransitionTime: now,
+								})
+								updated.State = wikiv1alpha1.TranslationJobStateFailed
+								updated.Message = fmt.Sprintf("Failed to get destination target: %v", err)
+								updated.FinishedAt = &now
+							} else {
+								// Get destination client
+									destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
+							if err != nil {
+								logger.Error(err, "failed to create destination client")
+								meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+									Type:               "Ready",
+									Status:             metav1.ConditionFalse,
+									Reason:             "PublishFailed",
+									Message:            fmt.Sprintf("Failed to create destination client: %v", err),
+									LastTransitionTime: now,
+								})
+								updated.State = wikiv1alpha1.TranslationJobStateFailed
+								updated.Message = fmt.Sprintf("Failed to create destination client: %v", err)
+								updated.FinishedAt = &now
+							} else {
+								// Get source page info to determine collection/parent
+								var sourceCollectionID string
+								sourcePageTitle := ""
+								if sourcePage != nil {
+									sourcePageTitle = sourcePage.Title
+									// Try to get source page details from Outline to get collection
+									if sourceClient != nil {
+										sourcePages, err := sourceClient.ListPages(ctx)
+										if err == nil {
+											for _, sp := range sourcePages {
+												if sp.ID == job.Spec.Source.PageID {
+													sourceCollectionID = sp.Collection
+													// Note: Outline API may not expose parent directly
+													// We'll use collection as a proxy for "same level"
+													break
+												}
+											}
+										}
+									}
+								}
+								
+								// Build page title with AUTOTRANSLATED prefix
+								baseTitle := sourcePageTitle
+								if baseTitle == "" {
+									baseTitle = "Untitled Page"
+								}
+								translatedTitle := fmt.Sprintf("AUTOTRANSLATED--> %s", baseTitle)
+								
+								// Check if a page with this exact title already exists
+								destPages, err := destClient.ListPages(ctx)
+								uniqueTitle := translatedTitle
+								counter := 1
+								if err == nil {
+									for {
+										titleExists := false
+										for _, dp := range destPages {
+											if dp.Title == uniqueTitle {
+												titleExists = true
+												break
+											}
+										}
+										if !titleExists {
+											break
+										}
+										// Title exists - make it unique
+										uniqueTitle = fmt.Sprintf("AUTOTRANSLATED--> %s (%d)", baseTitle, counter)
+										counter++
+										if counter > 100 {
+											// Safety limit
+											logger.Error(nil, "unable to generate unique title after 100 attempts")
+											break
+										}
+									}
+								}
+								
+								if uniqueTitle != translatedTitle {
+									logger.Info("using unique title to avoid overwrite",
+										"original", translatedTitle,
+										"unique", uniqueTitle)
+								}
+								
+								// Create the page - NEVER overwrite, always create new
+								createReq := outline.CreatePageRequest{
+									Title:        uniqueTitle,
+									Text:         translateResp.TranslatedMarkdown,
+									CollectionID: sourceCollectionID, // Same collection as source
+								}
+								
+								createResp, err := destClient.CreatePage(ctx, createReq)
+								if err != nil {
+									logger.Error(err, "failed to create translated page",
+										"title", uniqueTitle)
+									meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+										Type:               "Ready",
+										Status:             metav1.ConditionFalse,
+										Reason:             "PublishFailed",
+										Message:            fmt.Sprintf("Failed to create page: %v", err),
+										LastTransitionTime: now,
+									})
+									updated.State = wikiv1alpha1.TranslationJobStateFailed
+									updated.Message = fmt.Sprintf("Failed to create translated page: %v", err)
+									updated.FinishedAt = &now
+								} else {
+									logger.Info("translated page created successfully",
+										"page_id", createResp.Data.ID,
+										"title", uniqueTitle,
+										"slug", createResp.Data.Slug)
+									updated.State = wikiv1alpha1.TranslationJobStateCompleted
+									updated.FinishedAt = &now
+									updated.Message = fmt.Sprintf("Translation completed and published (page: %s)", createResp.Data.Slug)
+									meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+										Type:               "Ready",
+										Status:             metav1.ConditionTrue,
+										Reason:             "Completed",
+										Message:            fmt.Sprintf("Translation published as: %s", uniqueTitle),
+										LastTransitionTime: now,
+									})
+								}
+							}
+							}
 						}
 					}
 				}

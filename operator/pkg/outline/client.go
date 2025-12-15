@@ -17,6 +17,7 @@ const (
 	defaultTimeout      = 15 * time.Second
 	documentsListPath   = "/api/documents.list"
 	documentsExportPath = "/api/documents.export"
+	documentsCreatePath = "/api/documents.create"
 )
 
 // Client interacts with an Outline instance.
@@ -297,6 +298,79 @@ func (c *Client) GetPageContent(ctx context.Context, pageID string) (*PageConten
 		Markdown: exportResp.Data,
 		// Title and Slug will need to be populated from PageSummary if available
 	}, nil
+}
+
+
+
+// CreatePageRequest represents the request to create a new page.
+type CreatePageRequest struct {
+	Title      string `json:"title"`
+	Text       string `json:"text"` // Markdown content
+	CollectionID string `json:"collectionId,omitempty"` // Optional collection ID
+	ParentDocumentID string `json:"parentDocumentId,omitempty"` // Optional parent document ID
+}
+
+// CreatePageResponse represents the response from creating a page.
+type CreatePageResponse struct {
+	Data struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Slug  string `json:"urlId"`
+	} `json:"data"`
+}
+
+// CreatePage creates a new page in Outline with the given title and markdown content.
+// Returns the created page ID, title, and slug.
+// SAFETY: This method only creates new pages - it never modifies existing pages.
+func (c *Client) CreatePage(ctx context.Context, req CreatePageRequest) (*CreatePageResponse, error) {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsCreatePath})
+
+	payload := map[string]any{
+		"title": req.Title,
+		"text":  req.Text,
+	}
+	if req.CollectionID != "" {
+		payload["collectionId"] = req.CollectionID
+	}
+	if req.ParentDocumentID != "" {
+		payload["parentDocumentId"] = req.ParentDocumentID
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("outline: marshal request body: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		bodyStr := ""
+		if readErr == nil {
+			bodyStr = string(bodyBytes)
+		}
+		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	var createResp CreatePageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&createResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w", err)
+	}
+
+	return &createResp, nil
 }
 
 // GetTemplate fetches a template document by ID.

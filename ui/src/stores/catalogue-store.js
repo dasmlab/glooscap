@@ -300,21 +300,28 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     
     eventSource.onerror = (err) => {
       const state = eventSource?.readyState
-      let message = 'SSE connection error'
-      if (state === EventSource.CONNECTING) {
-        message = 'SSE connecting...'
-      } else if (state === EventSource.CLOSED) {
-        message = 'SSE connection closed'
-      }
-      logCallback?.('ERROR', message, err)
-      console.error('[CatalogueStore] SSE error:', err, 'readyState:', state)
       
-      // If connection is closed, try to reconnect after a delay
+      // Only log errors for actual failures, not during normal connection attempts
+      // CONNECTING (0) is normal during initial connection - don't log as error
+      if (state === EventSource.CONNECTING) {
+        // This is normal during connection - just log as debug
+        logCallback?.('DEBUG', 'SSE connecting...')
+        return
+      }
+      
+      // CLOSED (2) means connection failed or was closed - this is an error
       if (state === EventSource.CLOSED) {
+        logCallback?.('ERROR', 'SSE connection closed', err)
+        console.error('[CatalogueStore] SSE connection closed:', err)
+        
+        // Try to reconnect after a delay
         setTimeout(() => {
           logCallback?.('INFO', 'Attempting to reconnect SSE...')
           subscribeToEvents(callback)
         }, 5000)
+      } else {
+        // OPEN (1) or unknown state - log as warning
+        logCallback?.('WARN', 'SSE error in unexpected state', { state, error: err })
       }
     }
   }
