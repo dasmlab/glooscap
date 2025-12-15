@@ -457,6 +457,95 @@ func Start(ctx context.Context, opts Options) error {
 		writeJSON(w, map[string]string{"name": job.Name})
 	})
 
+	// Get page content endpoint (for analysis)
+	router.Get("/api/v1/pages/{targetRef}/{pageId}/content", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "page content retrieval not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.OutlineClientFactory == nil {
+			http.Error(w, "outline client factory not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		targetRef := chi.URLParam(r, "targetRef")
+		pageID := chi.URLParam(r, "pageId")
+		namespace := r.URL.Query().Get("namespace")
+		if namespace == "" {
+			namespace = "glooscap-system"
+		}
+
+		if targetRef == "" || pageID == "" {
+			http.Error(w, "targetRef and pageId are required", http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+
+		// Get WikiTarget
+		var target wikiv1alpha1.WikiTarget
+		if err := opts.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: targetRef}, &target); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "WikiTarget not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Create Outline client
+		outlineClient, err := opts.OutlineClientFactory.New(ctx, opts.Client, &target)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to create outline client: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Get page content
+		pageContent, err := outlineClient.GetPageContent(ctx, pageID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to fetch page content: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Get page metadata from catalog if available
+		var pageMetadata map[string]any
+		if opts.Catalogue != nil {
+			targetID := fmt.Sprintf("%s/%s", target.Namespace, target.Name)
+			pages := opts.Catalogue.List(targetID)
+			for _, p := range pages {
+				if p.ID == pageID {
+					pageMetadata = map[string]any{
+						"id":         p.ID,
+						"title":      p.Title,
+						"slug":       p.Slug,
+						"language":   p.Language,
+						"collection": p.Collection,
+						"template":   p.Template,
+						"isTemplate": p.IsTemplate,
+						"uri":        p.URI,
+					}
+					break
+				}
+			}
+		}
+
+		// Enrich page content with title if available
+		if pageContent.Title == "" && pageMetadata != nil {
+			if title, ok := pageMetadata["title"].(string); ok && title != "" {
+				pageContent.Title = title
+			}
+		}
+
+		writeJSON(w, map[string]any{
+			"pageId":    pageContent.ID,
+			"title":     pageContent.Title,
+			"slug":      pageContent.Slug,
+			"markdown":  pageContent.Markdown,
+			"metadata":  pageMetadata,
+			"rawLength": len(pageContent.Markdown),
+		})
+	})
+
 	// Direct translation endpoint (MVP)
 	router.Post("/api/v1/translate", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Client == nil {

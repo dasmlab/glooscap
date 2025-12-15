@@ -81,29 +81,29 @@
       @update:selected="(val) => { console.log('[CataloguePage] Table selection updated:', val); selectedRowKeys = val }"
     >
       <template #top-right>
-        <div class="row items-center q-gutter-sm">
-          <q-btn
-            color="secondary"
-            icon="translate"
-            :disable="selectedRowKeys.length === 0"
-            @click="queueSelection"
-          >
-            <div class="q-ml-sm">
-              {{ $t('catalogue.queueTranslation') }}
-              <q-badge color="grey-9" text-color="white" class="q-ml-xs">
-                {{ selectedRowKeys.length }}
-              </q-badge>
-            </div>
-          </q-btn>
-          <q-btn
-            color="white"
-            text-color="primary"
-            outline
-            :label="$t('catalogue.clear')"
-            :disable="selectedRowKeys.length === 0"
-            @click="clearSelection"
-          />
-        </div>
+        <!-- Removed Queue Translation button - now using per-row controls -->
+      </template>
+      <template #body-cell-actions="props">
+        <q-td :props="props">
+          <div class="row q-gutter-xs">
+            <q-btn
+              size="sm"
+              color="primary"
+              icon="search"
+              label="Analyze"
+              dense
+              @click="analyzePage(props.row)"
+            />
+            <q-btn
+              size="sm"
+              color="secondary"
+              icon="translate"
+              label="Translate"
+              dense
+              @click="showTranslateDialog(props.row)"
+            />
+          </div>
+        </q-td>
       </template>
       <template #body-cell-updatedAt="props">
         <q-td :props="props">
@@ -131,6 +131,31 @@
         </q-td>
       </template>
     </q-table>
+
+    <!-- Translate Confirmation Dialog -->
+    <q-dialog v-model="showTranslateDialogRef">
+      <q-card style="min-width: 350px">
+        <q-card-section>
+          <div class="text-h6">Generate Translation?</div>
+        </q-card-section>
+
+        <q-card-section v-if="translatePageRef">
+          <div class="text-body2">
+            <strong>Page:</strong> {{ translatePageRef.title }}<br>
+            <strong>ID:</strong> {{ translatePageRef.id }}<br>
+            <strong>Language:</strong> {{ translatePageRef.language || 'EN' }} → 
+            {{ typeof settingsStore.defaultLanguage === 'string' 
+              ? settingsStore.defaultLanguage 
+              : settingsStore.defaultLanguage?.value ?? 'fr-CA' }}
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="primary" @click="showTranslateDialogRef = false" />
+          <q-btn flat label="Yes" color="primary" @click="confirmTranslate" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -147,6 +172,26 @@ const $q = useQuasar()
 const catalogueStore = useCatalogueStore()
 const jobStore = useJobStore()
 const settingsStore = useSettingsStore()
+const consoleRef = inject('console', null)
+
+// Log to console component if available
+function logToConsole(level, message, data = null) {
+  if (consoleRef && consoleRef.value && typeof consoleRef.value.addLog === 'function') {
+    try {
+      consoleRef.value.addLog(level, message, data)
+    } catch (err) {
+      console.error('Failed to log to console:', err)
+    }
+  }
+  // Also log to browser console
+  if (level === 'ERROR') {
+    console.error(`[${level}]`, message, data || '')
+  } else if (level === 'WARN') {
+    console.warn(`[${level}]`, message, data || '')
+  } else {
+    console.log(`[${level}]`, message, data || '')
+  }
+}
 
 onMounted(async () => {
   try {
@@ -215,6 +260,7 @@ const columns = computed(() => [
   { name: 'language', label: t('catalogue.language'), field: 'language', align: 'center', sortable: true },
   { name: 'updatedAt', label: t('catalogue.lastUpdated'), field: 'updatedAt', align: 'left', sortable: true },
   { name: 'status', label: t('catalogue.status'), field: 'status', align: 'left', sortable: true },
+  { name: 'actions', label: 'Actions', field: 'actions', align: 'right', sortable: false },
 ])
 
 const targetStatus = computed(() => catalogueStore.selectedWikiTargetStatus)
@@ -340,13 +386,21 @@ async function queueSelection() {
     return
   }
 
-  // Get selected pages and filter out templates
+  // Get selected pages - use filteredPages to ensure we're looking in the right place
+  // The issue might be that we're looking in catalogueStore.pages but should look in filteredPages
   const selectedPages = selectedRowKeys.value
     .map((pageId) => {
-      const page = catalogueStore.pages.find((item) => item.id === pageId)
+      // Try filteredPages first (what's actually displayed in the table)
+      let page = catalogueStore.filteredPages.find((item) => item.id === pageId)
+      // Fallback to all pages if not found in filtered
       if (!page) {
-        console.warn(`[CataloguePage] Page not found in catalogue: ${pageId}`, {
-          availableIds: catalogueStore.pages.map(p => p.id),
+        page = catalogueStore.pages.find((item) => item.id === pageId)
+      }
+      if (!page) {
+        logToConsole('WARN', `Page not found in catalogue: ${pageId}`, {
+          selectedId: pageId,
+          availableFilteredIds: catalogueStore.filteredPages.map(p => p.id),
+          availableAllIds: catalogueStore.pages.map(p => p.id),
         })
         return null
       }
@@ -479,6 +533,179 @@ async function queueSelection() {
 
 function clearSelection() {
   catalogueStore.clearSelection()
+}
+
+// Analyze page - fetch content and show in console for testing parser/stripper
+async function analyzePage(page) {
+  logToConsole('INFO', `Analyzing page: ${page.title} (ID: ${page.id})`)
+  
+  const target = activeTarget.value
+  if (!target) {
+    logToConsole('ERROR', 'No wiki target selected')
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: 'No wiki target selected',
+      })
+    }
+    return
+  }
+
+  const namespace = target?.namespace || 'glooscap-system'
+  const targetRef = target?.resourceName || target?.id || ''
+
+  logToConsole('DEBUG', 'Fetching page content', {
+    pageId: page.id,
+    pageTitle: page.title,
+    targetRef,
+    namespace,
+  })
+
+  try {
+    const response = await api.get(`/pages/${targetRef}/${page.id}/content`, {
+      params: { namespace },
+    })
+
+    const content = response.data
+    logToConsole('INFO', `Page content fetched successfully`, {
+      pageId: content.pageId,
+      title: content.title,
+      slug: content.slug,
+      rawLength: content.rawLength,
+      hasMarkdown: !!content.markdown,
+      metadata: content.metadata,
+    })
+
+    // Log the markdown content for analysis
+    logToConsole('DEBUG', 'Page markdown content', {
+      markdown: content.markdown,
+      length: content.markdown?.length || 0,
+      preview: content.markdown?.substring(0, 200) || '',
+    })
+
+    // TODO: Add markdown parser/stripper analysis here
+    // For now, just show the raw content
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'positive',
+        message: `Page analyzed: ${content.title} (${content.rawLength} chars)`,
+        timeout: 3000,
+      })
+    }
+  } catch (err) {
+    logToConsole('ERROR', `Failed to analyze page: ${page.title}`, {
+      error: err.message,
+      pageId: page.id,
+    })
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to analyze page: ${err.message || 'Unknown error'}`,
+        timeout: 5000,
+      })
+    }
+  }
+}
+
+// Show translate dialog and handle translation
+const showTranslateDialogRef = ref(false)
+const translatePageRef = ref(null)
+
+function showTranslateDialog(page) {
+  // Check if page is a template
+  if (page.isTemplate) {
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'warning',
+        message: 'Templates cannot be translated',
+        timeout: 3000,
+      })
+    }
+    return
+  }
+
+  translatePageRef.value = page
+  showTranslateDialogRef.value = true
+}
+
+async function confirmTranslate() {
+  const page = translatePageRef.value
+  if (!page) {
+    return
+  }
+
+  showTranslateDialogRef.value = false
+
+  logToConsole('INFO', `Starting translation for page: ${page.title} (ID: ${page.id})`)
+
+  const target = activeTarget.value
+  if (!target) {
+    logToConsole('ERROR', 'No wiki target selected')
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: 'No wiki target selected',
+      })
+    }
+    return
+  }
+
+  const namespace = target?.namespace || 'glooscap-system'
+  const targetRef = target?.resourceName || target?.id || ''
+  const languageTag =
+    typeof settingsStore.defaultLanguage === 'string'
+      ? settingsStore.defaultLanguage
+      : settingsStore.defaultLanguage?.value ?? 'fr-CA'
+
+  logToConsole('DEBUG', 'Creating TranslationJob', {
+    pageId: page.id,
+    pageTitle: page.title,
+    targetRef,
+    namespace,
+    languageTag,
+  })
+
+  try {
+    const result = await jobStore.submitJob({
+      namespace,
+      targetRef,
+      pageId: page.id,
+      pipeline: 'TektonJob',
+      languageTag,
+      pageTitle: page.title,
+    })
+
+    const jobName = result?.name || result?.data?.name || 'unknown'
+    logToConsole('INFO', `TranslationJob created successfully`, {
+      jobName,
+      pageId: page.id,
+      pageTitle: page.title,
+    })
+
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'positive',
+        message: `Translation Scheduled: ${jobName}`,
+        timeout: 5000,
+        actions: [{ icon: 'close', color: 'white' }],
+      })
+    }
+  } catch (err) {
+    logToConsole('ERROR', `Failed to create TranslationJob`, {
+      error: err.message,
+      pageId: page.id,
+      pageTitle: page.title,
+    })
+    if ($q && typeof $q.notify === 'function') {
+      $q.notify({
+        type: 'negative',
+        message: `Failed to schedule translation: ${err.message || 'Unknown error'}`,
+        timeout: 5000,
+      })
+    }
+  }
+
+  translatePageRef.value = null
 }
 </script>
 
