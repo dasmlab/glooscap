@@ -135,7 +135,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useCatalogueStore } from 'src/stores/catalogue-store'
@@ -187,16 +187,25 @@ const activeTarget = computed(() =>
   catalogueStore.targets.find((target) => target.id === catalogueStore.selectedTargetId),
 )
 
-const selectedRowKeys = computed({
-  get: () => {
-    const pages = catalogueStore.selectedPages
-    if (!pages || typeof pages.size === 'undefined') {
-      return []
+// Use a ref for selectedRowKeys to ensure reactivity with q-table
+const selectedRowKeys = ref([])
+
+// Sync with store when store changes (for external updates)
+watch(() => catalogueStore.selectedPages, (newSet) => {
+  if (newSet && typeof newSet.size !== 'undefined') {
+    const newArray = Array.from(newSet)
+    if (JSON.stringify(newArray.sort()) !== JSON.stringify(selectedRowKeys.value.sort())) {
+      selectedRowKeys.value = newArray
     }
-    return Array.from(pages)
-  },
-  set: (value) => catalogueStore.setSelection(value ?? []),
-})
+  } else {
+    selectedRowKeys.value = []
+  }
+}, { deep: true, immediate: true })
+
+// Sync to store when table selection changes
+watch(selectedRowKeys, (newValue) => {
+  catalogueStore.setSelection(newValue ?? [])
+}, { deep: true })
 
 const columns = computed(() => [
   { name: 'title', label: t('catalogue.pageTitle'), field: 'title', align: 'left', sortable: true },
