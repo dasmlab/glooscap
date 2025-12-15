@@ -454,7 +454,8 @@ func main() {
 			Catalogue:                     catalogStore,
 			Jobs:                          jobStore,
 			Client:                        mgr.GetClient(),
-			Nanabush:                      nanabushClient,
+			Nanabush:                      nanabushClient, // Keep for backward compatibility
+			GetNanabushClient:             getNanabushClient, // Use getter for runtime updates
 			NanabushStatusCh:              nanabushStatusCh,
 			ConfigStore:                   configStore,
 			ReconfigureTranslationService: reconfigureFn,

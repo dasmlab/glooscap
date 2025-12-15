@@ -28,6 +28,8 @@ type Options struct {
 	Nanabush  *nanabush.Client
 	// NanabushStatusCh is a channel that receives nanabush status updates to trigger SSE broadcasts
 	NanabushStatusCh <-chan struct{}
+	// GetNanabushClient is a function that returns the current nanabush client (for runtime updates)
+	GetNanabushClient func() *nanabush.Client
 	// ConfigStore manages runtime configuration
 	ConfigStore *ConfigStore
 	// ReconfigureTranslationService is a callback to reconfigure the translation service client
@@ -991,8 +993,16 @@ func buildStateResponse(opts Options) map[string]any {
 	}
 
 	// Add nanabush status if client is available
-	if opts.Nanabush != nil {
-		status := opts.Nanabush.Status()
+	// Use getter function if available (for runtime updates), otherwise use direct reference
+	var nanabushClient *nanabush.Client
+	if opts.GetNanabushClient != nil {
+		nanabushClient = opts.GetNanabushClient()
+	} else if opts.Nanabush != nil {
+		nanabushClient = opts.Nanabush
+	}
+
+	if nanabushClient != nil {
+		status := nanabushClient.Status()
 		result["nanabush"] = map[string]any{
 			"connected":                status.Connected,
 			"registered":               status.Registered,
