@@ -403,15 +403,25 @@ func main() {
 				return
 			}
 
-			// Update client atomically
+			// Update client atomically BEFORE any status callbacks fire
+			// This ensures getter function returns the client immediately
 			nanabushClientMu.Lock()
 			nanabushClient = client
 			nanabushClientMu.Unlock()
 
+			// Trigger an immediate SSE broadcast now that client is set
+			// This ensures UI gets the correct status right away
+			select {
+			case nanabushStatusCh <- struct{}{}:
+			default:
+				// Channel full, skip (non-blocking)
+			}
+
 			setupLog.Info("Translation service reconfigured successfully",
 				"address", cfg.Address,
 				"type", cfg.Type,
-				"secure", cfg.Secure)
+				"secure", cfg.Secure,
+				"client_id", client.ClientID())
 		}()
 
 		// Return immediately - reconfiguration happens in background
