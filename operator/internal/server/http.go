@@ -582,11 +582,8 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 
-		// Create translated page title with "TRANSLATED" prefix
-		translatedTitle := fmt.Sprintf("TRANSLATED %s", pageContent.Title)
-
 		// For MVP: Return the translated content
-		// TODO: Create page in Outline with translated content
+		// TODO: Create page in Outline with translated content and "TRANSLATED" prefix
 		writeJSON(w, map[string]any{
 			"success":           true,
 			"originalTitle":     pageContent.Title,
