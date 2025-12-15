@@ -23,11 +23,17 @@ func NewConfigStore() *ConfigStore {
 }
 
 // GetTranslationServiceConfig returns the current translation service configuration.
+// Returns Iskoces defaults if no configuration has been set.
 func (s *ConfigStore) GetTranslationServiceConfig() *TranslationServiceConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.translationServiceConfig == nil {
-		return nil
+		// Return Iskoces defaults if no config has been set
+		return &TranslationServiceConfig{
+			Address: "iskoces-service.iskoces.svc:50051",
+			Type:    "iskoces",
+			Secure:  false,
+		}
 	}
 	// Return a copy to prevent external modifications
 	config := *s.translationServiceConfig
