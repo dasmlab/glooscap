@@ -452,6 +452,7 @@ func main() {
 			NanabushStatusCh:              nanabushStatusCh,
 			ConfigStore:                   configStore,
 			ReconfigureTranslationService: reconfigureFn,
+			OutlineClientFactory:          outlineFactory,
 		})
 	})); err != nil {
 		setupLog.Error(err, "unable to add API server runnable")

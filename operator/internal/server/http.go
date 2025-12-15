@@ -16,6 +16,7 @@ import (
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
 	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
+	"github.com/dasmlab/glooscap-operator/internal/controller"
 )
 
 // Options controls the API server.
@@ -31,6 +32,8 @@ type Options struct {
 	ConfigStore *ConfigStore
 	// ReconfigureTranslationService is a callback to reconfigure the translation service client
 	ReconfigureTranslationService func(cfg TranslationServiceConfig) error
+	// OutlineClientFactory creates Outline clients for WikiTargets
+	OutlineClientFactory controller.OutlineClientFactory
 }
 
 // eventBroadcaster manages SSE connections and broadcasts events.
@@ -452,6 +455,147 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 		writeJSON(w, map[string]string{"name": job.Name})
+	})
+
+	// Direct translation endpoint (MVP)
+	router.Post("/api/v1/translate", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "translation not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.Nanabush == nil {
+			http.Error(w, "translation service not available", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.OutlineClientFactory == nil {
+			http.Error(w, "outline client factory not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		var req struct {
+			TargetRef   string `json:"targetRef"`
+			Namespace   string `json:"namespace"`
+			PageID      string `json:"pageId"`
+			PageTitle   string `json:"pageTitle"`
+			LanguageTag string `json:"languageTag"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if req.TargetRef == "" || req.PageID == "" {
+			http.Error(w, "targetRef and pageId are required", http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+
+		// Get WikiTarget
+		var target wikiv1alpha1.WikiTarget
+		namespace := req.Namespace
+		if namespace == "" {
+			namespace = "glooscap-system"
+		}
+		if err := opts.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: req.TargetRef}, &target); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "WikiTarget not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Create Outline client
+		outlineClient, err := opts.OutlineClientFactory.New(ctx, opts.Client, &target)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to create outline client: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Get page content
+		pageContent, err := outlineClient.GetPageContent(ctx, req.PageID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to fetch page content: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Get page metadata from catalog if available
+		var sourcePage *catalog.Page
+		if opts.Catalogue != nil {
+			targetID := fmt.Sprintf("%s/%s", target.Namespace, target.Name)
+			pages := opts.Catalogue.List(targetID)
+			for _, p := range pages {
+				if p.ID == req.PageID {
+					sourcePage = p
+					break
+				}
+			}
+		}
+
+		// Enrich page content with title if available
+		if pageContent.Title == "" {
+			if sourcePage != nil {
+				pageContent.Title = sourcePage.Title
+			} else if req.PageTitle != "" {
+				pageContent.Title = req.PageTitle
+			}
+		}
+
+		// Determine source language
+		sourceLang := "en"
+		if sourcePage != nil && sourcePage.Language != "" {
+			sourceLang = sourcePage.Language
+		}
+
+		// Determine target language
+		targetLang := req.LanguageTag
+		if targetLang == "" {
+			targetLang = "fr-CA"
+		}
+
+		// Call translation service
+		grpcReq := nanabush.TranslateRequest{
+			JobID:     fmt.Sprintf("direct-%s", req.PageID),
+			Namespace: namespace,
+			Primitive: "doc-translate",
+			Document: &nanabush.DocumentContent{
+				Title:    pageContent.Title,
+				Markdown: pageContent.Markdown,
+				Slug:     pageContent.Slug,
+			},
+			SourceLanguage: sourceLang,
+			TargetLanguage: targetLang,
+			SourceWikiURI:  target.Spec.URI,
+			PageID:         req.PageID,
+			PageSlug:       pageContent.Slug,
+		}
+
+		translateResp, err := opts.Nanabush.Translate(ctx, grpcReq)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("translation failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		if !translateResp.Success {
+			http.Error(w, fmt.Sprintf("translation failed: %s", translateResp.ErrorMessage), http.StatusInternalServerError)
+			return
+		}
+
+		// Create translated page title with "TRANSLATED" prefix
+		translatedTitle := fmt.Sprintf("TRANSLATED %s", pageContent.Title)
+
+		// For MVP: Return the translated content
+		// TODO: Create page in Outline with translated content
+		writeJSON(w, map[string]any{
+			"success":           true,
+			"originalTitle":     pageContent.Title,
+			"translatedTitle":   translateResp.TranslatedTitle,
+			"translatedMarkdown": translateResp.TranslatedMarkdown,
+			"tokensUsed":        translateResp.TokensUsed,
+			"inferenceTime":     translateResp.InferenceTimeSeconds,
+			"message":           "Translation completed. Page creation coming soon.",
+		})
 	})
 
 	// Translation Service Configuration CRUD endpoints

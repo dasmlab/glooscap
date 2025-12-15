@@ -281,7 +281,20 @@ function statusColor(status) {
 }
 
 async function queueSelection() {
+  if (!$q || typeof $q.notify !== 'function') {
+    console.error('Quasar notify not available')
+    return
+  }
+
   const target = activeTarget.value
+  if (!target) {
+    $q.notify({
+      type: 'negative',
+      message: 'No wiki target selected',
+    })
+    return
+  }
+
   const namespace = target?.namespace || 'glooscap-system'
   const targetRef = target?.resourceName || target?.id || ''
   const languageTag =
@@ -309,27 +322,47 @@ async function queueSelection() {
     })
   }
 
-  const requests = validPages.map((page) => {
-    return jobStore
-      .submitJob({
-        namespace,
-        targetRef,
-        pageId: page.id,
-        pipeline: 'TektonJob',
-        languageTag,
-        pageTitle: page.title,
-      })
-      .catch((err) => {
-        $q.notify({ type: 'negative', message: err.message || 'Failed to queue job' })
-      })
-  })
+  // For MVP: Use direct translation endpoint instead of creating TranslationJob
+  try {
+    for (const page of validPages) {
+      try {
+        // Call direct translation endpoint
+        const response = await api.post('/translate', {
+          targetRef,
+          namespace,
+          pageId: page.id,
+          pageTitle: page.title,
+          languageTag,
+        })
 
-  await Promise.all(requests.filter(Boolean))
-  catalogueStore.clearSelection()
-  $q.notify({
-    type: 'positive',
-    message: t('catalogue.jobsQueued'),
-  })
+        if (response.data && response.data.success) {
+          $q.notify({
+            type: 'positive',
+            message: `Translated: ${page.title}`,
+          })
+        } else {
+          $q.notify({
+            type: 'warning',
+            message: `Translation may have failed for: ${page.title}`,
+          })
+        }
+      } catch (err) {
+        console.error(`Failed to translate page ${page.id}:`, err)
+        $q.notify({
+          type: 'negative',
+          message: `Failed to translate ${page.title}: ${err.message || 'Unknown error'}`,
+        })
+      }
+    }
+
+    catalogueStore.clearSelection()
+  } catch (err) {
+    console.error('Translation error:', err)
+    $q.notify({
+      type: 'negative',
+      message: err.message || 'Failed to translate pages',
+    })
+  }
 }
 
 function clearSelection() {
