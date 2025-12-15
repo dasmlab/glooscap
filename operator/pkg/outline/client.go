@@ -268,6 +268,14 @@ func (c *Client) GetPageContent(ctx context.Context, pageID string) (*PageConten
 		return nil, fmt.Errorf("outline: decode response: %w", err)
 	}
 
+	// Log the response for debugging (first 500 chars to avoid huge logs)
+	markdownPreview := exportResp.Data
+	if len(markdownPreview) > 500 {
+		markdownPreview = markdownPreview[:500] + "..."
+	}
+	fmt.Printf("[outline] GetPageContent response for pageID=%s: markdown length=%d, preview=%q\n",
+		pageID, len(exportResp.Data), markdownPreview)
+
 	// We need to get page metadata separately to get title and slug
 	// For now, we'll return what we have and the caller can enrich it
 	return &PageContent{
