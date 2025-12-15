@@ -312,6 +312,9 @@ func main() {
 			metadata["pod_name"] = podName
 		}
 
+		// Create a variable to hold the client reference for the callback
+		var clientRef *nanabush.Client
+
 		client, err := nanabush.NewClient(nanabush.Config{
 			Address:       addr,
 			Secure:        secure,
@@ -321,17 +324,30 @@ func main() {
 			Namespace:     namespace,
 			Metadata:      metadata,
 			// Set callback to trigger SSE broadcast on status changes
+			// Use a closure that captures the client reference
 			OnStatusChange: func(status nanabush.Status) {
-				select {
-				case nanabushStatusCh <- struct{}{}:
-				default:
-					// Channel full, skip (non-blocking)
+				// Ensure client is set before triggering broadcast
+				// This prevents race conditions where status changes before client is stored
+				nanabushClientMu.Lock()
+				currentClient := nanabushClient
+				nanabushClientMu.Unlock()
+				
+				// Only trigger if we have a valid client (either the one being created or the stored one)
+				if clientRef != nil || currentClient != nil {
+					select {
+					case nanabushStatusCh <- struct{}{}:
+					default:
+						// Channel full, skip (non-blocking)
+					}
 				}
 			},
 		})
 		if err != nil {
 			return nil, err
 		}
+
+		// Set the client reference for the callback
+		clientRef = client
 
 		setupLog.Info("Translation service gRPC client initialized and registered",
 			"service_type", svcType,
