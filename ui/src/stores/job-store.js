@@ -48,8 +48,10 @@ export const useJobStore = defineStore('jobs', () => {
   async function submitJob(payload) {
     loading.value = true
     try {
-      await api.post('/jobs', payload)
+      const response = await api.post('/jobs', payload)
       await refreshJobs()
+      // Return the response so caller can get the job name/ID
+      return response.data || response
     } finally {
       loading.value = false
     }

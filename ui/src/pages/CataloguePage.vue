@@ -308,36 +308,64 @@ async function queueSelection() {
       ? settingsStore.defaultLanguage
       : settingsStore.defaultLanguage?.value ?? 'fr-CA'
 
-  // Filter out templates - they shouldn't be translated
-  const validPages = selectedRowKeys.value
-    .map((pageId) => catalogueStore.pages.find((item) => item.id === pageId))
-    .filter((page) => page && !page.isTemplate)
+  // Get selected pages and filter out templates
+  const selectedPages = selectedRowKeys.value
+    .map((pageId) => {
+      const page = catalogueStore.pages.find((item) => item.id === pageId)
+      if (!page) {
+        console.warn(`Page not found in catalogue: ${pageId}`)
+        return null
+      }
+      return page
+    })
+    .filter((page) => page !== null)
 
-  if (validPages.length === 0) {
+  // Separate templates from valid pages
+  const templates = selectedPages.filter((page) => page.isTemplate === true)
+  const validPages = selectedPages.filter((page) => !page.isTemplate)
+
+  // Warn if templates were selected
+  if (templates.length > 0) {
     if ($q && typeof $q.notify === 'function') {
       $q.notify({
-        type: 'warning',
-        message: 'Templates cannot be queued for translation',
+        type: 'info',
+        message: `${templates.length} template(s) skipped (templates cannot be translated)`,
+        timeout: 3000,
       })
+    }
+  }
+
+  // Check if we have any valid pages to translate
+  if (validPages.length === 0) {
+    if (selectedPages.length === 0) {
+      if ($q && typeof $q.notify === 'function') {
+        $q.notify({
+          type: 'warning',
+          message: 'No pages selected',
+        })
+      } else {
+        alert('No pages selected')
+      }
     } else {
-      alert('Templates cannot be queued for translation')
+      if ($q && typeof $q.notify === 'function') {
+        $q.notify({
+          type: 'warning',
+          message: 'Only templates were selected. Templates cannot be queued for translation.',
+        })
+      } else {
+        alert('Only templates were selected. Templates cannot be queued for translation.')
+      }
     }
     return
   }
 
-  if (validPages.length < selectedRowKeys.value.length) {
-    if ($q && typeof $q.notify === 'function') {
-      $q.notify({
-        type: 'info',
-        message: `${selectedRowKeys.value.length - validPages.length} template(s) skipped`,
-      })
-    }
-  }
-
   // Create TranslationJob CRDs for each selected page
-  const requests = validPages.map((page) => {
-    return jobStore
-      .submitJob({
+  const jobResults = []
+  const errors = []
+
+  for (const page of validPages) {
+    try {
+      const result = await jobStore.submitJob({
         namespace,
         targetRef,
         pageId: page.id,
@@ -345,39 +373,54 @@ async function queueSelection() {
         languageTag,
         pageTitle: page.title,
       })
-      .catch((err) => {
-        console.error(`Failed to queue job for page ${page.id}:`, err)
-        if ($q && typeof $q.notify === 'function') {
-          $q.notify({ 
-            type: 'negative', 
-            message: `Failed to queue job for ${page.title}: ${err.message || 'Unknown error'}` 
-          })
-        } else {
-          alert(`Failed to queue job for ${page.title}: ${err.message || 'Unknown error'}`)
-        }
-      })
-  })
-
-  try {
-    await Promise.all(requests.filter(Boolean))
-    catalogueStore.clearSelection()
-    if ($q && typeof $q.notify === 'function') {
-      $q.notify({
-        type: 'positive',
-        message: t('catalogue.jobsQueued') || `Queued ${validPages.length} page(s) for translation`,
-      })
-    } else {
-      alert(`Queued ${validPages.length} page(s) for translation`)
+      
+      // submitJob returns the response which should contain the job name
+      const jobName = result?.name || result?.data?.name || 'unknown'
+      jobResults.push({ page: page.title, jobName })
+      
+      console.log(`Translation job created for ${page.title}: ${jobName}`)
+    } catch (err) {
+      console.error(`Failed to queue job for page ${page.id}:`, err)
+      errors.push({ page: page.title, error: err.message || 'Unknown error' })
+      
+      if ($q && typeof $q.notify === 'function') {
+        $q.notify({ 
+          type: 'negative', 
+          message: `Failed to queue job for ${page.title}: ${err.message || 'Unknown error'}`,
+          timeout: 5000,
+        })
+      }
     }
-  } catch (err) {
-    console.error('Error queueing translation jobs:', err)
-    if ($q && typeof $q.notify === 'function') {
-      $q.notify({
-        type: 'negative',
-        message: err.message || 'Failed to queue translation jobs',
-      })
+  }
+
+  // Clear selection after processing
+  catalogueStore.clearSelection()
+
+  // Show success notification with job details
+  if (jobResults.length > 0) {
+    if (jobResults.length === 1) {
+      if ($q && typeof $q.notify === 'function') {
+        $q.notify({
+          type: 'positive',
+          message: `Translation Scheduled: ${jobResults[0].jobName}`,
+          timeout: 5000,
+          actions: [{ icon: 'close', color: 'white' }],
+        })
+      } else {
+        alert(`Translation Scheduled: ${jobResults[0].jobName}`)
+      }
     } else {
-      alert(`Failed to queue translation jobs: ${err.message || 'Unknown error'}`)
+      if ($q && typeof $q.notify === 'function') {
+        $q.notify({
+          type: 'positive',
+          message: `${jobResults.length} translation(s) scheduled`,
+          caption: `Jobs: ${jobResults.map(r => r.jobName).join(', ')}`,
+          timeout: 5000,
+          actions: [{ icon: 'close', color: 'white' }],
+        })
+      } else {
+        alert(`${jobResults.length} translation(s) scheduled`)
+      }
     }
   }
 }
