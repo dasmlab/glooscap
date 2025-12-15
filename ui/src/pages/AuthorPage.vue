@@ -101,6 +101,9 @@
           <q-card-section class="markdown-container">
             <div v-if="leftPageContent" class="markdown-view">
               <pre class="markdown-content">{{ leftPageContent }}</pre>
+              <div class="text-caption text-grey-6 q-mt-xs">
+                Content length: {{ leftPageContent.length }} characters
+              </div>
             </div>
             <div v-else-if="selectedLeftPage" class="text-center text-grey-6 q-pa-lg">
               <q-spinner v-if="loadingLeftContent" color="primary" size="3em" />
@@ -191,6 +194,9 @@
           <q-card-section class="markdown-container">
             <div v-if="rightPageContent" class="markdown-view">
               <pre class="markdown-content">{{ rightPageContent }}</pre>
+              <div class="text-caption text-grey-6 q-mt-xs">
+                Content length: {{ rightPageContent.length }} characters
+              </div>
             </div>
             <div v-else-if="selectedRightPage" class="text-center text-grey-6 q-pa-lg">
               <q-spinner v-if="loadingRightContent" color="primary" size="3em" />
