@@ -334,10 +334,15 @@ func main() {
 				
 				// Only trigger if we have a valid client (either the one being created or the stored one)
 				if clientRef != nil || currentClient != nil {
-					select {
-					case nanabushStatusCh <- struct{}{}:
-					default:
-						// Channel full, skip (non-blocking)
+					// Only broadcast if we have a clientId (registration completed) or error
+					if status.ClientID != "" || status.Status == "error" {
+						select {
+						case nanabushStatusCh <- struct{}{}:
+						default:
+							// Channel full, skip (non-blocking)
+						}
+					} else {
+						setupLog.Info("Skipping SSE broadcast - clientId not set yet (registration in progress)")
 					}
 				}
 			},
@@ -409,8 +414,15 @@ func main() {
 			nanabushClient = client
 			nanabushClientMu.Unlock()
 
-			// Trigger an immediate SSE broadcast now that client is set
-			// This ensures UI gets the correct status right away
+			// Wait a bit for registration to complete and clientId to be set
+			setupLog.Info("Waiting for client registration to complete...")
+			time.Sleep(2 * time.Second)
+			status := client.Status()
+			if status.ClientID != "" {
+				setupLog.Info("Client registered successfully", "client_id", status.ClientID)
+			}
+
+			// Trigger SSE broadcast now that we've waited for registration
 			select {
 			case nanabushStatusCh <- struct{}{}:
 			default:

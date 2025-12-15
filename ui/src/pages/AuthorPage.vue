@@ -795,6 +795,118 @@ async function refresh() {
   })
 }
 
+// Translate dialog functions
+function showTranslateDialog(panel) {
+  const selectedPageId = panel === 'left' ? selectedLeftPage.value : selectedRightPage.value
+  if (!selectedPageId) {
+    $q.notify({
+      type: 'warning',
+      message: 'No page selected in this panel',
+      timeout: 3000,
+    })
+    return
+  }
+
+  const page = catalogueStore.pages.find((p) => p.id === selectedPageId)
+  if (!page) {
+    $q.notify({
+      type: 'warning',
+      message: 'Page not found',
+      timeout: 3000,
+    })
+    return
+  }
+
+  // Check if page is a template
+  if (page.isTemplate) {
+    $q.notify({
+      type: 'warning',
+      message: 'Templates cannot be translated',
+      timeout: 3000,
+    })
+    return
+  }
+
+  translatePageRef.value = page
+  translatePanelRef.value = panel
+  showTranslateDialogRef.value = true
+}
+
+async function confirmTranslate() {
+  const page = translatePageRef.value
+  if (!page) {
+    return
+  }
+
+  showTranslateDialogRef.value = false
+
+  logToConsole('INFO', `Starting translation for page: ${page.title} (ID: ${page.id})`)
+
+  const target = catalogueStore.targets.find((t) => t.id === selectedTarget.value)
+  if (!target) {
+    logToConsole('ERROR', 'No wiki target selected')
+    $q.notify({
+      type: 'negative',
+      message: 'No wiki target selected',
+    })
+    return
+  }
+
+  const namespace = target?.namespace || 'glooscap-system'
+  const targetRef = target?.resourceName || target?.id || ''
+  const languageTag =
+    typeof settingsStore.defaultLanguage === 'string'
+      ? settingsStore.defaultLanguage
+      : settingsStore.defaultLanguage?.value ?? 'fr-CA'
+
+  logToConsole('DEBUG', 'Creating TranslationJob', {
+    pageId: page.id,
+    pageTitle: page.title,
+    targetRef,
+    namespace,
+    languageTag,
+  })
+
+  try {
+    const result = await jobStore.submitJob({
+      namespace,
+      targetRef,
+      pageId: page.id,
+      pipeline: 'TektonJob',
+      languageTag,
+      pageTitle: page.title,
+    })
+
+    const jobName = result?.name || result?.data?.name || 'unknown'
+    logToConsole('INFO', `TranslationJob created successfully`, {
+      jobName,
+      pageId: page.id,
+      pageTitle: page.title,
+    })
+
+    $q.notify({
+      type: 'positive',
+      message: `Translation Scheduled: ${jobName}`,
+      timeout: 5000,
+      actions: [{ icon: 'close', color: 'white' }],
+    })
+  } catch (err) {
+    logToConsole('ERROR', `Failed to create TranslationJob`, {
+      error: err.message,
+      pageId: page.id,
+      pageTitle: page.title,
+    })
+    $q.notify({
+      type: 'negative',
+      message: `Failed to schedule translation: ${err.message || 'Unknown error'}`,
+      timeout: 5000,
+    })
+  }
+
+  translatePageRef.value = null
+  translatePanelRef.value = null
+}
+
 // Initialize
 onMounted(async () => {
   try {
