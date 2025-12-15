@@ -539,11 +539,23 @@ func Start(ctx context.Context, opts Options) error {
 			}
 		}
 
-		// Enrich page content with title if available
-		if pageContent.Title == "" && pageMetadata != nil {
-			if title, ok := pageMetadata["title"].(string); ok && title != "" {
+		// Enrich page content with title and slug from metadata if available
+		if pageMetadata != nil {
+			if title, ok := pageMetadata["title"].(string); ok && title != "" && pageContent.Title == "" {
 				pageContent.Title = title
 			}
+			if slug, ok := pageMetadata["slug"].(string); ok && slug != "" && pageContent.Slug == "" {
+				pageContent.Slug = slug
+			}
+			if uri, ok := pageMetadata["uri"].(string); ok && uri != "" {
+				// Use URI from metadata if available
+			}
+		}
+
+		// Log the content length for debugging
+		markdownLen := len(pageContent.Markdown)
+		if markdownLen == 0 {
+			// Log warning if markdown is empty
 		}
 
 		writeJSON(w, map[string]any{
@@ -552,7 +564,7 @@ func Start(ctx context.Context, opts Options) error {
 			"slug":      pageContent.Slug,
 			"markdown":  pageContent.Markdown,
 			"metadata":  pageMetadata,
-			"rawLength": len(pageContent.Markdown),
+			"rawLength": markdownLen,
 		})
 	})
 

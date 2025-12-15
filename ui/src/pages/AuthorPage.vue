@@ -526,7 +526,8 @@ async function loadPageContent(panel, pageId, pageMetadata) {
     })
 
     const content = response.data
-    contentRef.value = content.markdown || ''
+    const markdownContent = content.markdown || ''
+    contentRef.value = markdownContent
     uriRef.value = content.metadata?.uri || pageMetadata?.uri || `/${content.slug || pageId}`
     metadataRef.value = content.metadata || pageMetadata
 
@@ -535,6 +536,8 @@ async function loadPageContent(panel, pageId, pageMetadata) {
       title: content.title,
       uri: uriRef.value,
       contentLength: content.rawLength || 0,
+      markdownLength: markdownContent.length,
+      markdownPreview: markdownContent.substring(0, 200),
     })
   } catch (err) {
     logToConsole('ERROR', `Failed to load page content for ${panel} panel`, {
