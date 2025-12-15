@@ -195,7 +195,15 @@ func Start(ctx context.Context, opts Options) error {
 
 	// Generic translation service status endpoint (alias for backward compatibility)
 	router.Get("/api/v1/status/translation", func(w http.ResponseWriter, _ *http.Request) {
-		if opts.Nanabush == nil {
+		// Use getter function if available (for runtime updates), otherwise use direct reference
+		var nanabushClient *nanabush.Client
+		if opts.GetNanabushClient != nil {
+			nanabushClient = opts.GetNanabushClient()
+		} else if opts.Nanabush != nil {
+			nanabushClient = opts.Nanabush
+		}
+
+		if nanabushClient == nil {
 			writeJSON(w, nanabush.Status{
 				Connected:  false,
 				Registered: false,
@@ -203,7 +211,7 @@ func Start(ctx context.Context, opts Options) error {
 			})
 			return
 		}
-		status := opts.Nanabush.Status()
+		status := nanabushClient.Status()
 		writeJSON(w, status)
 	})
 
