@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # deploy-glooscap.sh
 # Deploys Glooscap operator and UI to the Kubernetes cluster
+# Uses make build-installer to generate current CRDs and manifests (like cycleme.sh)
 # Optionally deploys Iskoces translation service if ISKOCES_DIR is set
 
 set -euo pipefail
@@ -14,7 +15,12 @@ NC='\033[0m'
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+OPERATOR_DIR="${PROJECT_ROOT}/operator"
+UI_DIR="${PROJECT_ROOT}/ui"
 MANIFESTS_DIR="$(cd "${SCRIPT_DIR}/../manifests" && pwd)"
+
+NAMESPACE="${NAMESPACE:-glooscap-system}"
 
 # Functions
 log_info() {
@@ -49,7 +55,7 @@ fi
 
 log_info "Deploying Glooscap to Kubernetes cluster..."
 
-# Detect architecture for image tag checking
+# Detect architecture for image tags
 ARCH=$(uname -m)
 case "${ARCH}" in
     arm64|aarch64)
@@ -63,7 +69,12 @@ case "${ARCH}" in
         ;;
 esac
 
-# Check if local images exist, offer to build if not
+OPERATOR_IMG="ghcr.io/dasmlab/glooscap-operator:local-${ARCH_TAG}"
+UI_IMG="ghcr.io/dasmlab/glooscap-ui:local-${ARCH_TAG}"
+log_info "Using operator image: ${OPERATOR_IMG}"
+log_info "Using UI image: ${UI_IMG}"
+
+# Check if images exist
 if ! docker images | grep -q "glooscap-operator.*local-${ARCH_TAG}"; then
     log_warn "Local operator image not found (glooscap-operator:local-${ARCH_TAG})"
     log_info "To build and load images, run: ./scripts/build-and-load-images.sh"
@@ -80,77 +91,121 @@ else
     log_success "Local UI image found (local-${ARCH_TAG})"
 fi
 
-# Create namespace
-log_info "Creating namespace..."
-kubectl apply -f "${MANIFESTS_DIR}/namespace.yaml"
+# Generate manifests and build installer (like cycleme.sh)
+log_info "Generating manifests and building installer..."
+cd "${OPERATOR_DIR}"
 
-# Apply CRDs
-log_info "Applying Custom Resource Definitions..."
-if [ -d "${MANIFESTS_DIR}/crd" ] && [ "$(ls -A ${MANIFESTS_DIR}/crd/*.yaml 2>/dev/null)" ]; then
-    kubectl apply -f "${MANIFESTS_DIR}/crd/"
-    log_success "CRDs applied"
+log_info "Generating code..."
+make generate
+
+log_info "Generating manifests (CRDs, RBAC, etc)..."
+make manifests
+
+# Ensure kustomization uses the correct namespace
+KUSTOMIZATION_FILE="${OPERATOR_DIR}/config/default/kustomization.yaml"
+CURRENT_NAMESPACE=$(grep "^namespace:" "${KUSTOMIZATION_FILE}" | awk '{print $2}' || echo "")
+if [ "${CURRENT_NAMESPACE}" != "${NAMESPACE}" ]; then
+    log_info "Updating kustomization namespace from '${CURRENT_NAMESPACE}' to '${NAMESPACE}'..."
+    sed -i.bak "s/^namespace:.*/namespace: ${NAMESPACE}/" "${KUSTOMIZATION_FILE}"
+    RESTORE_KUSTOMIZATION=true
 else
-    log_warn "No CRD files found in ${MANIFESTS_DIR}/crd/"
-    log_info "CRDs should be generated from the operator config. You may need to:"
-    log_info "  cd operator && make manifests"
-    log_info "  cp config/crd/bases/*.yaml ${MANIFESTS_DIR}/crd/"
+    log_info "Kustomization namespace is already '${NAMESPACE}'"
+    RESTORE_KUSTOMIZATION=false
 fi
 
-# Apply RBAC
-log_info "Applying RBAC resources..."
-kubectl apply -f "${MANIFESTS_DIR}/rbac/"
-log_success "RBAC resources applied"
+log_info "Building installer (generating dist/install.yaml)..."
+make build-installer IMG="${OPERATOR_IMG}"
 
-# Apply operator (with architecture-specific image tags)
-log_info "Deploying operator..."
-# Patch the deployment to use architecture-specific image tags
-TEMP_DEPLOYMENT=$(mktemp)
-cp "${MANIFESTS_DIR}/operator/deployment.yaml" "${TEMP_DEPLOYMENT}"
-# Update image tags to match detected architecture (both operator and runner)
-sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-# Also update VLLM_JOB_IMAGE env var if it exists (handle both full registry path and image name only)
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-kubectl apply -f "${TEMP_DEPLOYMENT}"
-rm -f "${TEMP_DEPLOYMENT}" "${TEMP_DEPLOYMENT}.bak"
-log_success "Operator deployed with architecture-specific tags (${ARCH_TAG})"
+# Restore original namespace if we changed it
+if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
+    log_info "Restoring original kustomization namespace..."
+    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
+fi
 
-# Apply UI (with architecture-specific image tags)
+if [ ! -f "${OPERATOR_DIR}/dist/install.yaml" ]; then
+    log_error "dist/install.yaml was not generated"
+    exit 1
+fi
+
+log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
+
+# Patch the generated install.yaml to use architecture-specific tags and LoadBalancer
+log_info "Patching install.yaml with architecture-specific image tags and LoadBalancer service..."
+
+# Patch operator image
+sed -i.bak "s|image:.*controller.*|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|controller:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+
+# Patch operator API service to use LoadBalancer
+sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
+  /targetPort: http-api$/a\
+  type: LoadBalancer
+}' "${OPERATOR_DIR}/dist/install.yaml"
+
+# Patch translation-runner image
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
+log_success "install.yaml patched with architecture-specific tags and LoadBalancer service"
+
+# Create namespace
+log_info "Creating namespace..."
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+# Apply the generated install.yaml (includes CRDs, RBAC, and operator deployment)
+log_info "Applying dist/install.yaml (includes CRDs and operator deployment)..."
+kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"
+log_success "Operator deployed from dist/install.yaml"
+
+# Patch the operator API service to ensure it's LoadBalancer (fallback)
+log_info "Ensuring operator API service is exposed as LoadBalancer..."
+kubectl patch service operator-glooscap-operator-api -n "${NAMESPACE}" -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || {
+    log_warn "Failed to patch service (may already be LoadBalancer or service doesn't exist yet)"
+}
+
+# Deploy UI (using current architecture-specific image)
 log_info "Deploying UI..."
-# Patch the deployment to use architecture-specific image tags
-TEMP_UI_DEPLOYMENT=$(mktemp)
-cp "${MANIFESTS_DIR}/ui/deployment.yaml" "${TEMP_UI_DEPLOYMENT}"
-# Update image tags to match detected architecture
-sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
-sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
-kubectl apply -f "${TEMP_UI_DEPLOYMENT}"
-rm -f "${TEMP_UI_DEPLOYMENT}" "${TEMP_UI_DEPLOYMENT}.bak"
-log_success "UI deployed with architecture-specific tags (${ARCH_TAG})"
+if [ -f "${MANIFESTS_DIR}/ui/deployment.yaml" ]; then
+    # Patch UI deployment to use architecture-specific image
+    TEMP_UI_DEPLOYMENT=$(mktemp)
+    cp "${MANIFESTS_DIR}/ui/deployment.yaml" "${TEMP_UI_DEPLOYMENT}"
+    sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
+    sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
+    sed -i.bak "s|ghcr.io/dasmlab/glooscap-ui:latest|${UI_IMG}|g" "${TEMP_UI_DEPLOYMENT}"
+    kubectl apply -f "${TEMP_UI_DEPLOYMENT}"
+    rm -f "${TEMP_UI_DEPLOYMENT}" "${TEMP_UI_DEPLOYMENT}.bak"
+    log_success "UI deployed with architecture-specific tags (${ARCH_TAG})"
+else
+    log_warn "UI deployment manifest not found at ${MANIFESTS_DIR}/ui/deployment.yaml"
+fi
 
 # Wait for operator to be ready (idempotent - won't fail if already ready)
 log_info "Waiting for operator to be ready..."
-if kubectl wait --for=condition=available --timeout=10s deployment/glooscap-operator -n glooscap-system 2>/dev/null; then
+# The generated install.yaml uses "operator-controller-manager" as the deployment name
+if kubectl wait --for=condition=available --timeout=10s deployment/operator-controller-manager -n "${NAMESPACE}" 2>/dev/null; then
     log_success "Operator is ready"
 else
     log_info "Waiting for operator to become ready (this may take a moment)..."
-    kubectl wait --for=condition=available --timeout=300s deployment/glooscap-operator -n glooscap-system || {
+    kubectl wait --for=condition=available --timeout=300s deployment/operator-controller-manager -n "${NAMESPACE}" || {
         log_warn "Operator deployment may not be ready yet"
-        log_info "Check status with: kubectl get pods -n glooscap-system"
+        log_info "Check status with: kubectl get pods -n ${NAMESPACE}"
     }
 fi
 
 # Wait for UI to be ready (idempotent - won't fail if already ready)
 log_info "Waiting for UI to be ready..."
-if kubectl wait --for=condition=available --timeout=10s deployment/glooscap-ui -n glooscap-system 2>/dev/null; then
+if kubectl wait --for=condition=available --timeout=10s deployment/glooscap-ui -n "${NAMESPACE}" 2>/dev/null; then
     log_success "UI is ready"
 else
     log_info "Waiting for UI to become ready (this may take a moment)..."
-    kubectl wait --for=condition=available --timeout=300s deployment/glooscap-ui -n glooscap-system || {
+    kubectl wait --for=condition=available --timeout=300s deployment/glooscap-ui -n "${NAMESPACE}" || {
         log_warn "UI deployment may not be ready yet"
-        log_info "Check status with: kubectl get pods -n glooscap-system"
+        log_info "Check status with: kubectl get pods -n ${NAMESPACE}"
     }
 fi
 
@@ -159,10 +214,10 @@ echo ""
 log_success "Glooscap deployed successfully!"
 echo ""
 log_info "Deployment status:"
-kubectl get pods -n glooscap-system
+kubectl get pods -n "${NAMESPACE}"
 echo ""
 log_info "Services:"
-kubectl get svc -n glooscap-system
+kubectl get svc -n "${NAMESPACE}"
 echo ""
 
 # Show access instructions
@@ -171,8 +226,8 @@ echo "  UI: http://localhost:8080"
 echo "  Operator API: http://localhost:3000"
 echo ""
 log_info "To view logs:"
-echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"
-echo "  UI: kubectl logs -f -n glooscap-system deployment/glooscap-ui"
+echo "  Operator: kubectl logs -f -n ${NAMESPACE} deployment/operator-controller-manager"
+echo "  UI: kubectl logs -f -n ${NAMESPACE} deployment/glooscap-ui"
 echo ""
 
 # Optionally deploy Iskoces if ISKOCES_DIR is set
