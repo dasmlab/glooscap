@@ -253,13 +253,6 @@ make deploy IMG="${OPERATOR_IMG}"
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
 
-# Fix service account name in deployment (kustomize namePrefix doesn't apply to serviceAccountName references)
-log_info "Fixing service account name in deployment..."
-kubectl patch deployment operator-controller-manager -n "${NAMESPACE}" --type='json' \
-    -p='[{"op": "replace", "path": "/spec/template/spec/serviceAccountName", "value": "operator-controller-manager"}]' || {
-    log_warn "Failed to patch service account name (may already be correct)"
-}
-
 # Restore original namespace if we changed it (after deploying)
 if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
     log_info "Restoring original kustomization namespace..."
