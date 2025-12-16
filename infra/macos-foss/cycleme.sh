@@ -147,7 +147,9 @@ case "${ARCH}" in
 esac
 
 OPERATOR_IMG="ghcr.io/dasmlab/glooscap-operator:local-${ARCH_TAG}"
+UI_IMG="ghcr.io/dasmlab/glooscap-ui:local-${ARCH_TAG}"
 log_info "Using operator image: ${OPERATOR_IMG}"
+log_info "Using UI image: ${UI_IMG}"
 
 # Ensure kustomization uses the correct namespace
 KUSTOMIZATION_FILE="${OPERATOR_DIR}/config/default/kustomization.yaml"
@@ -205,22 +207,19 @@ if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
 fi
 
 log_info "🏗️  Building operator image..."
-if [ -f "${OPERATOR_DIR}/buildme.sh" ]; then
-    bash "${OPERATOR_DIR}/buildme.sh"
-else
-    log_error "buildme.sh not found in operator directory"
+cd "${OPERATOR_DIR}"
+make docker-build IMG="${OPERATOR_IMG}" || {
+    log_error "Failed to build operator image"
     exit 1
-fi
+}
+log_success "Operator image built: ${OPERATOR_IMG}"
 
 log_info "📤 Pushing operator image..."
-if [ -f "${OPERATOR_DIR}/pushme.sh" ]; then
-    bash "${OPERATOR_DIR}/pushme.sh"
-else
-    log_error "pushme.sh not found in operator directory"
+docker push "${OPERATOR_IMG}" || {
+    log_error "Failed to push operator image"
     exit 1
-fi
-
-log_success "Operator image built and pushed: ${OPERATOR_IMG}"
+}
+log_success "Operator image pushed: ${OPERATOR_IMG}"
 
 # Step 4: Create namespace and registry secret
 log_step "Step 4: Creating namespace and registry secret"
@@ -271,22 +270,33 @@ log_step "Step 6: Building and pushing UI image"
 cd "${UI_DIR}"
 
 log_info "🏗️  Building UI image..."
-if [ -f "${UI_DIR}/buildme.sh" ]; then
-    bash "${UI_DIR}/buildme.sh"
+# Use buildme.sh if available, otherwise use docker build directly
+if [ -f "./buildme.sh" ]; then
+    # buildme.sh builds with tag "scratch", we'll retag
+    ./buildme.sh || {
+        log_error "Failed to build UI image"
+        exit 1
+    }
+    docker tag glooscap-ui:scratch "${UI_IMG}" || {
+        log_error "Failed to tag UI image"
+        exit 1
+    }
 else
-    log_error "buildme.sh not found in UI directory"
-    exit 1
+    # Fallback to docker build
+    log_info "Using docker build (buildme.sh not found)"
+    docker build --tag "${UI_IMG}" . || {
+        log_error "Failed to build UI image"
+        exit 1
+    }
 fi
+log_success "UI image built: ${UI_IMG}"
 
 log_info "📤 Pushing UI image..."
-if [ -f "${UI_DIR}/pushme.sh" ]; then
-    bash "${UI_DIR}/pushme.sh"
-else
-    log_error "pushme.sh not found in UI directory"
+docker push "${UI_IMG}" || {
+    log_error "Failed to push UI image"
     exit 1
-fi
-
-log_success "UI image built and pushed"
+}
+log_success "UI image pushed: ${UI_IMG}"
 
 # Build and push translation-runner image
 log_info "🏗️  Building translation-runner image..."
