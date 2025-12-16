@@ -15,11 +15,13 @@ RUN --mount=type=cache,target=/root/.npm \
     npm config set maxsockets 50
 COPY . .
 # Use npm ci with BuildKit cache mount for faster repeat builds
-# If package-lock.json is out of sync, fall back to npm install
+# If package-lock.json is out of sync, update it first, then use npm ci
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --no-audit --no-fund || \
-    (echo "⚠️  package-lock.json out of sync, using npm install instead..." && \
-     npm install --no-audit --no-fund)
+    (npm ci --no-audit --no-fund 2>&1 || \
+     (echo "⚠️  package-lock.json out of sync, updating it..." && \
+      npm install --package-lock-only --no-audit --no-fund && \
+      echo "✅ package-lock.json updated, running npm ci..." && \
+      npm ci --no-audit --no-fund))
 # Inject build version and SHA into Vite env
 ENV VITE_BUILD_VERSION=${BUILD_VERSION}
 ENV VITE_BUILD_NUMBER=${BUILD_NUMBER}
