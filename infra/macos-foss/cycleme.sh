@@ -121,8 +121,8 @@ fi
 log_info "⏳ Brief pause for API server to catch up..."
 sleep 3
 
-# Step 2: Generate manifests and build installer
-log_step "Step 2: Generating manifests and building installer"
+# Step 2: Generate manifests and determine architecture
+log_step "Step 2: Generating manifests"
 cd "${OPERATOR_DIR}"
 
 log_info "Generating code..."
@@ -131,7 +131,6 @@ make generate
 log_info "Generating manifests (CRDs, RBAC, etc)..."
 make manifests
 
-log_info "Building installer (generating dist/install.yaml)..."
 # Set IMG to the architecture-specific image we'll build
 ARCH=$(uname -m)
 case "${ARCH}" in
@@ -161,95 +160,6 @@ if [ "${CURRENT_NAMESPACE}" != "${NAMESPACE}" ]; then
 else
     log_info "Kustomization namespace is already '${NAMESPACE}'"
     RESTORE_KUSTOMIZATION=false
-fi
-
-make build-installer IMG="${OPERATOR_IMG}"
-
-# Restore original namespace if we changed it
-if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
-    log_info "Restoring original kustomization namespace..."
-    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
-fi
-
-if [ ! -f "${OPERATOR_DIR}/dist/install.yaml" ]; then
-    log_error "dist/install.yaml was not generated"
-    exit 1
-fi
-
-log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
-
-# Patch the generated install.yaml to use correct namespace
-log_info "Patching install.yaml to use namespace: ${NAMESPACE}..."
-sed -i.bak "s|namespace: operator-system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|namespace: system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Verify namespace was patched
-if grep -q "namespace: ${NAMESPACE}" "${OPERATOR_DIR}/dist/install.yaml"; then
-    log_success "Namespace patched to: ${NAMESPACE}"
-    # Check if any operator-system namespaces remain
-    if grep -q "namespace: operator-system" "${OPERATOR_DIR}/dist/install.yaml"; then
-        log_warn "Warning: Some 'operator-system' namespaces may still exist in install.yaml"
-        log_info "Remaining operator-system references:"
-        grep "namespace: operator-system" "${OPERATOR_DIR}/dist/install.yaml" | head -3 || true
-    fi
-else
-    log_error "Failed to patch namespace in install.yaml"
-    exit 1
-fi
-
-# Patch the generated install.yaml to use correct operator image name and architecture-specific tag
-log_info "Patching install.yaml with correct operator image: ${OPERATOR_IMG}..."
-# Fix operator image reference (kustomize might use 'controller' or wrong image name)
-sed -i.bak "s|image: controller:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-arm64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-amd64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Verify operator image was patched
-if grep -q "image: ${OPERATOR_IMG}" "${OPERATOR_DIR}/dist/install.yaml"; then
-    log_success "Operator image patched: ${OPERATOR_IMG}"
-else
-    log_warn "Operator image may not have been patched correctly"
-    log_info "Current operator image in install.yaml:"
-    grep "image:" "${OPERATOR_DIR}/dist/install.yaml" | grep -v "translation-runner" | head -1 || true
-fi
-
-# Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
-log_info "Patching install.yaml with architecture-specific translation-runner tag..."
-RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
-
-# Replace VLLM_JOB_IMAGE env var value (handle various YAML formats)
-# Pattern 1: value: ghcr.io/dasmlab/glooscap-translation-runner:latest
-sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:latest|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Pattern 2: value: "ghcr.io/dasmlab/glooscap-translation-runner:latest" (quoted)
-sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:latest\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:local-arm64\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:local-amd64\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Pattern 3: Just the image reference (for any other places)
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Pattern 4: Image names without registry (for backwards compatibility)
-sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-
-# Clean up all .bak files from sed operations
-rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
-
-# Verify the patch worked
-if grep -q "VLLM_JOB_IMAGE" "${OPERATOR_DIR}/dist/install.yaml"; then
-    if grep -q "value:.*${RUNNER_IMG_VALUE}" "${OPERATOR_DIR}/dist/install.yaml" || grep -q "value:.*glooscap-translation-runner:local-${ARCH_TAG}" "${OPERATOR_DIR}/dist/install.yaml"; then
-        log_success "install.yaml patched with architecture-specific tags"
-        log_info "VLLM_JOB_IMAGE set to: ${RUNNER_IMG_VALUE}"
-    else
-        log_warn "VLLM_JOB_IMAGE found but may not have been patched correctly"
-        log_info "Current VLLM_JOB_IMAGE value:"
-        grep -A 1 "VLLM_JOB_IMAGE" "${OPERATOR_DIR}/dist/install.yaml" | grep "value:" || true
-    fi
-else
-    log_warn "VLLM_JOB_IMAGE not found in install.yaml (may not be needed)"
 fi
 
 # Step 3: Build and push operator image
@@ -314,17 +224,40 @@ fi
 
 log_success "Registry secret ensured"
 
-# Step 5: Deploy operator using generated install.yaml
-log_step "Step 5: Deploying operator from dist/install.yaml"
+# Step 5: Deploy operator using make install deploy (like working operator/cycleme.sh)
+log_step "Step 5: Deploying operator using make install deploy"
 
-log_info "Applying dist/install.yaml (includes CRDs and operator deployment)..."
-if ! kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"; then
-    log_error "Failed to apply install.yaml"
-    exit 1
-fi
+log_info "Installing CRDs..."
+make install
+
+log_info "Deploying operator..."
+make deploy IMG="${OPERATOR_IMG}"
 
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
+
+# Verify service account was created
+log_info "Verifying service account exists..."
+if kubectl get serviceaccount operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
+    log_success "Service account found: operator-controller-manager"
+else
+    log_error "Service account 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
+    log_info "Checking what service accounts exist:"
+    kubectl get serviceaccounts -n "${NAMESPACE}" || true
+    log_info "Checking if service account exists in wrong namespace:"
+    kubectl get serviceaccount operator-controller-manager -A || true
+    exit 1
+fi
+
+# Patch VLLM_JOB_IMAGE env var in the operator deployment if needed
+RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
+if kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
+    log_info "Patching VLLM_JOB_IMAGE env var in operator deployment..."
+    kubectl set env deployment/operator-controller-manager -n "${NAMESPACE}" \
+        VLLM_JOB_IMAGE="${RUNNER_IMG_VALUE}" || {
+        log_warn "Failed to set VLLM_JOB_IMAGE (may not be needed)"
+    }
+fi
 
 # Verify the operator deployment was created
 log_info "Verifying operator deployment was created..."
@@ -339,7 +272,13 @@ else
     exit 1
 fi
 
-log_success "Operator deployed from dist/install.yaml"
+# Restore original namespace if we changed it
+if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
+    log_info "Restoring original kustomization namespace..."
+    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
+fi
+
+log_success "Operator deployed"
 
 # Step 6: Build and push UI image
 log_step "Step 6: Building and pushing UI image"

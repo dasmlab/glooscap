@@ -51,35 +51,48 @@ if [ -d "${MANIFESTS_DIR}/ui/" ]; then
     kubectl delete -f "${MANIFESTS_DIR}/ui/" --ignore-not-found=true || true
 fi
 
-# Delete operator deployment (deployed from dist/install.yaml)
-log_info "Deleting operator..."
-kubectl delete deployment operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
-kubectl delete service operator-controller-manager-metrics-service -n "${NAMESPACE}" --ignore-not-found=true || true
-kubectl delete serviceaccount operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
-# Also try from manifests if they exist
-if [ -d "${MANIFESTS_DIR}/operator/" ]; then
-    kubectl delete -f "${MANIFESTS_DIR}/operator/" --ignore-not-found=true || true
-fi
-
-# Delete RBAC resources
-log_info "Deleting RBAC resources..."
-kubectl delete role operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
-kubectl delete rolebinding operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
-kubectl delete clusterrolebinding operator-controller-manager --ignore-not-found=true || true
-kubectl delete clusterrole operator-controller-manager --ignore-not-found=true || true
-# Also try from manifests if they exist
-if [ -d "${MANIFESTS_DIR}/rbac/" ]; then
-    kubectl delete -f "${MANIFESTS_DIR}/rbac/" --ignore-not-found=true || true
+# Delete operator using make undeploy (like working operator/cycleme.sh)
+log_info "Deleting operator using make undeploy..."
+OPERATOR_DIR="$(cd "${SCRIPT_DIR}/../../operator" && pwd)"
+if [ -f "${OPERATOR_DIR}/Makefile" ]; then
+    cd "${OPERATOR_DIR}"
+    make undeploy || {
+        log_warn "make undeploy failed, trying manual deletion..."
+        # Fallback to manual deletion
+        kubectl delete deployment operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
+        kubectl delete service operator-controller-manager-metrics-service -n "${NAMESPACE}" --ignore-not-found=true || true
+        kubectl delete service operator-glooscap-operator-api -n "${NAMESPACE}" --ignore-not-found=true || true
+        kubectl delete serviceaccount operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
+        kubectl delete role operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
+        kubectl delete rolebinding operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
+        kubectl delete clusterrolebinding operator-controller-manager --ignore-not-found=true || true
+        kubectl delete clusterrole operator-controller-manager --ignore-not-found=true || true
+        kubectl delete clusterrole operator-manager-role --ignore-not-found=true || true
+        kubectl delete clusterrole operator-metrics-auth-role --ignore-not-found=true || true
+        kubectl delete clusterrole operator-proxy-role --ignore-not-found=true || true
+    }
+else
+    log_warn "Operator Makefile not found, using manual deletion..."
+    kubectl delete deployment operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
+    kubectl delete service operator-controller-manager-metrics-service -n "${NAMESPACE}" --ignore-not-found=true || true
+    kubectl delete serviceaccount operator-controller-manager -n "${NAMESPACE}" --ignore-not-found=true || true
 fi
 
 # Delete CRDs (optional, may fail if CRs exist)
 if [[ "${DELETE_CRDS:-false}" == "true" ]]; then
-    log_info "Deleting CRDs..."
-    kubectl delete crd translationjobs.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
-    kubectl delete crd wikitargets.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
-    # Also try from manifests if they exist
-    if [ -d "${MANIFESTS_DIR}/crd/" ]; then
-        kubectl delete -f "${MANIFESTS_DIR}/crd/" --ignore-not-found=true || true
+    log_info "Deleting CRDs using make uninstall..."
+    if [ -f "${OPERATOR_DIR}/Makefile" ]; then
+        cd "${OPERATOR_DIR}"
+        make uninstall || {
+            log_warn "make uninstall failed, trying manual deletion..."
+            kubectl delete crd translationjobs.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
+            kubectl delete crd wikitargets.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
+            kubectl delete crd translationservices.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
+        }
+    else
+        kubectl delete crd translationjobs.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
+        kubectl delete crd wikitargets.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
+        kubectl delete crd translationservices.wiki.glooscap.dasmlab.org --ignore-not-found=true || true
     fi
 fi
 
