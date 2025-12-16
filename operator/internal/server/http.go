@@ -889,7 +889,10 @@ func Start(ctx context.Context, opts Options) error {
 			PageSlug:       pageContent.Slug,
 		}
 
-		translateResp, err := nanabushClient.Translate(ctx, grpcReq)
+		// Use a longer timeout for translation (5 minutes) to handle large documents
+		translateCtx, translateCancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer translateCancel()
+		translateResp, err := nanabushClient.Translate(translateCtx, grpcReq)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("translation failed: %v", err), http.StatusInternalServerError)
 			return
