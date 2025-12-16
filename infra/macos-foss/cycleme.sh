@@ -121,18 +121,9 @@ fi
 log_info "⏳ Brief pause for API server to catch up..."
 sleep 3
 
-# Step 2: Generate manifests and build installer
-log_step "Step 2: Generating manifests and building installer"
-cd "${OPERATOR_DIR}"
+# Step 2: Set architecture-specific image tags
+log_step "Step 2: Setting architecture-specific image tags"
 
-log_info "Generating code..."
-make generate
-
-log_info "Generating manifests (CRDs, RBAC, etc)..."
-make manifests
-
-log_info "Building installer (generating dist/install.yaml)..."
-# Set IMG to the architecture-specific image we'll build
 ARCH=$(uname -m)
 case "${ARCH}" in
     arm64|aarch64)
@@ -147,47 +138,9 @@ case "${ARCH}" in
 esac
 
 OPERATOR_IMG="ghcr.io/dasmlab/glooscap-operator:local-${ARCH_TAG}"
+UI_IMG="ghcr.io/dasmlab/glooscap-ui:local-${ARCH_TAG}"
 log_info "Using operator image: ${OPERATOR_IMG}"
-
-# Ensure kustomization uses the correct namespace
-KUSTOMIZATION_FILE="${OPERATOR_DIR}/config/default/kustomization.yaml"
-CURRENT_NAMESPACE=$(grep "^namespace:" "${KUSTOMIZATION_FILE}" | awk '{print $2}' || echo "")
-if [ "${CURRENT_NAMESPACE}" != "${NAMESPACE}" ]; then
-    log_info "Updating kustomization namespace from '${CURRENT_NAMESPACE}' to '${NAMESPACE}'..."
-    sed -i.bak "s/^namespace:.*/namespace: ${NAMESPACE}/" "${KUSTOMIZATION_FILE}"
-    RESTORE_KUSTOMIZATION=true
-else
-    log_info "Kustomization namespace is already '${NAMESPACE}'"
-    RESTORE_KUSTOMIZATION=false
-fi
-
-make build-installer IMG="${OPERATOR_IMG}"
-
-# Restore original namespace if we changed it
-if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
-    log_info "Restoring original kustomization namespace..."
-    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
-fi
-
-if [ ! -f "${OPERATOR_DIR}/dist/install.yaml" ]; then
-    log_error "dist/install.yaml was not generated"
-    exit 1
-fi
-
-log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
-
-# Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
-log_info "Patching install.yaml with architecture-specific translation-runner tag..."
-# Replace full registry paths
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Also replace image names without registry (for backwards compatibility)
-sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
-log_success "install.yaml patched with architecture-specific tags"
+log_info "Using UI image: ${UI_IMG}"
 
 # Step 3: Build and push operator and UI images using build-and-load-images.sh
 log_step "Step 3: Building and pushing operator and UI images"
@@ -216,7 +169,7 @@ else
     exit 1
 fi
 
-# Step 4: Generate manifests and build installer
+# Step 4: Generate manifests and build installer (after images are built)
 log_step "Step 4: Generating manifests and building installer"
 
 cd "${OPERATOR_DIR}"
@@ -308,7 +261,8 @@ sleep 5
 
 log_success "Operator deployed from dist/install.yaml"
 
-# Step 6: Build and push translation-runner image
+# Step 7: Build and push translation-runner image
+log_step "Step 7: Building and pushing translation-runner image"
 log_info "🏗️  Building translation-runner image..."
 cd "${PROJECT_ROOT}"
 
@@ -346,8 +300,8 @@ else
     log_info "Skipping translation-runner build"
 fi
 
-# Step 7: Deploy UI
-log_step "Step 7: Deploying UI"
+# Step 8: Deploy UI
+log_step "Step 8: Deploying UI"
 
 log_info "Applying UI manifests..."
 if [ -f "${SCRIPT_DIR}/manifests/ui/deployment.yaml" ]; then
@@ -357,8 +311,8 @@ else
     log_warn "UI manifests not found at ${SCRIPT_DIR}/manifests/ui/"
 fi
 
-# Step 8: Deploy WikiTarget (if exists)
-log_step "Step 8: Deploying WikiTarget"
+# Step 9: Deploy WikiTarget (if exists)
+log_step "Step 9: Deploying WikiTarget"
 
 sleep 3  # Brief pause for operator to be ready
 
@@ -370,8 +324,8 @@ else
     log_info "WikiTarget manifest not found (skipping)"
 fi
 
-# Step 9: Deploy TranslationService (if exists)
-log_step "Step 9: Deploying TranslationService"
+# Step 10: Deploy TranslationService (if exists)
+log_step "Step 10: Deploying TranslationService"
 
 sleep 2  # Brief pause
 
