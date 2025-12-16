@@ -483,12 +483,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register diagnostic runnable (creates test TranslationJobs every 2 minutes)
+	// Register diagnostic runnable (creates test TranslationJobs once at start, then every 5 minutes)
 	if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
 		setupLog.Error(err, "unable to setup diagnostic runnable")
 		os.Exit(1)
 	}
-	setupLog.Info("diagnostic runnable registered (creates test jobs every 30 seconds)")
+	setupLog.Info("diagnostic runnable registered (creates test jobs once at start, then every 5 minutes)")
 
 	// +kubebuilder:scaffold:builder
 

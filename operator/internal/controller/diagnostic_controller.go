@@ -33,7 +33,7 @@ import (
 )
 
 // DiagnosticRunnable creates test TranslationJobs periodically for diagnostic purposes.
-// This runs in the background and creates TranslationJobs every 2 minutes
+// This runs in the background and creates TranslationJobs every 5 minutes
 // to test the translation pipeline end-to-end.
 type DiagnosticRunnable struct {
 	Client client.Client
@@ -43,29 +43,38 @@ type DiagnosticRunnable struct {
 func (r *DiagnosticRunnable) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("diagnostic")
 
-	logger.Info("starting diagnostic job creator (creates jobs every 30 seconds)")
-
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	logger.Info("starting diagnostic job creator (creates jobs once at start, then every 5 minutes)")
 
 	// Create initial batch immediately
 	r.createDiagnosticJobs(ctx, logger)
+
+	// Then run every 5 minutes
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			// Create jobs - failures are ok, just log and continue
 			r.createDiagnosticJobs(ctx, logger)
 		}
 	}
 }
 
 func (r *DiagnosticRunnable) createDiagnosticJobs(ctx context.Context, logger logr.Logger) {
+	// Failures are ok - just log and continue
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error(fmt.Errorf("panic in createDiagnosticJobs: %v", r), "diagnostic job creation panicked, continuing")
+		}
+	}()
+
 	// Get all WikiTargets to find source and destination
 	var targets wikiv1alpha1.WikiTargetList
 	if err := r.Client.List(ctx, &targets, client.InNamespace("glooscap-system")); err != nil {
-		logger.Error(err, "failed to list WikiTargets")
+		logger.Error(err, "failed to list WikiTargets (diagnostic job creation will skip this cycle)")
 		return
 	}
 
@@ -278,7 +287,8 @@ Management Team`,
 		}
 
 		if err := r.Client.Create(ctx, job); err != nil {
-			logger.Error(err, "failed to create diagnostic TranslationJob", "name", testJob.name)
+			// Failures are ok - just log and continue with next job
+			logger.V(1).Info("failed to create diagnostic TranslationJob (may already exist)", "name", testJob.name, "error", err)
 			continue
 		}
 
