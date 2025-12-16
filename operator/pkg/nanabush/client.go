@@ -42,6 +42,11 @@ type Client struct {
 
 	// Status change callback (called when status changes)
 	onStatusChange func(Status)
+
+	// Rate limiting: track ongoing translation requests
+	// Limit to 2 concurrent requests to prevent overwhelming the service
+	translateSemaphore chan struct{}
+	maxConcurrentTranslate int
 }
 
 // Config contains configuration for the Nanabush client.
@@ -83,6 +88,10 @@ func NewClient(cfg Config) (*Client, error) {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+
+	// Initialize rate limiting semaphore (max 2 concurrent translation requests)
+	maxConcurrent := 2
+	translateSemaphore := make(chan struct{}, maxConcurrent)
 
 	var opts []grpc.DialOption
 
@@ -161,18 +170,24 @@ func NewClient(cfg Config) (*Client, error) {
 	// Initialize generated client stub
 	client := nanabushv1.NewTranslationServiceClient(conn)
 
+	// Initialize rate limiting semaphore (max 2 concurrent translation requests)
+	maxConcurrent := 2
+	translateSemaphore := make(chan struct{}, maxConcurrent)
+
 	c := &Client{
-		conn:              conn,
-		addr:              cfg.Address,
-		secure:            cfg.Secure,
-		client:            client,
-		clientName:        cfg.ClientName,
-		clientVersion:     cfg.ClientVersion,
-		namespace:         cfg.Namespace,
-		metadata:          cfg.Metadata,
-		heartbeatInterval: 5 * time.Second, // Default: 5 seconds
-		heartbeatStop:     make(chan struct{}),
-		onStatusChange:    cfg.OnStatusChange,
+		conn:                   conn,
+		addr:                   cfg.Address,
+		secure:                 cfg.Secure,
+		client:                 client,
+		clientName:             cfg.ClientName,
+		clientVersion:          cfg.ClientVersion,
+		namespace:              cfg.Namespace,
+		metadata:               cfg.Metadata,
+		heartbeatInterval:      5 * time.Second, // Default: 5 seconds
+		heartbeatStop:          make(chan struct{}),
+		onStatusChange:         cfg.OnStatusChange,
+		translateSemaphore:     translateSemaphore,
+		maxConcurrentTranslate: maxConcurrent,
 	}
 
 	// Register with server
@@ -811,6 +826,19 @@ type TranslateResponse struct {
 func (c *Client) Translate(ctx context.Context, req TranslateRequest) (*TranslateResponse, error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("nanabush: client not initialized")
+	}
+
+	// Rate limiting: acquire semaphore (max 2 concurrent requests)
+	// If semaphore is full, return error to prevent overwhelming the service
+	select {
+	case c.translateSemaphore <- struct{}{}:
+		// Acquired semaphore, release it when done
+		defer func() { <-c.translateSemaphore }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("nanabush: context canceled while waiting for translation slot")
+	default:
+		// Semaphore is full (2 requests already in progress)
+		return nil, fmt.Errorf("nanabush: translation service busy (max %d concurrent requests), please retry later", c.maxConcurrentTranslate)
 	}
 
 	// Build the gRPC request
