@@ -824,6 +824,58 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.Jobs.Update(&job)
 	}
 
+	// Automatic cleanup: Delete old failed/completed jobs to prevent accumulation
+	isDiagnostic := job.Labels != nil && (job.Labels["glooscap.dasmlab.org/diagnostic"] == "true" || strings.HasPrefix(job.Name, "diagnostic-"))
+	
+	if job.Status.State == wikiv1alpha1.TranslationJobStateFailed || job.Status.State == wikiv1alpha1.TranslationJobStateCompleted {
+		// Determine cleanup age based on job type
+		var maxAge time.Duration
+		if isDiagnostic {
+			// Diagnostic jobs: delete after 1 hour (aggressive cleanup for test jobs)
+			maxAge = 1 * time.Hour
+		} else if job.Status.State == wikiv1alpha1.TranslationJobStateFailed {
+			// Regular failed jobs: delete after 24 hours
+			maxAge = 24 * time.Hour
+		} else {
+			// Completed jobs: delete after 48 hours
+			maxAge = 48 * time.Hour
+		}
+
+		// Check when the job reached its final state
+		var stateTime *metav1.Time
+		if job.Status.FinishedAt != nil {
+			// Use FinishedAt if available (most accurate)
+			stateTime = job.Status.FinishedAt
+		} else if job.Status.StartedAt != nil {
+			// Fallback to StartedAt if FinishedAt not set
+			stateTime = job.Status.StartedAt
+		} else {
+			// Last resort: use creation time
+			stateTime = &job.CreationTimestamp
+		}
+
+		if stateTime != nil {
+			age := time.Since(stateTime.Time)
+			if age > maxAge {
+				logger.Info("deleting old job to prevent accumulation",
+					"state", job.Status.State,
+					"age", age,
+					"maxAge", maxAge,
+					"diagnostic", isDiagnostic,
+					"name", job.Name)
+				
+				// Delete the TranslationJob (this will cascade to associated K8s Jobs via owner references)
+				if err := r.Delete(ctx, &job); err != nil {
+					logger.Error(err, "failed to delete old job")
+					// Don't return error - just log and continue
+				} else {
+					r.Recorder.Event(&job, "Normal", "AutoDeleted", fmt.Sprintf("Job auto-deleted after %v (max age: %v)", age, maxAge))
+					return ctrl.Result{}, nil
+				}
+			}
+		}
+	}
+
 	// Do NOT requeue failed jobs - they will just create more pods and fail again
 	// Only requeue queued jobs (waiting to be processed)
 	requeue := ctrl.Result{}
@@ -837,9 +889,11 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		requeue.RequeueAfter = baseDelay + jitter
 	} else if job.Status.State == wikiv1alpha1.TranslationJobStateFailed {
 		// Failed jobs should NOT be requeued - they will just fail again and create more pods
-		// Return empty result to stop reconciliation
-		logger.Info("job failed, not requeuing to prevent pod accumulation", "state", job.Status.State, "message", job.Status.Message)
-		return ctrl.Result{}, nil
+		// But we still want to reconcile periodically to check if they should be auto-deleted
+		// Requeue after 1 hour to check for cleanup
+		logger.V(1).Info("job failed, will check for cleanup later", "state", job.Status.State, "message", job.Status.Message)
+		requeue.RequeueAfter = 1 * time.Hour
+		return requeue, nil
 	}
 
 	return requeue, nil
