@@ -205,13 +205,20 @@ fi
 
 log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
-# Patch the generated install.yaml to use architecture-specific tags
-log_info "Patching install.yaml with architecture-specific image tags..."
+# Patch the generated install.yaml to use architecture-specific tags and LoadBalancer for API service
+log_info "Patching install.yaml with architecture-specific image tags and LoadBalancer service..."
 
 # Patch operator image (may be controller:latest or ghcr.io/dasmlab/glooscap:latest)
 sed -i.bak "s|image:.*controller.*|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|ghcr.io/dasmlab/glooscap:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|controller:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+
+# Patch operator API service to use LoadBalancer (for k3d external access)
+# Add type: LoadBalancer after the ports section for the operator API service
+sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
+  /targetPort: http-api$/a\
+  type: LoadBalancer
+}' "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch translation-runner image
 sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
@@ -222,7 +229,7 @@ sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:loc
 sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
-log_success "install.yaml patched with architecture-specific tags"
+log_success "install.yaml patched with architecture-specific tags and LoadBalancer service"
 
 # Step 5: Create namespace and registry secret
 log_step "Step 4: Creating namespace and registry secret"
@@ -266,6 +273,12 @@ log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
 
 log_success "Operator deployed from dist/install.yaml"
+
+# Patch the operator API service to use LoadBalancer (if not already patched in install.yaml)
+log_info "Ensuring operator API service is exposed as LoadBalancer..."
+kubectl patch service operator-glooscap-operator-api -n "${NAMESPACE}" -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || {
+    log_warn "Failed to patch service (may already be LoadBalancer or service doesn't exist yet)"
+}
 
 # Step 7: Build and push translation-runner image
 log_step "Step 7: Building and pushing translation-runner image"
