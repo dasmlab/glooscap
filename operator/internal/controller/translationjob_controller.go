@@ -595,7 +595,10 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 						// TODO: This should be async, but for now we'll do it synchronously
 						// In production, this should dispatch to a Tekton job or async worker
-						translateResp, err := currentNanabush.Translate(ctx, grpcReq)
+						// Use a longer timeout for translation (5 minutes) to handle large documents
+						translateCtx, translateCancel := context.WithTimeout(ctx, 5*time.Minute)
+						defer translateCancel()
+						translateResp, err := currentNanabush.Translate(translateCtx, grpcReq)
 						if err != nil {
 							logger.Error(err, "translation failed")
 							meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
