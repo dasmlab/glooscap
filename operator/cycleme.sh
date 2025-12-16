@@ -53,9 +53,9 @@ make manifests
 
 # Build a new version of the operator and publish it, bumping SemVer
 # Source gh-pat to get DASMLAB_GHCR_PAT for pushing images
-if [ -f /home/dasm/gh-pat ]; then
-  echo "🔑 Sourcing /home/dasm/gh-pat for image push credentials..."
-  source /home/dasm/gh-pat
+if [ -f "${HOME}/gh-pat" ]; then
+  echo "🔑 Sourcing ${HOME}/gh-pat for image push credentials..."
+  source "${HOME}/gh-pat"
 fi
 echo "🏗️  Building operator image..."
 ./buildme.sh
@@ -72,9 +72,9 @@ sleep 5
 
 # Create a Registry secret with your Token (pullSecret)
 # Source gh-pat to get DASMLAB_GHCR_PAT
-if [ -f /home/dasm/gh-pat ]; then
-  echo "🔑 Sourcing /home/dasm/gh-pat for registry credentials..."
-  source /home/dasm/gh-pat
+if [ -f "${HOME}/gh-pat" ]; then
+  echo "🔑 Sourcing ${HOME}/gh-pat for registry credentials..."
+  source "${HOME}/gh-pat"
 fi
 echo "🔐 Creating registry secret..."
 ./create-registry-secret.sh || echo "⚠️  Warning: Registry secret creation failed"

@@ -9,7 +9,7 @@ app=glooscap
 scratch="scratch"          # your local image tag, e.g., myapp:scratch
 repo="ghcr.io/dasmlab"     # base repo
 buildfile=".lastbuild"     # build counter file
-token_file="/home/dasm/gh_token"  # GitHub token file
+token_file="${HOME}/gh_token"  # GitHub token file
 # ---------------------------------------------------------------
 
 # ensure .lastbuild exists

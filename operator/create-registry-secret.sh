@@ -10,7 +10,7 @@ GHCR_PAT=${DASMLAB_GHCR_PAT}
 NAMESPACE="glooscap-system"
 
 if [ -z "${GHCR_PAT}" ]; then
-  echo "error: DASMLAB_GHCR_PAT is not set. Please source /home/dasm/gh-pat first"
+  echo "error: DASMLAB_GHCR_PAT is not set. Please set it or source ${HOME}/gh-pat first"
   exit 1
 fi
 
