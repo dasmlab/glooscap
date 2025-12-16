@@ -208,6 +208,8 @@ sed -i.bak "s|image: ghcr.io/dasmlab/glooscap:latest|image: ${OPERATOR_IMG}|g" "
 sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-arm64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-amd64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Set imagePullPolicy to IfNotPresent for local k3d development
+sed -i.bak "s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g" "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch VLLM_JOB_IMAGE env var
 RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
