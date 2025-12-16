@@ -178,6 +178,12 @@ fi
 
 log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
+# Patch the generated install.yaml to use correct namespace
+log_info "Patching install.yaml to use namespace: ${NAMESPACE}..."
+sed -i.bak "s|namespace: operator-system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|namespace: system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+log_success "Namespace patched to: ${NAMESPACE}"
+
 # Patch the generated install.yaml to use correct operator image name and architecture-specific tag
 log_info "Patching install.yaml with correct operator image: ${OPERATOR_IMG}..."
 # Fix operator image reference (kustomize might use 'controller' or wrong image name)
@@ -217,6 +223,7 @@ sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:loc
 sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 
+# Clean up all .bak files from sed operations
 rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
 
 # Verify the patch worked
@@ -434,6 +441,18 @@ fi
 # Wait for operator to be ready
 log_info "⏳ Waiting for operator to be ready..."
 # The generated install.yaml uses "operator-controller-manager" as the deployment name
+# First check if the deployment exists
+if ! kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
+    log_error "Operator deployment 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
+    log_info "Checking what deployments exist in namespace:"
+    kubectl get deployments -n "${NAMESPACE}" || true
+    log_info "Checking what pods exist in namespace:"
+    kubectl get pods -n "${NAMESPACE}" || true
+    log_error "Cannot proceed without operator deployment"
+    exit 1
+fi
+
+log_info "Operator deployment found, waiting for it to become available..."
 if kubectl wait --for=condition=available --timeout=10s deployment/operator-controller-manager -n "${NAMESPACE}" 2>/dev/null; then
     log_success "Operator is ready"
 else
@@ -441,6 +460,7 @@ else
     kubectl wait --for=condition=available --timeout=300s deployment/operator-controller-manager -n "${NAMESPACE}" || {
         log_warn "Operator deployment may not be ready yet"
         log_info "Check status with: kubectl get pods -n ${NAMESPACE}"
+        log_info "Check deployment: kubectl describe deployment operator-controller-manager -n ${NAMESPACE}"
     }
 fi
 
