@@ -63,7 +63,9 @@ echo "📤 Pushing operator image..."
 ./pushme.sh
 
 # Deploy CRDs to the Target Cluster (Assumes Kubeconfig is set properly, perms, etc)
-echo "🚀 Deploying to cluster..."
+# Set IMG explicitly to ensure correct image is used
+export IMG="ghcr.io/dasmlab/glooscap:latest"
+echo "🚀 Deploying to cluster with IMG=${IMG}..."
 make install deploy
 
 # Wait for CRDs to be fully registered in the API server
