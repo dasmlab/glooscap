@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # cycleme.sh - Cycles Glooscap installation for macOS FOSS setup
-# Uses make build-installer to generate dist/install.yaml with all CRDs and manifests
+# Uses make install deploy to deploy operator (same as working operator/cycleme.sh)
 # This ensures CRD updates are captured from kubebuilder during development
 #
 # Assumes you have set names and vars appropriately.
@@ -247,11 +247,14 @@ fi
 
 log_success "Registry secret ensured"
 
-# Step 5: Deploy operator using dist/install.yaml (includes CRDs, RBAC, deployment, service account, etc.)
-log_step "Step 5: Deploying operator from dist/install.yaml"
+# Step 5: Deploy operator using make install deploy (like working operator/cycleme.sh)
+log_step "Step 5: Deploying operator using make install deploy"
 
-log_info "Applying dist/install.yaml (includes CRDs, RBAC, deployment, service account, etc.)..."
-kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"
+log_info "Installing CRDs..."
+make install
+
+log_info "Deploying operator..."
+make deploy IMG="${OPERATOR_IMG}"
 
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
