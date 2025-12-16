@@ -220,10 +220,20 @@ sed -i.bak "/image:.*glooscap-operator/a\\
         imagePullPolicy: Always" "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch operator API service to use LoadBalancer (for k3d external access)
-# Add type: LoadBalancer after the ports section for the operator API service
+# Add type: LoadBalancer at the spec level (after ports section)
 sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
-  /targetPort: http-api$/a\
+  /^spec:$/,/^---$/ {
+    /ports:/,/^---$/ {
+      /targetPort: http-api$/a\
   type: LoadBalancer
+    }
+  }
+}' "${OPERATOR_DIR}/dist/install.yaml" || \
+sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
+  /^spec:$/,/^---$/ {
+    /^  selector:$/i\
+  type: LoadBalancer
+  }
 }' "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch translation-runner image

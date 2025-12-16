@@ -138,9 +138,30 @@ sed -i.bak "s|ghcr.io/dasmlab/glooscap:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR
 sed -i.bak "s|controller:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch operator API service to use LoadBalancer
+# Add type: LoadBalancer at the spec level (after ports section)
 sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
-  /targetPort: http-api$/a\
+  /^spec:$/,/^---$/ {
+    /ports:/,/^---$/ {
+      /targetPort: http-api$/a\
   type: LoadBalancer
+    }
+  }
+}' "${OPERATOR_DIR}/dist/install.yaml" || \
+sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
+  /^spec:$/,/^---$/ {
+    /^  ports:$/,/^---$/ {
+      /^    - name: http-api$/,/^---$/ {
+        /^      targetPort: http-api$/a\
+  type: LoadBalancer
+      }
+    }
+  }
+}' "${OPERATOR_DIR}/dist/install.yaml" || \
+sed -i.bak '/name:.*glooscap-operator-api/,/^---$/ {
+  /^spec:$/,/^---$/ {
+    /^  selector:$/i\
+  type: LoadBalancer
+  }
 }' "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch translation-runner image
