@@ -55,43 +55,66 @@ if [[ "$(uname)" != "Darwin" ]]; then
     exit 1
 fi
 
+# Check if kubectl is available
+if ! command -v kubectl &> /dev/null; then
+    log_error "kubectl not found. Please install kubectl first"
+    log_info "Run: ./scripts/setup-macos-env.sh"
+    exit 1
+fi
+
+# Check if cluster is accessible
+log_info "Checking cluster connectivity..."
+if ! kubectl cluster-info &> /dev/null 2>&1; then
+    log_error "Cannot connect to Kubernetes cluster"
+    log_info "Please ensure the cluster is running:"
+    log_info "  Run: ./scripts/start-k3d.sh"
+    log_info "  Or check cluster status: kubectl cluster-info"
+    exit 1
+fi
+log_success "Cluster is accessible"
+
 log_info "🔄 Cycling Glooscap deployment for macOS FOSS..."
 
 # Step 1: Undeploy existing installation
 log_step "Step 1: Undeploying existing Glooscap"
+DELETE_NAMESPACE="${DELETE_NAMESPACE:-true}"  # Default to deleting namespace for cycle
 if [ -f "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" ]; then
-    bash "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" || {
+    DELETE_NAMESPACE="${DELETE_NAMESPACE}" bash "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" || {
         log_warn "Undeploy failed (may not be deployed)"
     }
 else
     log_warn "undeploy-glooscap.sh not found, skipping undeploy"
 fi
 
-# Wait for namespace to fully terminate
-log_info "⏳ Waiting for namespace '${NAMESPACE}' to terminate..."
-if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-    echo "   Namespace exists, waiting for termination..."
-    timeout="${MAX_WAIT}"
-    while [ "${timeout}" -gt 0 ]; do
-        if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-            echo "   ✅ Namespace terminated"
-            break
-        fi
-        phase=$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Terminating")
-        if [ "${phase}" != "Terminating" ] && [ "${phase}" != "Active" ]; then
-            echo "   ✅ Namespace phase: ${phase}"
-            break
-        fi
-        echo "   ⏳ Still terminating... (${timeout}s remaining)"
-        sleep 2
-        timeout=$((timeout - 2))
-    done
-    
+# Wait for namespace to fully terminate (only if we're deleting it)
+if [ "${DELETE_NAMESPACE}" = "true" ]; then
+    log_info "⏳ Waiting for namespace '${NAMESPACE}' to terminate..."
     if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-        echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, proceeding anyway..."
+        echo "   Namespace exists, waiting for termination..."
+        timeout="${MAX_WAIT}"
+        while [ "${timeout}" -gt 0 ]; do
+            if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+                echo "   ✅ Namespace terminated"
+                break
+            fi
+            phase=$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Terminating")
+            if [ "${phase}" != "Terminating" ] && [ "${phase}" != "Active" ]; then
+                echo "   ✅ Namespace phase: ${phase}"
+                break
+            fi
+            echo "   ⏳ Still terminating... (${timeout}s remaining)"
+            sleep 2
+            timeout=$((timeout - 2))
+        done
+        
+        if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+            echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, proceeding anyway..."
+        fi
+    else
+        echo "   ✅ Namespace does not exist, proceeding..."
     fi
 else
-    echo "   ✅ Namespace does not exist, proceeding..."
+    log_info "Namespace preserved (DELETE_NAMESPACE=false), skipping termination wait"
 fi
 
 # Small additional wait
