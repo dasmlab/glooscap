@@ -13,7 +13,7 @@ echo "🔄 Cycling operator deployment..."
 
 # REMOVE OPERATOR AND BITS FIRST
 echo "📦 Undeploying operator..."
-make undeploy uninstall || true
+make undeploy ignore-not-found=true uninstall || true
 
 # Wait for namespace to fully terminate
 echo "⏳ Waiting for namespace '${NAMESPACE}' to terminate..."
