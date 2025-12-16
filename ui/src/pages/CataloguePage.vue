@@ -130,6 +130,20 @@
           </div>
         </q-td>
       </template>
+      <template #body-cell-collection="props">
+        <q-td :props="props">
+          <q-chip
+            v-if="props.row.collection"
+            color="primary"
+            text-color="white"
+            size="sm"
+            icon="folder"
+          >
+            {{ props.row.collection }}
+          </q-chip>
+          <span v-else class="text-grey-6">—</span>
+        </q-td>
+      </template>
     </q-table>
 
     <!-- Translate Confirmation Dialog -->

@@ -92,9 +92,15 @@
               clearable
               @update:model-value="onLeftPageSelected"
             />
-            <div v-if="leftPageUri" class="text-caption text-grey-7 q-mt-xs">
-              <q-icon name="link" size="xs" />
-              {{ leftPageUri }}
+            <div v-if="leftPageUri || leftPageCollection" class="text-caption text-grey-7 q-mt-xs">
+              <div v-if="leftPageCollection" class="q-mb-xs">
+                <q-icon name="folder" size="xs" />
+                <span class="q-ml-xs">Collection: {{ leftPageCollection }}</span>
+              </div>
+              <div v-if="leftPageUri">
+                <q-icon name="link" size="xs" />
+                {{ leftPageUri }}
+              </div>
             </div>
             <!-- Action Buttons -->
             <div class="row q-gutter-sm q-mt-md">
@@ -237,9 +243,15 @@
               clearable
               @update:model-value="onRightPageSelected"
             />
-            <div v-if="rightPageUri" class="text-caption text-grey-7 q-mt-xs">
-              <q-icon name="link" size="xs" />
-              {{ rightPageUri }}
+            <div v-if="rightPageUri || rightPageCollection" class="text-caption text-grey-7 q-mt-xs">
+              <div v-if="rightPageCollection" class="q-mb-xs">
+                <q-icon name="folder" size="xs" />
+                <span class="q-ml-xs">Collection: {{ rightPageCollection }}</span>
+              </div>
+              <div v-if="rightPageUri">
+                <q-icon name="link" size="xs" />
+                {{ rightPageUri }}
+              </div>
             </div>
             <!-- Action Buttons -->
             <div class="row q-gutter-sm q-mt-md">
@@ -427,6 +439,8 @@ const leftPageContent = ref('')
 const rightPageContent = ref('')
 const leftPageUri = ref('')
 const rightPageUri = ref('')
+const leftPageCollection = ref('')
+const rightPageCollection = ref('')
 const leftPageMetadata = ref(null)
 const rightPageMetadata = ref(null)
 const loadingLeftContent = ref(false)
@@ -469,7 +483,7 @@ const pageOptions = computed(() =>
   filteredPages.value.map((page) => ({
     label: page.title || page.slug || 'Untitled',
     value: page.id,
-    caption: `${page.language || 'N/A'} • ${page.slug || ''}`,
+    caption: `${page.language || 'N/A'} • ${page.collection || 'No Collection'} • ${page.slug || ''}`,
   })),
 )
 
@@ -483,7 +497,7 @@ const leftPanelPageOptions = computed(() => {
     .map((page) => ({
       label: page.title || page.slug || 'Untitled',
       value: page.id,
-      caption: page.slug || '',
+      caption: page.collection ? `${page.collection} • ${page.slug || ''}` : (page.slug || ''),
     }))
 })
 
@@ -497,7 +511,7 @@ const rightPanelPageOptions = computed(() => {
     .map((page) => ({
       label: page.title || page.slug || 'Untitled',
       value: page.id,
-      caption: page.slug || '',
+      caption: page.collection ? `${page.collection} • ${page.slug || ''}` : (page.slug || ''),
     }))
 })
 
@@ -529,6 +543,10 @@ watch(leftPanelLang, (newVal) => {
   selectedRightPage.value = null
   leftPageContent.value = ''
   rightPageContent.value = ''
+  leftPageUri.value = ''
+  rightPageUri.value = ''
+  leftPageCollection.value = ''
+  rightPageCollection.value = ''
 })
 
 watch(rightPanelLang, (newVal) => {
@@ -538,6 +556,10 @@ watch(rightPanelLang, (newVal) => {
   selectedRightPage.value = null
   leftPageContent.value = ''
   rightPageContent.value = ''
+  leftPageUri.value = ''
+  rightPageUri.value = ''
+  leftPageCollection.value = ''
+  rightPageCollection.value = ''
 })
 
 // Find matching page in opposite language
@@ -571,6 +593,8 @@ async function onPageSelected(pageId) {
     rightPageContent.value = ''
     leftPageUri.value = ''
     rightPageUri.value = ''
+    leftPageCollection.value = ''
+    rightPageCollection.value = ''
     return
   }
 
@@ -608,6 +632,7 @@ async function onPageSelected(pageId) {
       selectedRightPage.value = null
       rightPageContent.value = ''
       rightPageUri.value = ''
+      rightPageCollection.value = ''
     }
   } else if (pageLang === 'fr') {
     // Display in right panel (French)
@@ -627,6 +652,7 @@ async function onPageSelected(pageId) {
       selectedLeftPage.value = null
       leftPageContent.value = ''
       leftPageUri.value = ''
+      leftPageCollection.value = ''
     }
   } else {
     // Unknown language - prompt user or default to left panel
@@ -644,11 +670,13 @@ async function loadPageContent(panel, pageId, pageMetadata) {
   const loadingRef = panel === 'left' ? loadingLeftContent : loadingRightContent
   const contentRef = panel === 'left' ? leftPageContent : rightPageContent
   const uriRef = panel === 'left' ? leftPageUri : rightPageUri
+  const collectionRef = panel === 'left' ? leftPageCollection : rightPageCollection
   const metadataRef = panel === 'left' ? leftPageMetadata : rightPageMetadata
 
   loadingRef.value = true
   contentRef.value = ''
   uriRef.value = ''
+  collectionRef.value = ''
 
   try {
     const target = catalogueStore.targets.find((t) => t.id === selectedTarget.value)
@@ -673,6 +701,7 @@ async function loadPageContent(panel, pageId, pageMetadata) {
     const markdownContent = content.markdown || ''
     contentRef.value = markdownContent
     uriRef.value = content.metadata?.uri || pageMetadata?.uri || `/${content.slug || pageId}`
+    collectionRef.value = content.metadata?.collection || pageMetadata?.collection || ''
     metadataRef.value = content.metadata || pageMetadata
 
     logToConsole('INFO', `Page content loaded for ${panel} panel`, {
@@ -707,6 +736,7 @@ async function onLeftPageSelected(pageId) {
   if (!pageId) {
     leftPageContent.value = ''
     leftPageUri.value = ''
+    leftPageCollection.value = ''
     return
   }
   
@@ -723,6 +753,7 @@ async function onLeftPageSelected(pageId) {
     selectedRightPage.value = null
     rightPageContent.value = ''
     rightPageUri.value = ''
+    rightPageCollection.value = ''
   }
 }
 
@@ -731,6 +762,7 @@ async function onRightPageSelected(pageId) {
   if (!pageId) {
     rightPageContent.value = ''
     rightPageUri.value = ''
+    rightPageCollection.value = ''
     return
   }
   
@@ -747,6 +779,7 @@ async function onRightPageSelected(pageId) {
     selectedLeftPage.value = null
     leftPageContent.value = ''
     leftPageUri.value = ''
+    leftPageCollection.value = ''
   }
 }
 
