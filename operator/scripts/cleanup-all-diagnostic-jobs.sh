@@ -55,10 +55,12 @@ if [ -n "${DIAG_K8S_JOBS}" ]; then
     if [ "${DRY_RUN}" = "true" ]; then
         echo "   [DRY RUN] Would delete ${COUNT} jobs"
     else
-        echo "   🗑️  Deleting ${COUNT} jobs in batch..."
-        # Use xargs to delete in parallel batches for speed
-        echo "${DIAG_K8S_JOBS}" | grep -v '^$' | xargs -P 10 -I {} kubectl delete job {} -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan 2>/dev/null || true
-        echo "   ✅ Batch deletion complete"
+        echo "   🗑️  Deleting ${COUNT} jobs (using --wait=false to avoid hanging)..."
+        # Delete without waiting - let Kubernetes handle it in background
+        echo "${DIAG_K8S_JOBS}" | grep -v '^$' | while read -r job_name; do
+            [ -n "${job_name}" ] && kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan --wait=false 2>/dev/null || true
+        done
+        echo "   ✅ Deletion commands issued (running in background)"
     fi
 else
     echo "   No diagnostic Kubernetes Jobs found"
@@ -100,10 +102,12 @@ if [ -n "${ALL_FAILED_JOBS}" ]; then
     if [ "${DRY_RUN}" = "true" ]; then
         echo "   [DRY RUN] Would delete ${COUNT} jobs"
     else
-        echo "   🗑️  Deleting ${COUNT} completed/failed jobs in batch..."
-        # Use xargs with parallel processing for speed
-        echo "${ALL_FAILED_JOBS}" | grep -v '^$' | xargs -P 10 -I {} kubectl delete job {} -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan 2>/dev/null || true
-        echo "   ✅ Batch deletion complete"
+        echo "   🗑️  Deleting ${COUNT} completed/failed jobs (using --wait=false to avoid hanging)..."
+        # Delete without waiting - let Kubernetes handle it in background
+        echo "${ALL_FAILED_JOBS}" | grep -v '^$' | while read -r job_name; do
+            [ -n "${job_name}" ] && kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan --wait=false 2>/dev/null || true
+        done
+        echo "   ✅ Deletion commands issued (running in background)"
     fi
 else
     echo "   No completed/failed translation jobs found"
