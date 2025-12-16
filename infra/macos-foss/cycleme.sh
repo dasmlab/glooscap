@@ -78,9 +78,17 @@ log_info "🔄 Cycling Glooscap deployment for macOS FOSS..."
 # Step 1: Undeploy existing installation
 log_step "Step 1: Undeploying existing Glooscap"
 DELETE_NAMESPACE="${DELETE_NAMESPACE:-true}"  # Default to deleting namespace for cycle
+
+# First, try to delete the namespace directly if DELETE_NAMESPACE=true (this handles stuck namespaces)
+if [ "${DELETE_NAMESPACE}" = "true" ]; then
+    log_info "Deleting namespace ${NAMESPACE} (if it exists)..."
+    kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true --timeout=10s 2>/dev/null || true
+fi
+
+# Then run undeploy to clean up resources (this will fail gracefully if nothing is deployed)
 if [ -f "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" ]; then
-    DELETE_NAMESPACE="${DELETE_NAMESPACE}" bash "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" || {
-        log_warn "Undeploy failed (may not be deployed)"
+    DELETE_NAMESPACE="false" bash "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" || {
+        log_warn "Undeploy failed (may not be deployed, continuing...)"
     }
 else
     log_warn "undeploy-glooscap.sh not found, skipping undeploy"
