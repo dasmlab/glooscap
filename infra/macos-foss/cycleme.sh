@@ -178,6 +178,23 @@ fi
 
 log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
+# Patch the generated install.yaml to use correct operator image name and architecture-specific tag
+log_info "Patching install.yaml with correct operator image: ${OPERATOR_IMG}..."
+# Fix operator image reference (kustomize might use 'controller' or wrong image name)
+sed -i.bak "s|image: controller:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|image: ghcr.io/dasmlab/glooscap:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-arm64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-amd64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Verify operator image was patched
+if grep -q "image: ${OPERATOR_IMG}" "${OPERATOR_DIR}/dist/install.yaml"; then
+    log_success "Operator image patched: ${OPERATOR_IMG}"
+else
+    log_warn "Operator image may not have been patched correctly"
+    log_info "Current operator image in install.yaml:"
+    grep "image:" "${OPERATOR_DIR}/dist/install.yaml" | grep -v "translation-runner" | head -1 || true
+fi
+
 # Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
 log_info "Patching install.yaml with architecture-specific translation-runner tag..."
 RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
