@@ -271,14 +271,17 @@ fi
 
 # Verify the operator deployment was created
 log_info "Verifying operator deployment was created..."
+# Wait a moment for deployment to be created
+sleep 2
+# Check what deployments actually exist
+log_info "Checking deployments in namespace ${NAMESPACE}:"
+kubectl get deployments -n "${NAMESPACE}" || true
 if kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
     log_success "Operator deployment found in namespace ${NAMESPACE}"
 else
     log_error "Operator deployment 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
-    log_info "Checking what was actually deployed:"
-    kubectl get all -n "${NAMESPACE}" || true
-    log_info "Checking if deployment exists in wrong namespace:"
-    kubectl get deployment operator-controller-manager -A || true
+    log_info "Checking all namespaces for operator deployment:"
+    kubectl get deployment -A | grep -i controller || true
     exit 1
 fi
 
