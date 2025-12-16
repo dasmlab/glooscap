@@ -68,6 +68,9 @@ func (d *TektonJobDispatcher) Dispatch(ctx context.Context, req Request) error {
 			},
 		},
 		Spec: batchv1.JobSpec{
+			// Set TTL to automatically clean up completed/failed jobs after 1 hour
+			// This prevents accumulation of failed job pods
+			TTLSecondsAfterFinished: ptr.To(int32(3600)), // 1 hour
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{

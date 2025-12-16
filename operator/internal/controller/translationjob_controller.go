@@ -824,6 +824,8 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.Jobs.Update(&job)
 	}
 
+	// Do NOT requeue failed jobs - they will just create more pods and fail again
+	// Only requeue queued jobs (waiting to be processed)
 	requeue := ctrl.Result{}
 	if job.Status.State == wikiv1alpha1.TranslationJobStateQueued {
 		// Use a longer requeue delay for queued jobs to spread out processing
@@ -833,6 +835,11 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Simple hash of job name for jitter (0-30 seconds)
 		jitter := time.Duration(len(job.Name)%30) * time.Second
 		requeue.RequeueAfter = baseDelay + jitter
+	} else if job.Status.State == wikiv1alpha1.TranslationJobStateFailed {
+		// Failed jobs should NOT be requeued - they will just fail again and create more pods
+		// Return empty result to stop reconciliation
+		logger.Info("job failed, not requeuing to prevent pod accumulation", "state", job.Status.State, "message", job.Status.Message)
+		return ctrl.Result{}, nil
 	}
 
 	return requeue, nil
