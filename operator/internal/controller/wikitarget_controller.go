@@ -285,7 +285,7 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 			
 			// Update the WikiTarget to enable TLS skip verification
 			target.Spec.InsecureSkipTLSVerify = true
-			if updateErr := r.Client.Update(ctx, &target); updateErr != nil {
+			if updateErr := r.Client.Update(ctx, target); updateErr != nil {
 				logger.Error(updateErr, "failed to update WikiTarget with InsecureSkipTLSVerify")
 				return fmt.Errorf("list pages: %w (failed to enable TLS skip: %v)", err, updateErr)
 			}
