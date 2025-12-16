@@ -85,7 +85,7 @@ import { useSettingsStore } from 'src/stores/settings-store'
 
 const { t } = useI18n()
 const leftDrawerOpen = ref(false)
-const consoleOpen = ref(true) // Show console by default for debugging
+const consoleOpen = ref(false) // Console closed by default, open with chevron button
 const consoleRef = ref(null)
 const catalogueStore = useCatalogueStore()
 const settingsStore = useSettingsStore()
