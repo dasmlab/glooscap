@@ -49,21 +49,35 @@ fi
 
 log_info "Deploying Glooscap to Kubernetes cluster..."
 
+# Detect architecture for image tag checking
+ARCH=$(uname -m)
+case "${ARCH}" in
+    arm64|aarch64)
+        ARCH_TAG="arm64"
+        ;;
+    x86_64|amd64)
+        ARCH_TAG="amd64"
+        ;;
+    *)
+        ARCH_TAG="unknown"
+        ;;
+esac
+
 # Check if local images exist, offer to build if not
-if ! docker images | grep -q "glooscap-operator.*local"; then
-    log_warn "Local operator image not found (glooscap-operator:local)"
+if ! docker images | grep -q "glooscap-operator.*local-${ARCH_TAG}"; then
+    log_warn "Local operator image not found (glooscap-operator:local-${ARCH_TAG})"
     log_info "To build and load images, run: ./scripts/build-and-load-images.sh"
     log_info "Continuing with deployment (will fail if images not available)..."
 else
-    log_success "Local operator image found"
+    log_success "Local operator image found (local-${ARCH_TAG})"
 fi
 
-if ! docker images | grep -q "glooscap-ui.*local"; then
-    log_warn "Local UI image not found (glooscap-ui:local)"
+if ! docker images | grep -q "glooscap-ui.*local-${ARCH_TAG}"; then
+    log_warn "Local UI image not found (glooscap-ui:local-${ARCH_TAG})"
     log_info "To build and load images, run: ./scripts/build-and-load-images.sh"
     log_info "Continuing with deployment (will fail if images not available)..."
 else
-    log_success "Local UI image found"
+    log_success "Local UI image found (local-${ARCH_TAG})"
 fi
 
 # Create namespace
@@ -87,15 +101,32 @@ log_info "Applying RBAC resources..."
 kubectl apply -f "${MANIFESTS_DIR}/rbac/"
 log_success "RBAC resources applied"
 
-# Apply operator
+# Apply operator (with architecture-specific image tags)
 log_info "Deploying operator..."
-kubectl apply -f "${MANIFESTS_DIR}/operator/"
-log_success "Operator deployed"
+# Patch the deployment to use architecture-specific image tags
+TEMP_DEPLOYMENT=$(mktemp)
+cp "${MANIFESTS_DIR}/operator/deployment.yaml" "${TEMP_DEPLOYMENT}"
+# Update image tags to match detected architecture (both operator and runner)
+sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
+sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
+# Also update VLLM_JOB_IMAGE env var if it exists
+sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
+sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
+kubectl apply -f "${TEMP_DEPLOYMENT}"
+rm -f "${TEMP_DEPLOYMENT}" "${TEMP_DEPLOYMENT}.bak"
+log_success "Operator deployed with architecture-specific tags (${ARCH_TAG})"
 
-# Apply UI
+# Apply UI (with architecture-specific image tags)
 log_info "Deploying UI..."
-kubectl apply -f "${MANIFESTS_DIR}/ui/"
-log_success "UI deployed"
+# Patch the deployment to use architecture-specific image tags
+TEMP_UI_DEPLOYMENT=$(mktemp)
+cp "${MANIFESTS_DIR}/ui/deployment.yaml" "${TEMP_UI_DEPLOYMENT}"
+# Update image tags to match detected architecture
+sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
+sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
+kubectl apply -f "${TEMP_UI_DEPLOYMENT}"
+rm -f "${TEMP_UI_DEPLOYMENT}" "${TEMP_UI_DEPLOYMENT}.bak"
+log_success "UI deployed with architecture-specific tags (${ARCH_TAG})"
 
 # Wait for operator to be ready (idempotent - won't fail if already ready)
 log_info "Waiting for operator to be ready..."

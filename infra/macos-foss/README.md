@@ -88,6 +88,21 @@ See the [scripts/](scripts/) directory for individual scripts:
 - `stop-k3d.sh` - Stop cluster
 - `remove-k3d.sh` - Remove cluster
 
+### Development Cycle (with CRD updates)
+
+For development work that includes CRD changes, use `cycleme.sh` which:
+- Generates manifests and CRDs using kubebuilder
+- Builds the consolidated `dist/install.yaml` using `make build-installer`
+- Builds and pushes architecture-specific images
+- Deploys everything from the generated installer
+
+```bash
+export DASMLAB_GHCR_PAT=your_github_token
+./cycleme.sh
+```
+
+This ensures all CRD updates from kubebuilder are captured in the deployment.
+
 ### Full Cycle Test
 
 Run the complete development cycle (setup → start → build → deploy → undeploy → stop → remove):

@@ -55,6 +55,7 @@ log_info "Detected architecture: ${ARCH} (tag: ${ARCH_TAG})"
 REGISTRY="ghcr.io/dasmlab"
 OPERATOR_IMG="${REGISTRY}/glooscap-operator:local-${ARCH_TAG}"
 UI_IMG="${REGISTRY}/glooscap-ui:local-${ARCH_TAG}"
+RUNNER_IMG="${REGISTRY}/glooscap-translation-runner:local-${ARCH_TAG}"
 
 # Check for GitHub token
 GHCR_PAT="${DASMLAB_GHCR_PAT:-}"
@@ -124,12 +125,46 @@ docker push "${UI_IMG}" || {
 }
 log_success "UI image pushed: ${UI_IMG}"
 
+# Build translation-runner image
+log_info "Building translation-runner image..."
+cd "${PROJECT_ROOT}"
+if [ -f "${PROJECT_ROOT}/translation-runner/build.sh" ]; then
+    # Use the build script with architecture-specific tag
+    # The build script will create both the specified tag and "latest"
+    bash "${PROJECT_ROOT}/translation-runner/build.sh" "local-${ARCH_TAG}" || {
+        log_error "Failed to build translation-runner image"
+        exit 1
+    }
+    # Ensure the architecture-specific tag exists (build.sh may have created it)
+    if ! docker images | grep -q "glooscap-translation-runner.*local-${ARCH_TAG}"; then
+        # Tag from latest if needed
+        docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
+            log_error "Failed to tag translation-runner image"
+            exit 1
+        }
+    fi
+else
+    log_error "translation-runner/build.sh not found"
+    exit 1
+fi
+log_success "Translation-runner image built: ${RUNNER_IMG}"
+
+# Push translation-runner image
+log_info "Pushing translation-runner image to registry..."
+docker push "${RUNNER_IMG}" || {
+    log_error "Failed to push translation-runner image"
+    exit 1
+}
+log_success "Translation-runner image pushed: ${RUNNER_IMG}"
+
 log_success "All images built and pushed successfully!"
 log_info "Images available in registry:"
 echo "  - ${OPERATOR_IMG}"
 echo "  - ${UI_IMG}"
+echo "  - ${RUNNER_IMG}"
 echo ""
 log_info "Deployment manifests should use these images:"
 echo "  operator: image: ${OPERATOR_IMG}"
 echo "  ui: image: ${UI_IMG}"
+echo "  translation-runner (VLLM_JOB_IMAGE): ${RUNNER_IMG}"
 

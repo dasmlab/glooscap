@@ -35,7 +35,8 @@ spec:
         # Built and pushed by build-and-load-images.sh with tags like:
         # - ghcr.io/dasmlab/glooscap-operator:local-arm64 (for macOS ARM/Apple Silicon)
         # - ghcr.io/dasmlab/glooscap-operator:local-amd64 (for macOS Intel/Linux)
-        # To use production image, change to: ghcr.io/dasmlab/glooscap-operator:latest
+        # For production, use: ghcr.io/dasmlab/glooscap-operator:latest (Linux/amd64)
+        # or: ghcr.io/dasmlab/glooscap-operator:latest-arm64 (macOS ARM)
         image: ghcr.io/dasmlab/glooscap-operator:local-arm64
         imagePullPolicy: IfNotPresent
         name: manager
@@ -70,7 +71,10 @@ spec:
         - name: VLLM_JOB_NAMESPACE
           value: nanabush
         - name: VLLM_JOB_IMAGE
-          value: quay.io/dasmlab/vllm-runner:latest
+          # Architecture-specific tag for translation-runner
+          # Use local-arm64 for macOS ARM, local-amd64 for macOS Intel
+          # For production: latest (Linux/amd64) or latest-arm64 (macOS ARM)
+          value: ghcr.io/dasmlab/glooscap-translation-runner:local-arm64
         - name: VLLM_API_URL
           value: http://vllm.nanabush.svc:8000
         # Translation service configuration (can be set via UI at runtime)

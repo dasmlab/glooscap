@@ -25,7 +25,8 @@ spec:
         # Built and pushed by build-and-load-images.sh with tags like:
         # - ghcr.io/dasmlab/glooscap-ui:local-arm64 (for macOS ARM/Apple Silicon)
         # - ghcr.io/dasmlab/glooscap-ui:local-amd64 (for macOS Intel/Linux)
-        # To use production image, change to: ghcr.io/dasmlab/glooscap-ui:latest
+        # For production, use: ghcr.io/dasmlab/glooscap-ui:latest (Linux/amd64)
+        # or: ghcr.io/dasmlab/glooscap-ui:latest-arm64 (macOS ARM)
         image: ghcr.io/dasmlab/glooscap-ui:local-arm64
         imagePullPolicy: IfNotPresent
         env:

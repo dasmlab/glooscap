@@ -106,7 +106,7 @@ else
     DOCKER_VERSION=$(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0.0")
     DOCKER_MAJOR=$(echo "${DOCKER_VERSION}" | cut -d. -f1)
     DOCKER_MINOR=$(echo "${DOCKER_VERSION}" | cut -d. -f2)
-    
+
     # Docker 24.0+ supports API 1.44+, but we'll check for 20.10+ as minimum
     if [ "${DOCKER_MAJOR}" -lt 20 ] || ([ "${DOCKER_MAJOR}" -eq 20 ] && [ "${DOCKER_MINOR}" -lt 10 ]); then
         log_warn "Docker CLI version ${DOCKER_VERSION} may be too old (needs API 1.44+)"
@@ -117,6 +117,31 @@ else
         }
     else
         log_success "Docker CLI is installed: $(docker --version 2>/dev/null || echo 'installed')"
+    fi
+fi
+
+# Install docker-buildx (required for cross-platform builds)
+if ! docker buildx version &> /dev/null; then
+    log_info "Installing docker-buildx (required for cross-platform builds)..."
+    brew install docker-buildx
+    log_success "docker-buildx installed"
+    
+    # Create buildx builder if it doesn't exist
+    if ! docker buildx ls | grep -q "default"; then
+        log_info "Creating default buildx builder..."
+        docker buildx create --name default --use || {
+            log_warn "Failed to create buildx builder, continuing anyway"
+        }
+    fi
+else
+    log_success "docker-buildx already installed: $(docker buildx version 2>/dev/null | head -n1 || echo 'installed')"
+    
+    # Ensure buildx builder exists
+    if ! docker buildx ls | grep -q "default"; then
+        log_info "Creating default buildx builder..."
+        docker buildx create --name default --use || {
+            log_warn "Failed to create buildx builder, continuing anyway"
+        }
     fi
 fi
 
@@ -299,6 +324,11 @@ log_info "Verifying installations..."
 
 if check_command docker; then
     log_success "✓ Docker CLI: $(docker --version 2>/dev/null || echo 'installed')"
+    if docker buildx version &> /dev/null; then
+        log_success "✓ docker-buildx: $(docker buildx version 2>/dev/null | head -n1 || echo 'installed')"
+    else
+        log_warn "⚠ docker-buildx not found (required for cross-platform builds)"
+    fi
 else
     log_error "✗ Docker CLI not found"
 fi
