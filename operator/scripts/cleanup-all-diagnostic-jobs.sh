@@ -52,16 +52,14 @@ DIAG_K8S_JOBS=$(kubectl get jobs -n "${NAMESPACE}" -o json 2>/dev/null | \
 if [ -n "${DIAG_K8S_JOBS}" ]; then
     COUNT=$(echo "${DIAG_K8S_JOBS}" | grep -v '^$' | wc -l)
     echo "   Found ${COUNT} diagnostic Kubernetes Jobs"
-    echo "${DIAG_K8S_JOBS}" | grep -v '^$' | while read -r job_name; do
-        if [ -n "${job_name}" ]; then
-            if [ "${DRY_RUN}" = "true" ]; then
-                echo "   [DRY RUN] Would delete Job: ${job_name}"
-            else
-                echo "   🗑️  Deleting Job: ${job_name}"
-                kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan || true
-            fi
-        fi
-    done
+    if [ "${DRY_RUN}" = "true" ]; then
+        echo "   [DRY RUN] Would delete ${COUNT} jobs"
+    else
+        echo "   🗑️  Deleting ${COUNT} jobs in batch..."
+        # Use xargs to delete in parallel batches for speed
+        echo "${DIAG_K8S_JOBS}" | grep -v '^$' | xargs -P 10 -I {} kubectl delete job {} -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan 2>/dev/null || true
+        echo "   ✅ Batch deletion complete"
+    fi
 else
     echo "   No diagnostic Kubernetes Jobs found"
 fi
@@ -78,16 +76,14 @@ DIAG_PODS=$(kubectl get pods -n "${NAMESPACE}" -o json 2>/dev/null | \
 if [ -n "${DIAG_PODS}" ]; then
     COUNT=$(echo "${DIAG_PODS}" | grep -v '^$' | wc -l)
     echo "   Found ${COUNT} diagnostic Pods"
-    echo "${DIAG_PODS}" | grep -v '^$' | while read -r pod_name; do
-        if [ -n "${pod_name}" ]; then
-            if [ "${DRY_RUN}" = "true" ]; then
-                echo "   [DRY RUN] Would delete Pod: ${pod_name}"
-            else
-                echo "   🗑️  Deleting Pod: ${pod_name}"
-                kubectl delete pod "${pod_name}" -n "${NAMESPACE}" --ignore-not-found=true || true
-            fi
-        fi
-    done
+    if [ "${DRY_RUN}" = "true" ]; then
+        echo "   [DRY RUN] Would delete ${COUNT} pods"
+    else
+        echo "   🗑️  Deleting ${COUNT} pods in batch..."
+        # Use xargs with parallel processing for speed
+        echo "${DIAG_PODS}" | grep -v '^$' | xargs -P 10 -I {} kubectl delete pod {} -n "${NAMESPACE}" --ignore-not-found=true 2>/dev/null || true
+        echo "   ✅ Batch deletion complete"
+    fi
 else
     echo "   No diagnostic Pods found"
 fi
@@ -96,16 +92,18 @@ fi
 echo ""
 echo "📋 Finding ALL completed/failed translation jobs..."
 ALL_FAILED_JOBS=$(kubectl get jobs -n "${NAMESPACE}" -o json 2>/dev/null | \
-    jq -r '.items[] | select(.status.succeeded > 0 or .status.failed > 0) | select(.metadata.name | startswith("translation-")) | .metadata.name' || echo "")
+    jq -r '.items[] | select(.status.succeeded > 0 or .status.failed > 0) | select(.metadata.name != null and (.metadata.name | type == "string") and (.metadata.name | startswith("translation-"))) | .metadata.name' 2>/dev/null || echo "")
 
 if [ -n "${ALL_FAILED_JOBS}" ]; then
-    COUNT=$(echo "${ALL_FAILED_JOBS}" | wc -l)
+    COUNT=$(echo "${ALL_FAILED_JOBS}" | grep -v '^$' | wc -l)
     echo "   Found ${COUNT} completed/failed translation jobs"
     if [ "${DRY_RUN}" = "true" ]; then
         echo "   [DRY RUN] Would delete ${COUNT} jobs"
     else
-        echo "   🗑️  Deleting ${COUNT} completed/failed jobs..."
-        echo "${ALL_FAILED_JOBS}" | xargs -I {} kubectl delete job {} -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan || true
+        echo "   🗑️  Deleting ${COUNT} completed/failed jobs in batch..."
+        # Use xargs with parallel processing for speed
+        echo "${ALL_FAILED_JOBS}" | grep -v '^$' | xargs -P 10 -I {} kubectl delete job {} -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan 2>/dev/null || true
+        echo "   ✅ Batch deletion complete"
     fi
 else
     echo "   No completed/failed translation jobs found"
