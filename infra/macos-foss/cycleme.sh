@@ -253,19 +253,6 @@ make deploy IMG="${OPERATOR_IMG}"
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
 
-# Verify service account was created
-log_info "Verifying service account exists..."
-if kubectl get serviceaccount operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
-    log_success "Service account found: operator-controller-manager"
-else
-    log_error "Service account 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
-    log_info "Checking what service accounts exist:"
-    kubectl get serviceaccounts -n "${NAMESPACE}" || true
-    log_info "Checking if service account exists in wrong namespace:"
-    kubectl get serviceaccount operator-controller-manager -A || true
-    exit 1
-fi
-
 # Patch VLLM_JOB_IMAGE env var in the operator deployment if needed
 RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
 if kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
