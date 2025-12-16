@@ -180,16 +180,41 @@ log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
 log_info "Patching install.yaml with architecture-specific translation-runner tag..."
-# Replace full registry paths
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Also replace image names without registry (for backwards compatibility)
+RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
+
+# Replace VLLM_JOB_IMAGE env var value (handle various YAML formats)
+# Pattern 1: value: ghcr.io/dasmlab/glooscap-translation-runner:latest
+sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:latest|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Pattern 2: value: "ghcr.io/dasmlab/glooscap-translation-runner:latest" (quoted)
+sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:latest\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:local-arm64\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:local-amd64\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Pattern 3: Just the image reference (for any other places)
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Pattern 4: Image names without registry (for backwards compatibility)
 sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+
 rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
-log_success "install.yaml patched with architecture-specific tags"
+
+# Verify the patch worked
+if grep -q "VLLM_JOB_IMAGE" "${OPERATOR_DIR}/dist/install.yaml"; then
+    if grep -q "value:.*${RUNNER_IMG_VALUE}" "${OPERATOR_DIR}/dist/install.yaml" || grep -q "value:.*glooscap-translation-runner:local-${ARCH_TAG}" "${OPERATOR_DIR}/dist/install.yaml"; then
+        log_success "install.yaml patched with architecture-specific tags"
+        log_info "VLLM_JOB_IMAGE set to: ${RUNNER_IMG_VALUE}"
+    else
+        log_warn "VLLM_JOB_IMAGE found but may not have been patched correctly"
+        log_info "Current VLLM_JOB_IMAGE value:"
+        grep -A 1 "VLLM_JOB_IMAGE" "${OPERATOR_DIR}/dist/install.yaml" | grep "value:" || true
+    fi
+else
+    log_warn "VLLM_JOB_IMAGE not found in install.yaml (may not be needed)"
+fi
 
 # Step 3: Build and push operator image
 log_step "Step 3: Building and pushing operator image"
