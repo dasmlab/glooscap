@@ -218,18 +218,22 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		return fmt.Errorf("create outline client: %w", err)
 	}
 
-	logger.Info("fetching pages from outline", "uri", target.Spec.URI)
+	logger.Info("fetching pages from outline", "uri", target.Spec.URI, "InsecureSkipTLSVerify", target.Spec.InsecureSkipTLSVerify)
 	pages, err := client.ListPages(ctx)
 	if err != nil {
 		// Check if this is a TLS certificate error and we haven't enabled skip verification yet
+		// Check both the error string and unwrap to check for underlying TLS errors
 		errStr := err.Error()
-		isCertError := strings.Contains(errStr, "certificate") || 
-			strings.Contains(errStr, "x509") || 
-			strings.Contains(errStr, "unknown authority") ||
-			strings.Contains(errStr, "certificate signed by unknown") ||
-			strings.Contains(errStr, "failed to verify certificate")
+		errStrLower := strings.ToLower(errStr)
+		isCertError := strings.Contains(errStrLower, "certificate") || 
+			strings.Contains(errStrLower, "x509") || 
+			strings.Contains(errStrLower, "unknown authority") ||
+			strings.Contains(errStrLower, "certificate signed by unknown") ||
+			strings.Contains(errStrLower, "failed to verify certificate") ||
+			strings.Contains(errStrLower, "tls:") ||
+			strings.Contains(errStrLower, "tls handshake")
 		
-		logger.Info("ListPages error", "error", errStr, "isCertError", isCertError, "InsecureSkipTLSVerify", target.Spec.InsecureSkipTLSVerify)
+		logger.Info("ListPages error detected", "error", errStr, "isCertError", isCertError, "InsecureSkipTLSVerify", target.Spec.InsecureSkipTLSVerify)
 		
 		if isCertError && !target.Spec.InsecureSkipTLSVerify {
 			logger.Info("TLS certificate error detected, automatically enabling InsecureSkipTLSVerify and retrying",
