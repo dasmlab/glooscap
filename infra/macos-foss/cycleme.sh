@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # cycleme.sh - Cycles Glooscap installation for macOS FOSS setup
-# Uses make install deploy to deploy operator (same as working operator/cycleme.sh)
+# Uses make build-installer to generate dist/install.yaml with all CRDs and manifests
 # This ensures CRD updates are captured from kubebuilder during development
 #
 # Assumes you have set names and vars appropriately.
@@ -78,21 +78,12 @@ log_info "🔄 Cycling Glooscap deployment for macOS FOSS..."
 # Step 1: Undeploy existing installation
 log_step "Step 1: Undeploying existing Glooscap"
 DELETE_NAMESPACE="${DELETE_NAMESPACE:-true}"  # Default to deleting namespace for cycle
-
-# First, try to delete the namespace directly if DELETE_NAMESPACE=true (this handles stuck namespaces)
-if [ "${DELETE_NAMESPACE}" = "true" ]; then
-    log_info "Deleting namespace ${NAMESPACE} (if it exists)..."
-    kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true --timeout=10s 2>/dev/null || true
-fi
-
-# Then run undeploy to clean up resources (this will fail gracefully if nothing is deployed)
-UNDEPLOY_SCRIPT="${SCRIPT_DIR}/scripts/undeploy-glooscap.sh"
-if [ -f "${UNDEPLOY_SCRIPT}" ]; then
-    DELETE_NAMESPACE="false" bash "${UNDEPLOY_SCRIPT}" || {
-        log_warn "Undeploy failed (may not be deployed, continuing...)"
+if [ -f "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" ]; then
+    DELETE_NAMESPACE="${DELETE_NAMESPACE}" bash "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" || {
+        log_warn "Undeploy failed (may not be deployed)"
     }
 else
-    log_warn "undeploy-glooscap.sh not found at ${UNDEPLOY_SCRIPT}, skipping undeploy"
+    log_warn "undeploy-glooscap.sh not found, skipping undeploy"
 fi
 
 # Wait for namespace to fully terminate (only if we're deleting it)
@@ -117,15 +108,7 @@ if [ "${DELETE_NAMESPACE}" = "true" ]; then
         done
         
         if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-            echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, attempting force delete..."
-            kubectl delete namespace "${NAMESPACE}" --force --grace-period=0 --timeout=10s 2>/dev/null || true
-            sleep 3
-            if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-                echo "   ⚠️  Warning: Namespace still exists after force delete, proceeding anyway..."
-                echo "   💡 You may need to manually clean up: kubectl delete namespace ${NAMESPACE} --force --grace-period=0"
-            else
-                echo "   ✅ Namespace force deleted"
-            fi
+            echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, proceeding anyway..."
         fi
     else
         echo "   ✅ Namespace does not exist, proceeding..."
@@ -138,8 +121,8 @@ fi
 log_info "⏳ Brief pause for API server to catch up..."
 sleep 3
 
-# Step 2: Generate manifests and determine architecture
-log_step "Step 2: Generating manifests"
+# Step 2: Generate manifests and build installer
+log_step "Step 2: Generating manifests and building installer"
 cd "${OPERATOR_DIR}"
 
 log_info "Generating code..."
@@ -148,6 +131,7 @@ make generate
 log_info "Generating manifests (CRDs, RBAC, etc)..."
 make manifests
 
+log_info "Building installer (generating dist/install.yaml)..."
 # Set IMG to the architecture-specific image we'll build
 ARCH=$(uname -m)
 case "${ARCH}" in
@@ -163,9 +147,7 @@ case "${ARCH}" in
 esac
 
 OPERATOR_IMG="ghcr.io/dasmlab/glooscap-operator:local-${ARCH_TAG}"
-UI_IMG="ghcr.io/dasmlab/glooscap-ui:local-${ARCH_TAG}"
 log_info "Using operator image: ${OPERATOR_IMG}"
-log_info "Using UI image: ${UI_IMG}"
 
 # Ensure kustomization uses the correct namespace
 KUSTOMIZATION_FILE="${OPERATOR_DIR}/config/default/kustomization.yaml"
@@ -179,13 +161,41 @@ else
     RESTORE_KUSTOMIZATION=false
 fi
 
-# Step 3: Build and push operator image using build-and-load-images.sh
+make build-installer IMG="${OPERATOR_IMG}"
+
+# Restore original namespace if we changed it
+if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
+    log_info "Restoring original kustomization namespace..."
+    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
+fi
+
+if [ ! -f "${OPERATOR_DIR}/dist/install.yaml" ]; then
+    log_error "dist/install.yaml was not generated"
+    exit 1
+fi
+
+log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
+
+# Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
+log_info "Patching install.yaml with architecture-specific translation-runner tag..."
+# Replace full registry paths
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Also replace image names without registry (for backwards compatibility)
+sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
+log_success "install.yaml patched with architecture-specific tags"
+
+# Step 3: Build and push operator image
 log_step "Step 3: Building and pushing operator image"
 
 # Source gh-pat to get DASMLAB_GHCR_PAT for pushing images
-if [ -f "${HOME}/gh-pat" ]; then
+if [ -f ${HOME}/gh-pat ]; then
     log_info "🔑 Sourcing ${HOME}/gh-pat for image push credentials..."
-    source "${HOME}/gh-pat"
+    source ${HOME}/gh-pat
 fi
 
 if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
@@ -194,17 +204,23 @@ if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
     exit 1
 fi
 
-log_info "🏗️  Building and pushing operator image using build-and-load-images.sh..."
-if [ -f "${SCRIPT_DIR}/scripts/build-and-load-images.sh" ]; then
-    bash "${SCRIPT_DIR}/scripts/build-and-load-images.sh" || {
-        log_error "Failed to build and push images"
-        exit 1
-    }
-    log_success "Images built and pushed"
+log_info "🏗️  Building operator image..."
+if [ -f "${OPERATOR_DIR}/buildme.sh" ]; then
+    bash "${OPERATOR_DIR}/buildme.sh"
 else
-    log_error "build-and-load-images.sh not found at ${SCRIPT_DIR}/scripts/build-and-load-images.sh"
+    log_error "buildme.sh not found in operator directory"
     exit 1
 fi
+
+log_info "📤 Pushing operator image..."
+if [ -f "${OPERATOR_DIR}/pushme.sh" ]; then
+    bash "${OPERATOR_DIR}/pushme.sh"
+else
+    log_error "pushme.sh not found in operator directory"
+    exit 1
+fi
+
+log_success "Operator image built and pushed: ${OPERATOR_IMG}"
 
 # Step 4: Create namespace and registry secret
 log_step "Step 4: Creating namespace and registry secret"
@@ -238,59 +254,16 @@ fi
 
 log_success "Registry secret ensured"
 
-# Step 5: Deploy operator using make install deploy (like working operator/cycleme.sh)
-log_step "Step 5: Deploying operator using make install deploy"
+# Step 5: Deploy operator using generated install.yaml
+log_step "Step 5: Deploying operator from dist/install.yaml"
 
-log_info "Installing CRDs..."
-make install
-
-log_info "Deploying operator..."
-# Set IMG environment variable for make deploy (like working operator/cycleme.sh)
-export IMG="${OPERATOR_IMG}"
-make deploy
+log_info "Applying dist/install.yaml (includes CRDs and operator deployment)..."
+kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"
 
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
 
-# Restore original namespace if we changed it (after deploying)
-if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
-    log_info "Restoring original kustomization namespace..."
-    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
-fi
-
-# Patch VLLM_JOB_IMAGE env var in the operator deployment if needed
-RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
-if kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
-    log_info "Patching VLLM_JOB_IMAGE env var in operator deployment..."
-    kubectl set env deployment/operator-controller-manager -n "${NAMESPACE}" \
-        VLLM_JOB_IMAGE="${RUNNER_IMG_VALUE}" || {
-        log_warn "Failed to set VLLM_JOB_IMAGE (may not be needed)"
-    }
-fi
-
-# Verify the operator deployment was created
-log_info "Verifying operator deployment was created..."
-# Wait a moment for deployment to be created
-sleep 2
-# Check what deployments actually exist
-log_info "Checking deployments in namespace ${NAMESPACE}:"
-kubectl get deployments -n "${NAMESPACE}" || true
-if kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
-    log_success "Operator deployment found in namespace ${NAMESPACE}"
-else
-    log_error "Operator deployment 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
-    log_info "Checking all namespaces for operator deployment:"
-    kubectl get deployment -A | grep -i controller || true
-    exit 1
-fi
-
-# Restore original namespace if we changed it
-if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
-    log_info "Restoring original kustomization namespace..."
-    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
-fi
-
-log_success "Operator deployed"
+log_success "Operator deployed from dist/install.yaml"
 
 # Step 6: Build and push UI image
 log_step "Step 6: Building and pushing UI image"
@@ -298,33 +271,22 @@ log_step "Step 6: Building and pushing UI image"
 cd "${UI_DIR}"
 
 log_info "🏗️  Building UI image..."
-# Use buildme.sh if available, otherwise use docker build directly
-if [ -f "./buildme.sh" ]; then
-    # buildme.sh builds with tag "scratch", we'll retag
-    ./buildme.sh || {
-        log_error "Failed to build UI image"
-        exit 1
-    }
-    docker tag glooscap-ui:scratch "${UI_IMG}" || {
-        log_error "Failed to tag UI image"
-        exit 1
-    }
+if [ -f "${UI_DIR}/buildme.sh" ]; then
+    bash "${UI_DIR}/buildme.sh"
 else
-    # Fallback to docker build
-    log_info "Using docker build (buildme.sh not found)"
-    docker build --tag "${UI_IMG}" . || {
-        log_error "Failed to build UI image"
-        exit 1
-    }
+    log_error "buildme.sh not found in UI directory"
+    exit 1
 fi
-log_success "UI image built: ${UI_IMG}"
 
 log_info "📤 Pushing UI image..."
-docker push "${UI_IMG}" || {
-    log_error "Failed to push UI image"
+if [ -f "${UI_DIR}/pushme.sh" ]; then
+    bash "${UI_DIR}/pushme.sh"
+else
+    log_error "pushme.sh not found in UI directory"
     exit 1
-}
-log_success "UI image pushed: ${UI_IMG}"
+fi
+
+log_success "UI image built and pushed"
 
 # Build and push translation-runner image
 log_info "🏗️  Building translation-runner image..."
@@ -341,26 +303,17 @@ if [ -f "${BUILD_SCRIPT}" ]; then
     }
     # The build script creates: ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}
     # and also tags it as: ghcr.io/dasmlab/glooscap-translation-runner:latest
-    # Verify the architecture-specific tag exists
-    log_info "Verifying translation-runner image exists locally..."
+    # Verify the architecture-specific tag exists, if not tag from latest
     if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG}$"; then
-        log_info "Architecture-specific tag not found, checking for latest tag..."
-        if docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG%:*}:latest$"; then
-            log_info "Tagging from latest..."
-            docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
-                log_error "Failed to tag translation-runner from latest"
-                log_info "Available translation-runner images:"
-                docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
-                exit 1
-            }
-        else
-            log_error "Translation-runner image not found locally"
+        log_info "Architecture-specific tag not found, tagging from latest..."
+        docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
+            log_warn "Failed to tag translation-runner, trying to push latest"
             log_info "Available translation-runner images:"
             docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
-            exit 1
-        fi
+            RUNNER_IMG="${RUNNER_IMG%:*}:latest"
+        }
     fi
-    log_success "Verified translation-runner image exists: ${RUNNER_IMG}"
+    log_info "Verified translation-runner image exists: ${RUNNER_IMG}"
     log_info "📤 Pushing translation-runner image..."
     docker push "${RUNNER_IMG}" || {
         log_error "Failed to push translation-runner image"
@@ -378,15 +331,8 @@ log_step "Step 7: Deploying UI"
 
 log_info "Applying UI manifests..."
 if [ -f "${SCRIPT_DIR}/manifests/ui/deployment.yaml" ]; then
-    # Patch UI deployment to use architecture-specific image tag
-    TEMP_UI_DEPLOYMENT=$(mktemp)
-    cp "${SCRIPT_DIR}/manifests/ui/deployment.yaml" "${TEMP_UI_DEPLOYMENT}"
-    # Update image tags to match detected architecture
-    sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
-    sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
-    kubectl apply -f "${TEMP_UI_DEPLOYMENT}"
-    rm -f "${TEMP_UI_DEPLOYMENT}" "${TEMP_UI_DEPLOYMENT}.bak"
-    log_success "UI deployed with architecture-specific tag (${ARCH_TAG})"
+    kubectl apply -f "${SCRIPT_DIR}/manifests/ui/"
+    log_success "UI deployed"
 else
     log_warn "UI manifests not found at ${SCRIPT_DIR}/manifests/ui/"
 fi
@@ -420,18 +366,6 @@ fi
 # Wait for operator to be ready
 log_info "⏳ Waiting for operator to be ready..."
 # The generated install.yaml uses "operator-controller-manager" as the deployment name
-# First check if the deployment exists
-if ! kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
-    log_error "Operator deployment 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
-    log_info "Checking what deployments exist in namespace:"
-    kubectl get deployments -n "${NAMESPACE}" || true
-    log_info "Checking what pods exist in namespace:"
-    kubectl get pods -n "${NAMESPACE}" || true
-    log_error "Cannot proceed without operator deployment"
-    exit 1
-fi
-
-log_info "Operator deployment found, waiting for it to become available..."
 if kubectl wait --for=condition=available --timeout=10s deployment/operator-controller-manager -n "${NAMESPACE}" 2>/dev/null; then
     log_success "Operator is ready"
 else
@@ -439,7 +373,6 @@ else
     kubectl wait --for=condition=available --timeout=300s deployment/operator-controller-manager -n "${NAMESPACE}" || {
         log_warn "Operator deployment may not be ready yet"
         log_info "Check status with: kubectl get pods -n ${NAMESPACE}"
-        log_info "Check deployment: kubectl describe deployment operator-controller-manager -n ${NAMESPACE}"
     }
 fi
 
