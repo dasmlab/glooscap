@@ -75,7 +75,7 @@ func (r *TranslationServiceReconciler) Reconcile(ctx context.Context, req ctrl.R
 				*r.NanabushClient = nil
 			}
 			r.NanabushClientMu.Unlock()
-			
+
 			// Trigger SSE broadcast
 			select {
 			case r.NanabushStatusCh <- struct{}{}:
@@ -96,7 +96,7 @@ func (r *TranslationServiceReconciler) Reconcile(ctx context.Context, req ctrl.R
 		lastAppliedSpec = ts.Annotations["glooscap.dasmlab.org/last-applied-spec"]
 	}
 	currentSpec := fmt.Sprintf("%s|%s|%v", ts.Spec.Address, ts.Spec.Type, ts.Spec.Secure)
-	
+
 	specChanged := false
 	r.NanabushClientMu.RLock()
 	hasClient := *r.NanabushClient != nil
@@ -418,4 +418,3 @@ func (r *TranslationServiceReconciler) SetupWithManager(mgr ctrl.Manager) error 
 		Named("translationservice").
 		Complete(r)
 }
-

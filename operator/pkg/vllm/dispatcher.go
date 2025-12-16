@@ -42,16 +42,17 @@ type TektonJobDispatcher struct {
 	APIServerURL string
 }
 
-// Dispatch creates or patches a Job that invokes the vLLM gateway.
+// Dispatch creates or patches a Job that runs the translation-runner container.
+// The runner reads the TranslationJob CR and processes the translation.
 func (d *TektonJobDispatcher) Dispatch(ctx context.Context, req Request) error {
 	if d.Client == nil {
-		return fmt.Errorf("vllm dispatcher: client is nil")
+		return fmt.Errorf("translation dispatcher: client is nil")
 	}
 	ns := req.Namespace
 	if ns == "" {
 		ns = d.Namespace
 	}
-	name := fmt.Sprintf("vllm-%s", req.JobName)
+	name := fmt.Sprintf("translation-%s", req.JobName)
 
 	job := &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{
@@ -61,24 +62,48 @@ func (d *TektonJobDispatcher) Dispatch(ctx context.Context, req Request) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "glooscap-operator",
+				"glooscap.dasmlab.org/job":     req.JobName,
+			},
 		},
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io/managed-by": "glooscap-operator",
+						"glooscap.dasmlab.org/job":     req.JobName,
+					},
+				},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
+					ImagePullSecrets: []corev1.LocalObjectReference{
+						{Name: "dasmlab-ghcr-pull"}, // Use same secret as operator
+					},
 					Containers: []corev1.Container{
 						{
-							Name:  "inference",
+							Name:  "translation-runner",
 							Image: d.Image,
 							Args: []string{
-								"--job-id", req.JobName,
-								"--page-id", req.PageID,
-								"--target", req.SourceTarget,
-								"--language", req.LanguageTag,
-								"--vllm-url", d.APIServerURL,
+								"--translation-job", fmt.Sprintf("%s/%s", ns, req.JobName),
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name: "TRANSLATION_SERVICE_ADDR",
+									ValueFrom: &corev1.EnvVarSource{
+										ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "glooscap-config",
+											},
+											Key:      "translation-service-addr",
+											Optional: ptr.To(true),
+										},
+									},
+								},
 							},
 						},
 					},
+					ServiceAccountName: "operator-controller-manager", // Use operator's service account which has RBAC
 				},
 			},
 		},

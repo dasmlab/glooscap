@@ -112,4 +112,3 @@ type TranslationServiceList struct {
 func init() {
 	SchemeBuilder.Register(&TranslationService{}, &TranslationServiceList{})
 }
-

@@ -14,10 +14,13 @@ import (
 )
 
 const (
-	defaultTimeout      = 15 * time.Second
-	documentsListPath   = "/api/documents.list"
-	documentsExportPath = "/api/documents.export"
-	documentsCreatePath = "/api/documents.create"
+	defaultTimeout        = 15 * time.Second
+	documentsListPath     = "/api/documents.list"
+	documentsExportPath   = "/api/documents.export"
+	documentsCreatePath   = "/api/documents.create"
+	documentsUpdatePath   = "/api/documents.update"
+	collectionsListPath   = "/api/collections.list"
+	collectionsCreatePath = "/api/collections.create"
 )
 
 // Client interacts with an Outline instance.
@@ -300,13 +303,11 @@ func (c *Client) GetPageContent(ctx context.Context, pageID string) (*PageConten
 	}, nil
 }
 
-
-
 // CreatePageRequest represents the request to create a new page.
 type CreatePageRequest struct {
-	Title      string `json:"title"`
-	Text       string `json:"text"` // Markdown content
-	CollectionID string `json:"collectionId,omitempty"` // Optional collection ID
+	Title            string `json:"title"`
+	Text             string `json:"text"`                       // Markdown content
+	CollectionID     string `json:"collectionId,omitempty"`     // Optional collection ID
 	ParentDocumentID string `json:"parentDocumentId,omitempty"` // Optional parent document ID
 }
 
@@ -356,6 +357,147 @@ func (c *Client) CreatePage(ctx context.Context, req CreatePageRequest) (*Create
 	}
 	defer resp.Body.Close()
 
+	// Read response body for debugging
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("outline: read response body: %w", readErr)
+	}
+
+	bodyStr := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		// Log first 500 chars of error response
+		errorPreview := bodyStr
+		if len(errorPreview) > 500 {
+			errorPreview = errorPreview[:500] + "..."
+		}
+		fmt.Printf("[outline] CreatePage error response (status=%d): %q\n", resp.StatusCode, errorPreview)
+		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, errorPreview)
+	}
+
+	// Log successful response for debugging
+	responsePreview := bodyStr
+	if len(responsePreview) > 500 {
+		responsePreview = responsePreview[:500] + "..."
+	}
+	fmt.Printf("[outline] CreatePage raw response (status=%d): %q\n", resp.StatusCode, responsePreview)
+
+	var createResp CreatePageResponse
+	if err := json.Unmarshal(bodyBytes, &createResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w (body: %s)", err, responsePreview)
+	}
+
+	fmt.Printf("[outline] CreatePage parsed response: id=%s, title=%s, slug=%s\n",
+		createResp.Data.ID, createResp.Data.Title, createResp.Data.Slug)
+
+	return &createResp, nil
+}
+
+// GetTemplate fetches a template document by ID.
+// This is the same as GetPageContent but semantically indicates it's a template.
+func (c *Client) GetTemplate(ctx context.Context, templateID string) (*PageContent, error) {
+	return c.GetPageContent(ctx, templateID)
+}
+
+// PublishPageRequest represents the request to publish a draft page.
+type PublishPageRequest struct {
+	ID string `json:"id"` // Document ID
+}
+
+// PublishPageResponse represents the response from publishing a page.
+type PublishPageResponse struct {
+	Data struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Slug  string `json:"urlId"`
+	} `json:"data"`
+}
+
+// PublishPage publishes a draft page in Outline.
+// This converts a draft document to a published document.
+func (c *Client) PublishPage(ctx context.Context, req PublishPageRequest) (*PublishPageResponse, error) {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsUpdatePath})
+
+	payload := map[string]any{
+		"id":      req.ID,
+		"publish": true, // Publish the document
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("outline: marshal request body: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("outline: read response body: %w", readErr)
+	}
+
+	bodyStr := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		errorPreview := bodyStr
+		if len(errorPreview) > 500 {
+			errorPreview = errorPreview[:500] + "..."
+		}
+		fmt.Printf("[outline] PublishPage error response (status=%d): %q\n", resp.StatusCode, errorPreview)
+		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, errorPreview)
+	}
+
+	var publishResp PublishPageResponse
+	if err := json.Unmarshal(bodyBytes, &publishResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w (body: %s)", err, bodyStr)
+	}
+
+	fmt.Printf("[outline] PublishPage success: id=%s, title=%s, slug=%s\n",
+		publishResp.Data.ID, publishResp.Data.Title, publishResp.Data.Slug)
+
+	return &publishResp, nil
+}
+
+// Collection represents a collection in Outline.
+type Collection struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListCollectionsResponse represents the response from listing collections.
+type ListCollectionsResponse struct {
+	Data []Collection `json:"data"`
+}
+
+// ListCollections fetches all collections from Outline.
+func (c *Client) ListCollections(ctx context.Context) ([]Collection, error) {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: collectionsListPath})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, readErr := io.ReadAll(resp.Body)
 		bodyStr := ""
@@ -365,16 +507,208 @@ func (c *Client) CreatePage(ctx context.Context, req CreatePageRequest) (*Create
 		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, bodyStr)
 	}
 
-	var createResp CreatePageResponse
-	if err := json.NewDecoder(resp.Body).Decode(&createResp); err != nil {
+	var listResp ListCollectionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
 		return nil, fmt.Errorf("outline: decode response: %w", err)
 	}
+
+	return listResp.Data, nil
+}
+
+// CreateCollectionRequest represents the request to create a collection.
+type CreateCollectionRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateCollectionResponse represents the response from creating a collection.
+type CreateCollectionResponse struct {
+	Data Collection `json:"data"`
+}
+
+// CreateCollection creates a new collection in Outline.
+func (c *Client) CreateCollection(ctx context.Context, req CreateCollectionRequest) (*CreateCollectionResponse, error) {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: collectionsCreatePath})
+
+	payload := map[string]any{
+		"name": req.Name,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("outline: marshal request body: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("outline: read response body: %w", readErr)
+	}
+
+	bodyStr := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		errorPreview := bodyStr
+		if len(errorPreview) > 500 {
+			errorPreview = errorPreview[:500] + "..."
+		}
+		fmt.Printf("[outline] CreateCollection error response (status=%d): %q\n", resp.StatusCode, errorPreview)
+		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, errorPreview)
+	}
+
+	var createResp CreateCollectionResponse
+	if err := json.Unmarshal(bodyBytes, &createResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w (body: %s)", err, bodyStr)
+	}
+
+	fmt.Printf("[outline] CreateCollection success: id=%s, name=%s\n", createResp.Data.ID, createResp.Data.Name)
 
 	return &createResp, nil
 }
 
-// GetTemplate fetches a template document by ID.
-// This is the same as GetPageContent but semantically indicates it's a template.
-func (c *Client) GetTemplate(ctx context.Context, templateID string) (*PageContent, error) {
-	return c.GetPageContent(ctx, templateID)
+// GetOrCreateCollection gets a collection by name, or creates it if it doesn't exist.
+// Retries on network errors with exponential backoff.
+func (c *Client) GetOrCreateCollection(ctx context.Context, name string) (string, error) {
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			fmt.Printf("[outline] Retrying GetOrCreateCollection (attempt %d/%d) after %v...\n", attempt+1, maxRetries, backoff)
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		// List all collections
+		collections, err := c.ListCollections(ctx)
+		if err != nil {
+			lastErr = fmt.Errorf("outline: list collections: %w", err)
+			// Check if it's a network error that we should retry
+			if strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "connection") {
+				continue // Retry
+			}
+			return "", lastErr
+		}
+
+		// Check if collection exists
+		for _, coll := range collections {
+			if coll.Name == name {
+				fmt.Printf("[outline] Collection '%s' already exists with ID: %s\n", name, coll.ID)
+				return coll.ID, nil
+			}
+		}
+
+		// Create collection if it doesn't exist
+		fmt.Printf("[outline] Collection '%s' not found, creating...\n", name)
+		createResp, err := c.CreateCollection(ctx, CreateCollectionRequest{Name: name})
+		if err != nil {
+			lastErr = fmt.Errorf("outline: create collection: %w", err)
+			// Check if it's a network error that we should retry
+			if strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "connection") {
+				continue // Retry
+			}
+			return "", lastErr
+		}
+
+		return createResp.Data.ID, nil
+	}
+
+	return "", fmt.Errorf("outline: failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// UpdatePageRequest represents the request to update an existing page.
+type UpdatePageRequest struct {
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	Text  string `json:"text,omitempty"`
+}
+
+// UpdatePageResponse represents the response from updating a page.
+type UpdatePageResponse struct {
+	Data struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Slug  string `json:"urlId"`
+	} `json:"data"`
+}
+
+// UpdatePage updates an existing page in Outline.
+func (c *Client) UpdatePage(ctx context.Context, req UpdatePageRequest) (*UpdatePageResponse, error) {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsUpdatePath})
+
+	payload := map[string]any{
+		"id": req.ID,
+	}
+	if req.Title != "" {
+		payload["title"] = req.Title
+	}
+	if req.Text != "" {
+		payload["text"] = req.Text
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("outline: marshal request body: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("outline: read response body: %w", readErr)
+	}
+
+	bodyStr := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		errorPreview := bodyStr
+		if len(errorPreview) > 500 {
+			errorPreview = errorPreview[:500] + "..."
+		}
+		fmt.Printf("[outline] UpdatePage error response (status=%d): %q\n", resp.StatusCode, errorPreview)
+		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, errorPreview)
+	}
+
+	var updateResp UpdatePageResponse
+	if err := json.Unmarshal(bodyBytes, &updateResp); err != nil {
+		return nil, fmt.Errorf("outline: decode response: %w (body: %s)", err, bodyStr)
+	}
+
+	fmt.Printf("[outline] UpdatePage success: id=%s, title=%s, slug=%s\n",
+		updateResp.Data.ID, updateResp.Data.Title, updateResp.Data.Slug)
+
+	return &updateResp, nil
 }

@@ -116,7 +116,7 @@ func NewClient(cfg Config) (*Client, error) {
 		fmt.Printf("[nanabush] Failed to dial %s: %v\n", cfg.Address, err)
 		return nil, fmt.Errorf("nanabush: dial %s: %w", cfg.Address, err)
 	}
-	
+
 	var registerErr error
 
 	// Log connection state
@@ -207,7 +207,7 @@ func NewClient(cfg Config) (*Client, error) {
 	fmt.Printf("[nanabush] About to call startHeartbeat()\n")
 	c.startHeartbeat()
 	fmt.Printf("[nanabush] Heartbeat goroutine started (interval: %v)\n", c.heartbeatInterval)
-	
+
 	// Start watchdog goroutine to monitor for missed heartbeats
 	fmt.Printf("[nanabush] About to call startHeartbeatWatchdog()\n")
 	c.startHeartbeatWatchdog()
@@ -278,7 +278,7 @@ func (c *Client) register(ctx context.Context) error {
 		fmt.Printf("[nanabush] Warning: Server returned invalid heartbeat interval (%d), using default: %v\n",
 			resp.HeartbeatIntervalSeconds, c.heartbeatInterval)
 	}
-	
+
 	// Ensure heartbeat interval is valid (at least 1 second)
 	if c.heartbeatInterval < 1*time.Second {
 		fmt.Printf("[nanabush] Warning: Heartbeat interval too small (%v), setting to minimum 1 second\n", c.heartbeatInterval)
@@ -309,21 +309,21 @@ func (c *Client) startHeartbeat() {
 		clientID := c.clientID
 		registered := c.registered
 		c.mu.RUnlock()
-		
+
 		// Validate interval before starting
 		if initialInterval < 1*time.Second {
 			fmt.Printf("[nanabush] ERROR: Cannot start heartbeat goroutine with invalid interval: %v\n", initialInterval)
 			return
 		}
-		
+
 		if !registered || clientID == "" {
 			fmt.Printf("[nanabush] ERROR: Cannot start heartbeat goroutine: not registered (registered=%v, client_id=%q)\n",
 				registered, clientID)
 			return
 		}
-		
+
 		fmt.Printf("[nanabush] Starting heartbeat goroutine with interval: %v, client_id=%q\n", initialInterval, clientID)
-		
+
 		// Use a dynamic ticker that can be updated if interval changes
 		ticker := time.NewTicker(initialInterval)
 		defer ticker.Stop()
@@ -332,7 +332,7 @@ func (c *Client) startHeartbeat() {
 		lastTickTime := time.Now()
 		tickCount := 0
 		currentTickerInterval := initialInterval
-		
+
 		// Log that we're ready to send heartbeats
 		fmt.Printf("[nanabush] Heartbeat goroutine ready, will send first heartbeat in %v\n", initialInterval)
 
@@ -345,9 +345,9 @@ func (c *Client) startHeartbeat() {
 				fmt.Printf("[nanabush] Heartbeat ticker fired (#%d): interval=%v, time_since_last_tick=%v\n",
 					tickCount, currentTickerInterval, timeSinceLastTick.Round(time.Millisecond))
 				lastTickTime = now
-				
+
 				c.sendHeartbeat()
-				
+
 				// Check if interval changed and recreate ticker if needed
 				c.mu.RLock()
 				desiredInterval := c.heartbeatInterval
@@ -646,10 +646,10 @@ func (c *Client) Close() error {
 	if c.heartbeatStop != nil {
 		close(c.heartbeatStop)
 	}
-	heartbeatWg := c.heartbeatWg
 	c.mu.Unlock()
 
-	heartbeatWg.Wait()
+	// Wait for heartbeat goroutines to finish (don't copy WaitGroup)
+	c.heartbeatWg.Wait()
 
 	// Close connection
 	c.mu.Lock()

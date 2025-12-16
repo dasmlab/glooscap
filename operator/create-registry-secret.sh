@@ -9,10 +9,20 @@
 GHCR_PAT=${DASMLAB_GHCR_PAT}
 NAMESPACE="glooscap-system"
 
-echo "DASMLAB_GHCR_PATH (first 8):  REDACTED "
+if [ -z "${GHCR_PAT}" ]; then
+  echo "error: DASMLAB_GHCR_PAT is not set. Please source /home/dasm/gh-pat first"
+  exit 1
+fi
+
+echo "Creating/updating registry secret..."
+# Delete existing secret if it exists, then create new one
+kubectl delete secret dasmlab-ghcr-pull -n "${NAMESPACE}" 2>/dev/null || true
+
 kubectl create secret docker-registry dasmlab-ghcr-pull \
   --docker-server=ghcr.io \
   --docker-username=lmcdasm \
-  --docker-password=${GHCR_PAT} \
+  --docker-password="${GHCR_PAT}" \
   --docker-email=dasmlab-bot@dasmlab.org \
-  -n glooscap-system
+  -n "${NAMESPACE}"
+
+echo "✅ Registry secret created/updated successfully"

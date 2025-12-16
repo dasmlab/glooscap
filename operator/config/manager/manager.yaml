@@ -94,7 +94,7 @@ spec:
         - name: VLLM_JOB_NAMESPACE
           value: nanabush
         - name: VLLM_JOB_IMAGE
-          value: quay.io/dasmlab/vllm-runner:latest
+          value: ghcr.io/dasmlab/glooscap-translation-runner:latest
         - name: VLLM_API_URL
           value: http://vllm.nanabush.svc:8000
         # ====================================================================

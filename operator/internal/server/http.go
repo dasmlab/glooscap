@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
+	"github.com/dasmlab/glooscap-operator/internal/controller"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
 	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
-	"github.com/dasmlab/glooscap-operator/pkg/outline"
-	"github.com/dasmlab/glooscap-operator/internal/controller"
 )
 
 // Options controls the API server.
@@ -42,7 +40,6 @@ type Options struct {
 	// TranslationJobEventCh is a channel that receives TranslationJob events to trigger SSE broadcasts
 	TranslationJobEventCh <-chan controller.TranslationJobEvent
 }
-
 
 // eventBroadcaster manages SSE connections and broadcasts events.
 type eventBroadcaster struct {
@@ -208,13 +205,13 @@ func Start(ctx context.Context, opts Options) error {
 					lastHeartbeat = ts.Status.LastHeartbeat.Time
 				}
 				writeJSON(w, nanabush.Status{
-					ClientID:   ts.Status.ClientID,
-					Connected:  ts.Status.Connected,
-					Registered: ts.Status.Registered,
-					Status:     ts.Status.Status,
-					MissedHeartbeats: ts.Status.MissedHeartbeats,
+					ClientID:          ts.Status.ClientID,
+					Connected:         ts.Status.Connected,
+					Registered:        ts.Status.Registered,
+					Status:            ts.Status.Status,
+					MissedHeartbeats:  ts.Status.MissedHeartbeats,
 					HeartbeatInterval: int64(ts.Status.HeartbeatIntervalSeconds), // Already in seconds
-					LastHeartbeat: lastHeartbeat,
+					LastHeartbeat:     lastHeartbeat,
 				})
 				return
 			}
@@ -254,13 +251,13 @@ func Start(ctx context.Context, opts Options) error {
 					lastHeartbeat = ts.Status.LastHeartbeat.Time
 				}
 				writeJSON(w, nanabush.Status{
-					ClientID:   ts.Status.ClientID,
-					Connected:  ts.Status.Connected,
-					Registered: ts.Status.Registered,
-					Status:     ts.Status.Status,
-					MissedHeartbeats: ts.Status.MissedHeartbeats,
+					ClientID:          ts.Status.ClientID,
+					Connected:         ts.Status.Connected,
+					Registered:        ts.Status.Registered,
+					Status:            ts.Status.Status,
+					MissedHeartbeats:  ts.Status.MissedHeartbeats,
 					HeartbeatInterval: int64(ts.Status.HeartbeatIntervalSeconds), // Already in seconds
-					LastHeartbeat: lastHeartbeat,
+					LastHeartbeat:     lastHeartbeat,
 				})
 				return
 			}
@@ -639,21 +636,16 @@ func Start(ctx context.Context, opts Options) error {
 		})
 	})
 
-	// Publish draft page endpoint
-	router.Post("/api/v1/publish-draft", func(w http.ResponseWriter, r *http.Request) {
+	// Approve/publish draft page endpoint - creates a publish job
+	router.Post("/api/v1/approve-translation", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Client == nil {
 			http.Error(w, "client not configured", http.StatusServiceUnavailable)
 			return
 		}
-		if opts.OutlineClientFactory == nil {
-			http.Error(w, "outline client factory not configured", http.StatusServiceUnavailable)
-			return
-		}
 
 		var req struct {
-			JobName     string `json:"jobName"`
-			Namespace   string `json:"namespace"`
-			TargetRef   string `json:"targetRef"`
+			JobName   string `json:"jobName"`
+			Namespace string `json:"namespace"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -678,6 +670,12 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 
+		// Verify job is in AwaitingApproval state
+		if job.Status.State != wikiv1alpha1.TranslationJobStateAwaitingApproval {
+			http.Error(w, fmt.Sprintf("job is not awaiting approval (current state: %s)", job.Status.State), http.StatusBadRequest)
+			return
+		}
+
 		// Get page ID from annotations
 		pageID := ""
 		if job.Annotations != nil {
@@ -696,54 +694,65 @@ func Start(ctx context.Context, opts Options) error {
 		if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
 			destTargetRef = job.Spec.Destination.TargetRef
 		}
-		if req.TargetRef != "" {
-			destTargetRef = req.TargetRef
-		}
 
-		var target wikiv1alpha1.WikiTarget
-		if err := opts.Client.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: destTargetRef}, &target); err != nil {
-			http.Error(w, fmt.Sprintf("failed to get WikiTarget: %v", err), http.StatusInternalServerError)
+		var destTarget wikiv1alpha1.WikiTarget
+		if err := opts.Client.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: destTargetRef}, &destTarget); err != nil {
+			http.Error(w, fmt.Sprintf("failed to get destination WikiTarget: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		// Create Outline client
-		outlineClient, err := opts.OutlineClientFactory.New(ctx, opts.Client, &target)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to create outline client: %v", err), http.StatusInternalServerError)
+		// Create a publish job (TranslationJob with Pipeline=Publish)
+		// For now, we'll use a special parameter to indicate this is a publish job
+		publishJobName := fmt.Sprintf("publish-%s", job.Name)
+		publishJob := &wikiv1alpha1.TranslationJob{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      publishJobName,
+				Namespace: req.Namespace,
+				Labels: map[string]string{
+					"glooscap.dasmlab.org/publish-job": "true",
+					"glooscap.dasmlab.org/original-job": job.Name,
+				},
+			},
+			Spec: wikiv1alpha1.TranslationJobSpec{
+				Source: wikiv1alpha1.TranslationSourceSpec{
+					TargetRef: destTargetRef,
+					PageID:    pageID, // The draft page ID to publish
+				},
+				Pipeline: wikiv1alpha1.TranslationPipelineModeTektonJob,
+				Parameters: map[string]string{
+					"publish":      "true",
+					"originalJob":  job.Name,
+					"pageId":       pageID,
+					"targetRef":    destTargetRef,
+				},
+			},
+		}
+
+		// Create the publish job
+		if err := opts.Client.Create(ctx, publishJob); err != nil {
+			if errors.IsAlreadyExists(err) {
+				http.Error(w, "publish job already exists", http.StatusConflict)
+				return
+			}
+			http.Error(w, fmt.Sprintf("failed to create publish job: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		// Publish the draft page
-		publishResp, err := outlineClient.PublishPage(ctx, outline.PublishPageRequest{
-			ID: pageID,
-		})
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to publish page: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Update job annotations to mark as published
+		// Update original job to mark approval
 		if job.Annotations == nil {
 			job.Annotations = make(map[string]string)
 		}
-		job.Annotations["glooscap.dasmlab.org/is-draft"] = "false"
+		job.Annotations["glooscap.dasmlab.org/approved-at"] = time.Now().Format(time.RFC3339)
+		job.Annotations["glooscap.dasmlab.org/publish-job"] = publishJobName
 		if err := opts.Client.Update(ctx, &job); err != nil {
-			// Non-critical, log but don't fail
 			fmt.Printf("warning: failed to update job annotations: %v\n", err)
 		}
 
-		// Build page URL
-		pageURL := ""
-		if target.Spec.URI != "" {
-			pageURL = fmt.Sprintf("%s/doc/%s", strings.TrimSuffix(target.Spec.URI, "/"), publishResp.Data.Slug)
-		}
-
 		writeJSON(w, map[string]any{
-			"success": true,
-			"pageId":  publishResp.Data.ID,
-			"slug":    publishResp.Data.Slug,
-			"title":   publishResp.Data.Title,
-			"url":     pageURL,
+			"success":      true,
+			"publishJob":   publishJobName,
+			"originalJob":  job.Name,
+			"message":      "Publish job created successfully",
 		})
 	})
 
@@ -883,13 +892,13 @@ func Start(ctx context.Context, opts Options) error {
 		// For MVP: Return the translated content
 		// TODO: Create page in Outline with translated content and "TRANSLATED" prefix
 		writeJSON(w, map[string]any{
-			"success":           true,
-			"originalTitle":     pageContent.Title,
-			"translatedTitle":   translateResp.TranslatedTitle,
+			"success":            true,
+			"originalTitle":      pageContent.Title,
+			"translatedTitle":    translateResp.TranslatedTitle,
 			"translatedMarkdown": translateResp.TranslatedMarkdown,
-			"tokensUsed":        translateResp.TokensUsed,
-			"inferenceTime":     translateResp.InferenceTimeSeconds,
-			"message":           "Translation completed. Page creation coming soon.",
+			"tokensUsed":         translateResp.TokensUsed,
+			"inferenceTime":      translateResp.InferenceTimeSeconds,
+			"message":            "Translation completed. Page creation coming soon.",
 		})
 	})
 
@@ -1201,7 +1210,7 @@ func Start(ctx context.Context, opts Options) error {
 			previewLen = len(targetBytes)
 		}
 		fmt.Printf("[http] Marshaled request (length: %d): %s\n", len(targetBytes), string(targetBytes)[:previewLen])
-		
+
 		var target wikiv1alpha1.WikiTarget
 		if err := json.Unmarshal(targetBytes, &target); err != nil {
 			fmt.Printf("[http] ERROR: Failed to decode WikiTarget from request: %v\n", err)
@@ -1546,10 +1555,10 @@ func buildStateResponse(opts Options) map[string]any {
 			if status.ClientID == "" && status.Status != "error" {
 				// Client is still registering - return connecting status
 				nanabushStatus = map[string]any{
-					"connected":                false,
-					"registered":               false,
-					"clientId":                 "",
-					"status":                   "connecting",
+					"connected":  false,
+					"registered": false,
+					"clientId":   "",
+					"status":     "connecting",
 				}
 			} else {
 				var lastHeartbeatStr string
@@ -1668,21 +1677,21 @@ func buildStateResponse(opts Options) map[string]any {
 				}
 
 				jobData := map[string]any{
-					"uuid":         string(job.UID), // Use UID as UUID for UI hooking
-					"name":         job.Name,
-					"namespace":    job.Namespace,
-					"state":        string(job.Status.State),
-					"message":      job.Status.Message,
-					"startedAt":    startedAt,
-					"finishedAt":   finishedAt,
+					"uuid":       string(job.UID), // Use UID as UUID for UI hooking
+					"name":       job.Name,
+					"namespace":  job.Namespace,
+					"state":      string(job.Status.State),
+					"message":    job.Status.Message,
+					"startedAt":  startedAt,
+					"finishedAt": finishedAt,
 					"source": map[string]any{
-						"targetRef":  job.Spec.Source.TargetRef,
-						"pageId":      job.Spec.Source.PageID,
-						"pageTitle":   sourcePageTitle,
-						"pageURI":     sourceURI, // Source page URI for UI hooking
+						"targetRef": job.Spec.Source.TargetRef,
+						"pageId":    job.Spec.Source.PageID,
+						"pageTitle": sourcePageTitle,
+						"pageURI":   sourceURI, // Source page URI for UI hooking
 					},
 					"destination": map[string]any{
-						"targetRef":  destTargetRef,
+						"targetRef":   destTargetRef,
 						"languageTag": languageTag,
 					},
 					"pipeline":     string(job.Spec.Pipeline),
@@ -1694,7 +1703,7 @@ func buildStateResponse(opts Options) map[string]any {
 					// Get published page info from annotations
 					var publishedPageID, publishedPageSlug, publishedPageURL string
 					var isDraft bool = true
-					
+
 					if job.Annotations != nil {
 						if pageID, ok := job.Annotations["glooscap.dasmlab.org/published-page-id"]; ok {
 							publishedPageID = pageID
@@ -1709,7 +1718,7 @@ func buildStateResponse(opts Options) map[string]any {
 							isDraft = (draftFlag == "true")
 						}
 					}
-					
+
 					jobData["translatedPage"] = map[string]any{
 						"pageId":  publishedPageID,
 						"slug":    publishedPageSlug,

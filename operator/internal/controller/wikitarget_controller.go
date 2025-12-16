@@ -119,7 +119,7 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return ctrl.Result{}, err
 			}
 			logger.Info("force-refresh annotation processed and removed")
-			
+
 		}
 	}
 

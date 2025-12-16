@@ -13,7 +13,7 @@ type TranslationServiceConfig struct {
 
 // ConfigStore manages runtime configuration for the translation service.
 type ConfigStore struct {
-	mu                      sync.RWMutex
+	mu                       sync.RWMutex
 	translationServiceConfig *TranslationServiceConfig
 }
 
@@ -52,4 +52,3 @@ func (s *ConfigStore) SetTranslationServiceConfig(config *TranslationServiceConf
 	cfg := *config
 	s.translationServiceConfig = &cfg
 }
-

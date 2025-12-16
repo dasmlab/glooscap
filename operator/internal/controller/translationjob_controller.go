@@ -39,6 +39,18 @@ import (
 	"github.com/dasmlab/glooscap-operator/pkg/vllm"
 )
 
+// TranslationJobEvent represents a translation job event for SSE broadcasting
+// This type is also defined in internal/server/http.go - they must match
+type TranslationJobEvent struct {
+	Type      string `json:"type"`                // "processing_translation" or "translation_complete"
+	JobName   string `json:"jobName"`             // TranslationJob name (e.g., "translation-xxxx")
+	PageURL   string `json:"pageUrl,omitempty"`   // URL to the translated page (for completion events)
+	PageID    string `json:"pageId,omitempty"`    // Page ID of the translated page
+	PageTitle string `json:"pageTitle,omitempty"` // Title of the translated page
+	State     string `json:"state,omitempty"`     // Job state (e.g., "Completed", "Failed")
+	Message   string `json:"message,omitempty"`   // Optional message
+}
+
 // TranslationJobReconciler reconciles a TranslationJob object
 type TranslationJobReconciler struct {
 	client.Client
@@ -53,6 +65,8 @@ type TranslationJobReconciler struct {
 	Nanabush      *nanabush.Client // Direct reference (for backward compatibility)
 	// GetNanabushClient is a function that returns the current nanabush client (for runtime updates)
 	GetNanabushClient func() *nanabush.Client
+	// TranslationJobEventCh is a channel to send TranslationJob events for SSE broadcasting
+	TranslationJobEventCh chan<- TranslationJobEvent
 }
 
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=translationjobs,verbs=get;list;watch;create;update;patch;delete
@@ -94,6 +108,20 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			Message:            "Translation job is queued for dispatch",
 			LastTransitionTime: now,
 		})
+
+		// Send processing_translation SSE event when job is first created (submitted)
+		if r.TranslationJobEventCh != nil {
+			select {
+			case r.TranslationJobEventCh <- TranslationJobEvent{
+				Type:    "processing_translation",
+				JobName: job.Name,
+				State:   string(updated.State),
+				Message: updated.Message,
+			}:
+			default:
+				// Channel full, skip (non-blocking)
+			}
+		}
 	}
 
 	// Validation phase: check template, destination, and duplicates
@@ -266,7 +294,7 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 							}
 						}
 					}
-					
+
 					// If we found an existing translated page, we'll create a unique one
 					// Store this info for later use in publishing
 					if existingTranslatedPage != "" {
@@ -302,8 +330,9 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			updated = job.Status.DeepCopy()
 		}
 	}
-	// Handle approval for duplicates (check if user approved via annotation)
+	// Handle approval for duplicates or draft publishing (check if user approved via annotation or publish job)
 	if updated.State == wikiv1alpha1.TranslationJobStateAwaitingApproval {
+		// Check if this is a duplicate approval
 		if approved, ok := job.Annotations["glooscap.dasmlab.org/duplicate-approved"]; ok && approved == "true" {
 			// User approved, clear duplicate info and proceed
 			updated.DuplicateInfo = nil
@@ -315,8 +344,64 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Message:            "Duplicate overwrite approved by user",
 				LastTransitionTime: now,
 			})
+		} else if publishJobName, ok := job.Annotations["glooscap.dasmlab.org/publish-job"]; ok && publishJobName != "" {
+			// Check if publish job has completed successfully
+			var publishJob wikiv1alpha1.TranslationJob
+			if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: publishJobName}, &publishJob); err == nil {
+				if publishJob.Status.State == wikiv1alpha1.TranslationJobStateCompleted {
+					// Publish job completed, mark original job as completed
+					updated.State = wikiv1alpha1.TranslationJobStateCompleted
+					updated.FinishedAt = &now
+					updated.Message = "Translation published successfully"
+					if job.Annotations != nil {
+						job.Annotations["glooscap.dasmlab.org/is-draft"] = "false"
+					}
+					meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+						Type:               "Ready",
+						Status:             metav1.ConditionTrue,
+						Reason:             "Published",
+						Message:            "Translation has been published",
+						LastTransitionTime: now,
+					})
+					// Send translation_complete SSE event
+					if r.TranslationJobEventCh != nil {
+						pageURL := ""
+						if job.Annotations != nil {
+							pageURL = job.Annotations["glooscap.dasmlab.org/published-page-url"]
+						}
+						select {
+						case r.TranslationJobEventCh <- TranslationJobEvent{
+							Type:      "translation_complete",
+							JobName:   job.Name,
+							PageURL:   pageURL,
+							PageID:    job.Annotations["glooscap.dasmlab.org/published-page-id"],
+							PageTitle: job.Annotations["glooscap.dasmlab.org/published-page-title"],
+							State:     string(updated.State),
+							Message:   updated.Message,
+						}:
+						default:
+							// Channel full, skip (non-blocking)
+						}
+					}
+				} else if publishJob.Status.State == wikiv1alpha1.TranslationJobStateFailed {
+					// Publish job failed
+					updated.State = wikiv1alpha1.TranslationJobStateFailed
+					updated.FinishedAt = &now
+					updated.Message = fmt.Sprintf("Publish job failed: %s", publishJob.Status.Message)
+					meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+						Type:               "Ready",
+						Status:             metav1.ConditionFalse,
+						Reason:             "PublishFailed",
+						Message:            updated.Message,
+						LastTransitionTime: now,
+					})
+				} else {
+					// Publish job still running, wait
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+				}
+			}
 		} else {
-			// Still awaiting approval, requeue
+			// Still awaiting approval (draft or duplicate), requeue
 			if !jobStatusChanged(&job.Status, updated) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			}
@@ -329,6 +414,13 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if updated.State == wikiv1alpha1.TranslationJobStateQueued {
+		// Check if this is a diagnostic job - diagnostic jobs always use dispatcher (runner)
+		isDiagnostic := job.Labels["glooscap.dasmlab.org/diagnostic"] == "true" ||
+			job.Spec.Parameters["diagnostic"] == "true"
+
+		// Check if job explicitly requests TektonJob pipeline
+		useDispatcher := job.Spec.Pipeline == wikiv1alpha1.TranslationPipelineModeTektonJob || isDiagnostic
+
 		// Get current nanabush client (supports runtime reconfiguration)
 		var currentNanabush *nanabush.Client
 		if r.GetNanabushClient != nil {
@@ -336,9 +428,45 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		} else {
 			currentNanabush = r.Nanabush // Fallback to direct reference
 		}
-		
-		// Use gRPC to Nanabush if available, otherwise fall back to old dispatcher
-		if currentNanabush != nil {
+
+		// Use dispatcher if requested, otherwise use gRPC to Nanabush if available
+		if useDispatcher && r.Dispatcher != nil {
+			// Use dispatcher (runner) for TektonJob pipeline or diagnostic jobs
+			mode := vllm.ModeFromString(string(job.Spec.Pipeline))
+			if mode == "" {
+				mode = vllm.ModeTektonJob
+			}
+			dispatchErr := r.Dispatcher.Dispatch(ctx, vllm.Request{
+				JobName:      job.Name,
+				Namespace:    job.Namespace,
+				PageID:       job.Spec.Source.PageID,
+				LanguageTag:  languageTagForJob(&job),
+				SourceTarget: job.Spec.Source.TargetRef,
+				Mode:         mode,
+			})
+			if dispatchErr != nil {
+				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "DispatchFailed",
+					Message:            dispatchErr.Error(),
+					LastTransitionTime: now,
+				})
+				updated.State = wikiv1alpha1.TranslationJobStateFailed
+				updated.Message = dispatchErr.Error()
+				updated.FinishedAt = &now
+			} else {
+				updated.State = wikiv1alpha1.TranslationJobStateDispatching
+				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "Dispatching",
+					Message:            "Translation dispatched to runner",
+					LastTransitionTime: now,
+				})
+				updated.Message = "Dispatch accepted by translation runner"
+			}
+		} else if currentNanabush != nil {
 			// Get source page content on-the-fly
 			var sourcePage *catalog.Page
 			var sourceClient *outline.Client
@@ -510,7 +638,7 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 							// 2. Always prefix with "AUTOTRANSLATED--> <SOURCE TITLE>"
 							// 3. Create at same level as source (same collection/parent)
 							// 4. NEVER modify source pages
-							
+
 							// Get destination target (re-fetch to ensure we have it)
 							destTargetRef := job.Spec.Source.TargetRef
 							if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
@@ -531,156 +659,147 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 								updated.FinishedAt = &now
 							} else {
 								// Get destination client
-									destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
-							if err != nil {
-								logger.Error(err, "failed to create destination client")
-								meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-									Type:               "Ready",
-									Status:             metav1.ConditionFalse,
-									Reason:             "PublishFailed",
-									Message:            fmt.Sprintf("Failed to create destination client: %v", err),
-									LastTransitionTime: now,
-								})
-								updated.State = wikiv1alpha1.TranslationJobStateFailed
-								updated.Message = fmt.Sprintf("Failed to create destination client: %v", err)
-								updated.FinishedAt = &now
-							} else {
-								// Get source page info to determine collection/parent
-								var sourceCollectionID string
-								sourcePageTitle := ""
-								if sourcePage != nil {
-									sourcePageTitle = sourcePage.Title
-									// Try to get source page details from Outline to get collection
-									if sourceClient != nil {
-										sourcePages, err := sourceClient.ListPages(ctx)
-										if err == nil {
-											for _, sp := range sourcePages {
-												if sp.ID == job.Spec.Source.PageID {
-													sourceCollectionID = sp.Collection
-													// Note: Outline API may not expose parent directly
-													// We'll use collection as a proxy for "same level"
-													break
-												}
-											}
-										}
-									}
-								}
-								
-								// Build page title with AUTOTRANSLATED prefix
-								baseTitle := sourcePageTitle
-								if baseTitle == "" {
-									baseTitle = "Untitled Page"
-								}
-								translatedTitle := fmt.Sprintf("AUTOTRANSLATED--> %s", baseTitle)
-								
-								// Check if a page with this exact title already exists
-								destPages, err := destClient.ListPages(ctx)
-								uniqueTitle := translatedTitle
-								counter := 1
-								if err == nil {
-									for {
-										titleExists := false
-										for _, dp := range destPages {
-											if dp.Title == uniqueTitle {
-												titleExists = true
-												break
-											}
-										}
-										if !titleExists {
-											break
-										}
-										// Title exists - make it unique
-										uniqueTitle = fmt.Sprintf("AUTOTRANSLATED--> %s (%d)", baseTitle, counter)
-										counter++
-										if counter > 100 {
-											// Safety limit
-											logger.Error(nil, "unable to generate unique title after 100 attempts")
-											break
-										}
-									}
-								}
-								
-								if uniqueTitle != translatedTitle {
-									logger.Info("using unique title to avoid overwrite",
-										"original", translatedTitle,
-										"unique", uniqueTitle)
-								}
-								
-								// Create the page - NEVER overwrite, always create new
-								createReq := outline.CreatePageRequest{
-									Title:        uniqueTitle,
-									Text:         translateResp.TranslatedMarkdown,
-									CollectionID: sourceCollectionID, // Same collection as source
-								}
-								
-								createResp, err := destClient.CreatePage(ctx, createReq)
+								destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
 								if err != nil {
-									logger.Error(err, "failed to create translated page",
-										"title", uniqueTitle)
+									logger.Error(err, "failed to create destination client")
 									meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
 										Type:               "Ready",
 										Status:             metav1.ConditionFalse,
 										Reason:             "PublishFailed",
-										Message:            fmt.Sprintf("Failed to create page: %v", err),
+										Message:            fmt.Sprintf("Failed to create destination client: %v", err),
 										LastTransitionTime: now,
 									})
 									updated.State = wikiv1alpha1.TranslationJobStateFailed
-									updated.Message = fmt.Sprintf("Failed to create translated page: %v", err)
+									updated.Message = fmt.Sprintf("Failed to create destination client: %v", err)
 									updated.FinishedAt = &now
 								} else {
-									logger.Info("translated page created successfully",
-										"page_id", createResp.Data.ID,
-										"title", uniqueTitle,
-										"slug", createResp.Data.Slug)
-									updated.State = wikiv1alpha1.TranslationJobStateCompleted
-									updated.FinishedAt = &now
-									updated.Message = fmt.Sprintf("Translation completed and published (page: %s)", createResp.Data.Slug)
-									meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-										Type:               "Ready",
-										Status:             metav1.ConditionTrue,
-										Reason:             "Completed",
-										Message:            fmt.Sprintf("Translation published as: %s", uniqueTitle),
-										LastTransitionTime: now,
-									})
+									// Get source page info to determine collection/parent
+									var sourceCollectionID string
+									sourcePageTitle := ""
+									if sourcePage != nil {
+										sourcePageTitle = sourcePage.Title
+										// Try to get source page details from Outline to get collection
+										if sourceClient != nil {
+											sourcePages, err := sourceClient.ListPages(ctx)
+											if err == nil {
+												for _, sp := range sourcePages {
+													if sp.ID == job.Spec.Source.PageID {
+														sourceCollectionID = sp.Collection
+														// Note: Outline API may not expose parent directly
+														// We'll use collection as a proxy for "same level"
+														break
+													}
+												}
+											}
+										}
+									}
+
+									// Build page title with AUTOTRANSLATED prefix
+									baseTitle := sourcePageTitle
+									if baseTitle == "" {
+										baseTitle = "Untitled Page"
+									}
+									translatedTitle := fmt.Sprintf("AUTOTRANSLATED--> %s", baseTitle)
+
+									// Check if a page with this exact title already exists
+									destPages, err := destClient.ListPages(ctx)
+									uniqueTitle := translatedTitle
+									counter := 1
+									if err == nil {
+										for {
+											titleExists := false
+											for _, dp := range destPages {
+												if dp.Title == uniqueTitle {
+													titleExists = true
+													break
+												}
+											}
+											if !titleExists {
+												break
+											}
+											// Title exists - make it unique
+											uniqueTitle = fmt.Sprintf("AUTOTRANSLATED--> %s (%d)", baseTitle, counter)
+											counter++
+											if counter > 100 {
+												// Safety limit
+												logger.Error(nil, "unable to generate unique title after 100 attempts")
+												break
+											}
+										}
+									}
+
+									if uniqueTitle != translatedTitle {
+										logger.Info("using unique title to avoid overwrite",
+											"original", translatedTitle,
+											"unique", uniqueTitle)
+									}
+
+									// Create the page - NEVER overwrite, always create new
+									createReq := outline.CreatePageRequest{
+										Title:        uniqueTitle,
+										Text:         translateResp.TranslatedMarkdown,
+										CollectionID: sourceCollectionID, // Same collection as source
+									}
+
+									createResp, err := destClient.CreatePage(ctx, createReq)
+									if err != nil {
+										logger.Error(err, "failed to create translated page",
+											"title", uniqueTitle)
+										meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+											Type:               "Ready",
+											Status:             metav1.ConditionFalse,
+											Reason:             "PublishFailed",
+											Message:            fmt.Sprintf("Failed to create page: %v", err),
+											LastTransitionTime: now,
+										})
+										updated.State = wikiv1alpha1.TranslationJobStateFailed
+										updated.Message = fmt.Sprintf("Failed to create translated page: %v", err)
+										updated.FinishedAt = &now
+									} else {
+										logger.Info("translated page created successfully",
+											"page_id", createResp.Data.ID,
+											"title", uniqueTitle,
+											"slug", createResp.Data.Slug)
+										updated.State = wikiv1alpha1.TranslationJobStateCompleted
+										updated.FinishedAt = &now
+										updated.Message = fmt.Sprintf("Translation completed and published (page: %s)", createResp.Data.Slug)
+										meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+											Type:               "Ready",
+											Status:             metav1.ConditionTrue,
+											Reason:             "Completed",
+											Message:            fmt.Sprintf("Translation published as: %s", uniqueTitle),
+											LastTransitionTime: now,
+										})
+
+										// Build page URL from destination target
+										pageURL := ""
+										if destTarget.Spec.URI != "" {
+											// Construct URL: baseURI/doc/slug
+											pageURL = fmt.Sprintf("%s/doc/%s", strings.TrimSuffix(destTarget.Spec.URI, "/"), createResp.Data.Slug)
+										}
+
+										// Send translation_complete SSE event
+										if r.TranslationJobEventCh != nil {
+											select {
+											case r.TranslationJobEventCh <- TranslationJobEvent{
+												Type:      "translation_complete",
+												JobName:   job.Name,
+												PageURL:   pageURL,
+												PageID:    createResp.Data.ID,
+												PageTitle: uniqueTitle,
+												State:     string(updated.State),
+												Message:   updated.Message,
+											}:
+											default:
+												// Channel full, skip (non-blocking)
+											}
+										}
+									}
 								}
-							}
 							}
 						}
 					}
 				}
-			}
-		} else if r.Dispatcher != nil {
-			// Fall back to old dispatcher
-			mode := vllm.ModeFromString(string(job.Spec.Pipeline))
-			dispatchErr := r.Dispatcher.Dispatch(ctx, vllm.Request{
-				JobName:      job.Name,
-				Namespace:    job.Namespace,
-				PageID:       job.Spec.Source.PageID,
-				LanguageTag:  languageTagForJob(&job),
-				SourceTarget: job.Spec.Source.TargetRef,
-				Mode:         mode,
-			})
-			if dispatchErr != nil {
-				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-					Type:               "Ready",
-					Status:             metav1.ConditionFalse,
-					Reason:             "DispatchFailed",
-					Message:            dispatchErr.Error(),
-					LastTransitionTime: now,
-				})
-				updated.State = wikiv1alpha1.TranslationJobStateFailed
-				updated.Message = dispatchErr.Error()
-				updated.FinishedAt = &now
-			} else {
-				updated.State = wikiv1alpha1.TranslationJobStateDispatching
-				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-					Type:               "Ready",
-					Status:             metav1.ConditionFalse,
-					Reason:             "Dispatching",
-					Message:            "Translation dispatched to vLLM backend",
-					LastTransitionTime: now,
-				})
-				updated.Message = "Dispatch accepted by vLLM backend"
 			}
 		}
 	}

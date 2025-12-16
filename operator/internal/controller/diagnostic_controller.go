@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	manager "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -42,15 +42,15 @@ type DiagnosticRunnable struct {
 // Start implements manager.Runnable
 func (r *DiagnosticRunnable) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("diagnostic")
-	
+
 	logger.Info("starting diagnostic job creator (creates jobs every 30 seconds)")
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	// Create initial batch immediately
 	r.createDiagnosticJobs(ctx, logger)
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -103,7 +103,7 @@ func (r *DiagnosticRunnable) createDiagnosticJobs(ctx context.Context, logger lo
 	// Try to find a real page ID from the source target
 	// We'll use a known test page ID, or try to find one from the catalog
 	pageID := "998e669e-a2fe-496a-92d3-a265cb27a362" // Default test page ID
-	
+
 	// Create diagnostic TranslationJobs using iskoces test cases
 	// These use embedded test content that matches iskoces/run-tests.sh
 	testJobs := []struct {
@@ -188,7 +188,7 @@ Management Team`,
 	// Clean up old completed diagnostic jobs (keep only last 5 per type)
 	logger.Info("cleaning up old diagnostic jobs (keeping last 5 per type)")
 	var existingJobs wikiv1alpha1.TranslationJobList
-	if err := r.Client.List(ctx, &existingJobs, 
+	if err := r.Client.List(ctx, &existingJobs,
 		client.InNamespace("glooscap-system"),
 		client.MatchingLabels{"glooscap.dasmlab.org/diagnostic": "true"}); err != nil {
 		logger.Error(err, "failed to list diagnostic jobs for cleanup")
@@ -196,8 +196,8 @@ Management Team`,
 		// Group by test type (starwars, technical, business)
 		jobsByType := make(map[string][]wikiv1alpha1.TranslationJob)
 		for _, job := range existingJobs.Items {
-			if job.Status.State == wikiv1alpha1.TranslationJobStateCompleted || 
-			   job.Status.State == wikiv1alpha1.TranslationJobStateFailed {
+			if job.Status.State == wikiv1alpha1.TranslationJobStateCompleted ||
+				job.Status.State == wikiv1alpha1.TranslationJobStateFailed {
 				// Extract type from name (e.g., "diagnostic-starwars-1765867004" -> "starwars")
 				parts := strings.Split(job.Name, "-")
 				if len(parts) >= 2 {
@@ -206,7 +206,7 @@ Management Team`,
 				}
 			}
 		}
-		
+
 		// Sort by creation timestamp and delete old ones (keep last 5)
 		deletedCount := 0
 		for jobType, jobs := range jobsByType {
@@ -257,7 +257,7 @@ Management Team`,
 				Name:      testJob.name,
 				Namespace: "glooscap-system",
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by":  "diagnostic-controller",
+					"app.kubernetes.io/managed-by":    "diagnostic-controller",
 					"glooscap.dasmlab.org/diagnostic": "true",
 				},
 			},
@@ -274,8 +274,8 @@ Management Team`,
 				Parameters: map[string]string{
 					"pageTitle":   testJob.pageTitle,
 					"testContent": testJob.testContent, // Embedded test content
-					"diagnostic":   "true", // Mark as diagnostic job
-					"prefix":       "AUTODIAG", // Use AUTODIAG prefix
+					"diagnostic":  "true",              // Mark as diagnostic job
+					"prefix":      "AUTODIAG",          // Use AUTODIAG prefix
 				},
 			},
 		}
@@ -306,4 +306,3 @@ func SetupDiagnosticRunnable(mgr manager.Manager) error {
 	}
 	return mgr.Add(runnable)
 }
-

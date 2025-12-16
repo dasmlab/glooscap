@@ -223,7 +223,7 @@ func main() {
 	}
 	vllmImage := os.Getenv("VLLM_JOB_IMAGE")
 	if vllmImage == "" {
-		vllmImage = "quay.io/dasmlab/vllm-runner:latest"
+		vllmImage = "ghcr.io/dasmlab/glooscap-translation-runner:latest"
 	}
 	vllmAPI := os.Getenv("VLLM_API_URL")
 	if vllmAPI == "" {
@@ -256,7 +256,7 @@ func main() {
 	// Supports both Nanabush and Iskoces (they use the same gRPC proto interface)
 	var nanabushClient *nanabush.Client
 	nanabushStatusCh := make(chan struct{}, 10) // Buffered to avoid blocking
-	var nanabushClientMu sync.RWMutex // Protects nanabushClient during reconfiguration
+	var nanabushClientMu sync.RWMutex           // Protects nanabushClient during reconfiguration
 
 	// Create config store for runtime configuration
 	configStore := server.NewConfigStore()
@@ -310,7 +310,7 @@ func main() {
 				nanabushClientMu.Lock()
 				currentClient := nanabushClient
 				nanabushClientMu.Unlock()
-				
+
 				// Only trigger if we have a valid client (either the one being created or the stored one)
 				if clientRef != nil || currentClient != nil {
 					// Only broadcast if we have a clientId (registration completed) or error
@@ -396,13 +396,13 @@ func main() {
 			// Wait for registration to complete and clientId to be set
 			// Registration happens asynchronously, so we need to wait before broadcasting
 			setupLog.Info("Waiting for client registration to complete...")
-			
+
 			// Wait up to 5 seconds for registration, checking every 500ms
 			maxWait := 5 * time.Second
 			checkInterval := 500 * time.Millisecond
 			waited := time.Duration(0)
 			var finalStatus nanabush.Status
-			
+
 			for waited < maxWait {
 				time.Sleep(checkInterval)
 				waited += checkInterval
@@ -416,7 +416,7 @@ func main() {
 					break
 				}
 			}
-			
+
 			if finalStatus.ClientID == "" {
 				setupLog.Info("Client registration still in progress after wait",
 					"connected", finalStatus.Connected,
@@ -450,16 +450,20 @@ func main() {
 	// TranslationService CR is the ONLY source of truth - the controller will create the client
 	setupLog.Info("Waiting for TranslationService CR to configure translation service client")
 
+	// Create channel for TranslationJob events
+	translationJobEventCh := make(chan controller.TranslationJobEvent, 100)
+
 	if err := (&controller.TranslationJobReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		Recorder:          eventRecorder,
-		Dispatcher:        dispatcher,
-		Jobs:              jobStore,
-		Catalogue:         catalogStore,
-		OutlineClient:     outlineFactory,
-		Nanabush:          nanabushClient,    // Initial client (for backward compatibility)
-		GetNanabushClient: getNanabushClient, // Getter function for runtime updates
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		Recorder:              eventRecorder,
+		Dispatcher:            dispatcher,
+		Jobs:                  jobStore,
+		Catalogue:             catalogStore,
+		OutlineClient:         outlineFactory,
+		Nanabush:              nanabushClient,    // Initial client (for backward compatibility)
+		GetNanabushClient:     getNanabushClient, // Getter function for runtime updates
+		TranslationJobEventCh: translationJobEventCh,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationJob")
 		os.Exit(1)
@@ -467,25 +471,25 @@ func main() {
 
 	// Register TranslationService controller
 	if err := (&controller.TranslationServiceReconciler{
-		Client:                        mgr.GetClient(),
-		Scheme:                        mgr.GetScheme(),
-		Recorder:                      eventRecorder,
-		NanabushClientMu:              &nanabushClientMu,
-		NanabushClient:                &nanabushClient,
-		NanabushStatusCh:              nanabushStatusCh,
+		Client:                         mgr.GetClient(),
+		Scheme:                         mgr.GetScheme(),
+		Recorder:                       eventRecorder,
+		NanabushClientMu:               &nanabushClientMu,
+		NanabushClient:                 &nanabushClient,
+		NanabushStatusCh:               nanabushStatusCh,
 		CreateTranslationServiceClient: createTranslationServiceClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationService")
 		os.Exit(1)
 	}
-	
+
 	// Register diagnostic runnable (creates test TranslationJobs every 2 minutes)
 	if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
 		setupLog.Error(err, "unable to setup diagnostic runnable")
 		os.Exit(1)
 	}
-	setupLog.Info("diagnostic runnable registered (creates test jobs every 2 minutes)")
-	
+	setupLog.Info("diagnostic runnable registered (creates test jobs every 30 seconds)")
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
@@ -502,9 +506,10 @@ func main() {
 			Catalogue:                     catalogStore,
 			Jobs:                          jobStore,
 			Client:                        mgr.GetClient(),
-			Nanabush:                      nanabushClient, // Keep for backward compatibility
+			Nanabush:                      nanabushClient,    // Keep for backward compatibility
 			GetNanabushClient:             getNanabushClient, // Use getter for runtime updates
 			NanabushStatusCh:              nanabushStatusCh,
+			TranslationJobEventCh:         translationJobEventCh,
 			ConfigStore:                   configStore,
 			ReconfigureTranslationService: reconfigureFn,
 			OutlineClientFactory:          outlineFactory,
