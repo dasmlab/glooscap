@@ -338,17 +338,26 @@ if [ -f "${BUILD_SCRIPT}" ]; then
     }
     # The build script creates: ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}
     # and also tags it as: ghcr.io/dasmlab/glooscap-translation-runner:latest
-    # Verify the architecture-specific tag exists, if not tag from latest
+    # Verify the architecture-specific tag exists
+    log_info "Verifying translation-runner image exists locally..."
     if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG}$"; then
-        log_info "Architecture-specific tag not found, tagging from latest..."
-        docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
-            log_warn "Failed to tag translation-runner, trying to push latest"
+        log_info "Architecture-specific tag not found, checking for latest tag..."
+        if docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG%:*}:latest$"; then
+            log_info "Tagging from latest..."
+            docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
+                log_error "Failed to tag translation-runner from latest"
+                log_info "Available translation-runner images:"
+                docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
+                exit 1
+            }
+        else
+            log_error "Translation-runner image not found locally"
             log_info "Available translation-runner images:"
             docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
-            RUNNER_IMG="${RUNNER_IMG%:*}:latest"
-        }
+            exit 1
+        fi
     fi
-    log_info "Verified translation-runner image exists: ${RUNNER_IMG}"
+    log_success "Verified translation-runner image exists: ${RUNNER_IMG}"
     log_info "📤 Pushing translation-runner image..."
     docker push "${RUNNER_IMG}" || {
         log_error "Failed to push translation-runner image"
