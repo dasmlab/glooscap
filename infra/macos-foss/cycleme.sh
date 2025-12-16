@@ -189,8 +189,8 @@ sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runne
 rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
 log_success "install.yaml patched with architecture-specific tags"
 
-# Step 3: Build and push operator image
-log_step "Step 3: Building and pushing operator image"
+# Step 3: Build and push operator and UI images using build-and-load-images.sh
+log_step "Step 3: Building and pushing operator and UI images"
 
 # Source gh-pat to get DASMLAB_GHCR_PAT for pushing images
 if [ -f ${HOME}/gh-pat ]; then
@@ -204,25 +204,68 @@ if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
     exit 1
 fi
 
-log_info "🏗️  Building operator image..."
-if [ -f "${OPERATOR_DIR}/buildme.sh" ]; then
-    bash "${OPERATOR_DIR}/buildme.sh"
+log_info "🏗️  Building and pushing images using build-and-load-images.sh..."
+if [ -f "${SCRIPT_DIR}/scripts/build-and-load-images.sh" ]; then
+    bash "${SCRIPT_DIR}/scripts/build-and-load-images.sh" || {
+        log_error "Failed to build and push images"
+        exit 1
+    }
+    log_success "Images built and pushed: ${OPERATOR_IMG}, ${UI_IMG}"
 else
-    log_error "buildme.sh not found in operator directory"
+    log_error "build-and-load-images.sh not found at ${SCRIPT_DIR}/scripts/build-and-load-images.sh"
     exit 1
 fi
 
-log_info "📤 Pushing operator image..."
-if [ -f "${OPERATOR_DIR}/pushme.sh" ]; then
-    bash "${OPERATOR_DIR}/pushme.sh"
+# Step 4: Generate manifests and build installer
+log_step "Step 4: Generating manifests and building installer"
+
+cd "${OPERATOR_DIR}"
+
+echo "🔧 Generating manifests..."
+make generate
+make manifests
+
+# Ensure kustomization uses the correct namespace
+KUSTOMIZATION_FILE="${OPERATOR_DIR}/config/default/kustomization.yaml"
+CURRENT_NAMESPACE=$(grep "^namespace:" "${KUSTOMIZATION_FILE}" | awk '{print $2}' || echo "")
+if [ "${CURRENT_NAMESPACE}" != "${NAMESPACE}" ]; then
+    log_info "Updating kustomization namespace from '${CURRENT_NAMESPACE}' to '${NAMESPACE}'..."
+    sed -i.bak "s/^namespace:.*/namespace: ${NAMESPACE}/" "${KUSTOMIZATION_FILE}"
+    RESTORE_KUSTOMIZATION=true
 else
-    log_error "pushme.sh not found in operator directory"
+    log_info "Kustomization namespace is already '${NAMESPACE}'"
+    RESTORE_KUSTOMIZATION=false
+fi
+
+make build-installer IMG="${OPERATOR_IMG}"
+
+# Restore original namespace if we changed it
+if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
+    log_info "Restoring original kustomization namespace..."
+    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
+fi
+
+if [ ! -f "${OPERATOR_DIR}/dist/install.yaml" ]; then
+    log_error "dist/install.yaml was not generated"
     exit 1
 fi
 
-log_success "Operator image built and pushed: ${OPERATOR_IMG}"
+log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
-# Step 4: Create namespace and registry secret
+# Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
+log_info "Patching install.yaml with architecture-specific translation-runner tag..."
+# Replace full registry paths
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Also replace image names without registry (for backwards compatibility)
+sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
+log_success "install.yaml patched with architecture-specific tags"
+
+# Step 5: Create namespace and registry secret
 log_step "Step 4: Creating namespace and registry secret"
 
 if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
@@ -265,30 +308,7 @@ sleep 5
 
 log_success "Operator deployed from dist/install.yaml"
 
-# Step 6: Build and push UI image
-log_step "Step 6: Building and pushing UI image"
-
-cd "${UI_DIR}"
-
-log_info "🏗️  Building UI image..."
-if [ -f "${UI_DIR}/buildme.sh" ]; then
-    bash "${UI_DIR}/buildme.sh"
-else
-    log_error "buildme.sh not found in UI directory"
-    exit 1
-fi
-
-log_info "📤 Pushing UI image..."
-if [ -f "${UI_DIR}/pushme.sh" ]; then
-    bash "${UI_DIR}/pushme.sh"
-else
-    log_error "pushme.sh not found in UI directory"
-    exit 1
-fi
-
-log_success "UI image built and pushed"
-
-# Build and push translation-runner image
+# Step 6: Build and push translation-runner image
 log_info "🏗️  Building translation-runner image..."
 cd "${PROJECT_ROOT}"
 
