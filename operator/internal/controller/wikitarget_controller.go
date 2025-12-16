@@ -87,7 +87,7 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if !target.Spec.InsecureSkipTLSVerify {
 		logger.Info("Setting InsecureSkipTLSVerify=true for WikiTarget (default for self-signed certs)")
 		target.Spec.InsecureSkipTLSVerify = true
-		if err := r.Update(ctx, target); err != nil {
+		if err := r.Update(ctx, &target); err != nil {
 			logger.Error(err, "failed to update WikiTarget with InsecureSkipTLSVerify=true")
 			// Continue anyway - will try again next reconcile
 		} else {
@@ -285,7 +285,7 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 			
 			// Update the WikiTarget to enable TLS skip verification
 			target.Spec.InsecureSkipTLSVerify = true
-			if updateErr := r.Client.Update(ctx, target); updateErr != nil {
+			if updateErr := r.Client.Update(ctx, &target); updateErr != nil {
 				logger.Error(updateErr, "failed to update WikiTarget with InsecureSkipTLSVerify")
 				return fmt.Errorf("list pages: %w (failed to enable TLS skip: %v)", err, updateErr)
 			}
