@@ -108,7 +108,15 @@ if [ "${DELETE_NAMESPACE}" = "true" ]; then
         done
         
         if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-            echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, proceeding anyway..."
+            echo "   ⚠️  Warning: Namespace still exists after ${MAX_WAIT}s, attempting force delete..."
+            kubectl delete namespace "${NAMESPACE}" --force --grace-period=0 --timeout=10s 2>/dev/null || true
+            sleep 3
+            if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+                echo "   ⚠️  Warning: Namespace still exists after force delete, proceeding anyway..."
+                echo "   💡 You may need to manually clean up: kubectl delete namespace ${NAMESPACE} --force --grace-period=0"
+            else
+                echo "   ✅ Namespace force deleted"
+            fi
         fi
     else
         echo "   ✅ Namespace does not exist, proceeding..."
