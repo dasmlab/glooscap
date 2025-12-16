@@ -13,7 +13,7 @@ echo "🔄 Cycling operator deployment..."
 
 # REMOVE OPERATOR AND BITS FIRST
 echo "📦 Undeploying operator..."
-make undeploy ignore-not-found=true uninstall || true
+make undeploy uninstall || true
 
 # Wait for namespace to fully terminate
 echo "⏳ Waiting for namespace '${NAMESPACE}' to terminate..."
@@ -41,7 +41,7 @@ if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
     sleep 3
     if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
       echo "   ⚠️  Warning: Namespace still exists after force delete, proceeding anyway..."
-      echo "   💡 You may need to manually clean up: kubectl delete namespace ${NAMESPACE} --force --grace-period=0"
+    echo "   💡 You may need to manually clean up: kubectl delete namespace ${NAMESPACE} --force --grace-period=0"
     else
       echo "   ✅ Namespace force deleted"
     fi
@@ -71,8 +71,6 @@ echo "📤 Pushing operator image..."
 
 # Deploy CRDs to the Target Cluster (Assumes Kubeconfig is set properly, perms, etc)
 echo "🚀 Deploying to cluster..."
-# Set IMG to the image that was just pushed (ghcr.io/dasmlab/glooscap:latest)
-export IMG="ghcr.io/dasmlab/glooscap:latest"
 make install deploy
 
 # Wait for CRDs to be fully registered in the API server

@@ -8,5 +8,5 @@ spec:
     spec:
       containers:
       - name: manager
-        image: controller:latest   # 👈 replaced by kustomize edit set image
+        image: ghcr.io/dasmlab/glooscap:latest   # 👈 replaced by kustomize edit set image
 
