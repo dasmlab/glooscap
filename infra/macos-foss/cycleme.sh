@@ -182,7 +182,19 @@ log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 log_info "Patching install.yaml to use namespace: ${NAMESPACE}..."
 sed -i.bak "s|namespace: operator-system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|namespace: system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-log_success "Namespace patched to: ${NAMESPACE}"
+# Verify namespace was patched
+if grep -q "namespace: ${NAMESPACE}" "${OPERATOR_DIR}/dist/install.yaml"; then
+    log_success "Namespace patched to: ${NAMESPACE}"
+    # Check if any operator-system namespaces remain
+    if grep -q "namespace: operator-system" "${OPERATOR_DIR}/dist/install.yaml"; then
+        log_warn "Warning: Some 'operator-system' namespaces may still exist in install.yaml"
+        log_info "Remaining operator-system references:"
+        grep "namespace: operator-system" "${OPERATOR_DIR}/dist/install.yaml" | head -3 || true
+    fi
+else
+    log_error "Failed to patch namespace in install.yaml"
+    exit 1
+fi
 
 # Patch the generated install.yaml to use correct operator image name and architecture-specific tag
 log_info "Patching install.yaml with correct operator image: ${OPERATOR_IMG}..."
@@ -306,10 +318,26 @@ log_success "Registry secret ensured"
 log_step "Step 5: Deploying operator from dist/install.yaml"
 
 log_info "Applying dist/install.yaml (includes CRDs and operator deployment)..."
-kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"
+if ! kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"; then
+    log_error "Failed to apply install.yaml"
+    exit 1
+fi
 
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
+
+# Verify the operator deployment was created
+log_info "Verifying operator deployment was created..."
+if kubectl get deployment operator-controller-manager -n "${NAMESPACE}" &>/dev/null; then
+    log_success "Operator deployment found in namespace ${NAMESPACE}"
+else
+    log_error "Operator deployment 'operator-controller-manager' not found in namespace '${NAMESPACE}'"
+    log_info "Checking what was actually deployed:"
+    kubectl get all -n "${NAMESPACE}" || true
+    log_info "Checking if deployment exists in wrong namespace:"
+    kubectl get deployment operator-controller-manager -A || true
+    exit 1
+fi
 
 log_success "Operator deployed from dist/install.yaml"
 
