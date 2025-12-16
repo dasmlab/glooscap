@@ -489,17 +489,20 @@ func main() {
 	}
 
 	// Register diagnostic runnable (creates test TranslationJobs once at start, then every 5 minutes)
-	// DISABLED: Diagnostics are turned off - do not register the runnable
-	// To enable: set EnableDiagnostics = true above
-	if false && EnableDiagnostics {
+	// DISABLED: Diagnostics are completely turned off - registration code is commented out
+	// To enable: uncomment the code below and set EnableDiagnostics = true above
+	/*
+	if EnableDiagnostics {
 		if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
 			setupLog.Error(err, "unable to setup diagnostic runnable")
 			os.Exit(1)
 		}
 		setupLog.Info("diagnostic runnable registered (creates test jobs once at start, then every 5 minutes)")
 	} else {
-		setupLog.Info("diagnostic runnable DISABLED (hardcoded to false)")
+		setupLog.Info("diagnostic runnable disabled (EnableDiagnostics=false)")
 	}
+	*/
+	setupLog.Info("diagnostic runnable DISABLED (code commented out)")
 
 	// +kubebuilder:scaffold:builder
 
