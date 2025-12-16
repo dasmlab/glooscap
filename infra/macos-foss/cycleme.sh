@@ -193,9 +193,9 @@ log_success "install.yaml patched with architecture-specific tags"
 log_step "Step 3: Building and pushing operator image"
 
 # Source gh-pat to get DASMLAB_GHCR_PAT for pushing images
-if [ -f /home/dasm/gh-pat ]; then
-    log_info "🔑 Sourcing /home/dasm/gh-pat for image push credentials..."
-    source /home/dasm/gh-pat
+if [ -f "${HOME}/gh-pat" ]; then
+    log_info "🔑 Sourcing ${HOME}/gh-pat for image push credentials..."
+    source "${HOME}/gh-pat"
 fi
 
 if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
