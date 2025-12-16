@@ -54,6 +54,11 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+	
+	// EnableDiagnostics controls whether diagnostic TranslationJobs are created.
+	// Set to false to disable diagnostic jobs (default: disabled).
+	// TODO: Make this configurable via environment variable or command-line flag.
+	EnableDiagnostics = false
 )
 
 func init() {
@@ -484,11 +489,16 @@ func main() {
 	}
 
 	// Register diagnostic runnable (creates test TranslationJobs once at start, then every 5 minutes)
-	if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
-		setupLog.Error(err, "unable to setup diagnostic runnable")
-		os.Exit(1)
+	// Only register if diagnostics are enabled
+	if EnableDiagnostics {
+		if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
+			setupLog.Error(err, "unable to setup diagnostic runnable")
+			os.Exit(1)
+		}
+		setupLog.Info("diagnostic runnable registered (creates test jobs once at start, then every 5 minutes)")
+	} else {
+		setupLog.Info("diagnostic runnable disabled (EnableDiagnostics=false)")
 	}
-	setupLog.Info("diagnostic runnable registered (creates test jobs once at start, then every 5 minutes)")
 
 	// +kubebuilder:scaffold:builder
 
