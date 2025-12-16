@@ -109,7 +109,9 @@ cp "${MANIFESTS_DIR}/operator/deployment.yaml" "${TEMP_DEPLOYMENT}"
 # Update image tags to match detected architecture (both operator and runner)
 sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
 sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
-# Also update VLLM_JOB_IMAGE env var if it exists
+# Also update VLLM_JOB_IMAGE env var if it exists (handle both full registry path and image name only)
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
 sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
 sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${TEMP_DEPLOYMENT}"
 kubectl apply -f "${TEMP_DEPLOYMENT}"

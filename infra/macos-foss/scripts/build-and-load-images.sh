@@ -147,14 +147,20 @@ if [ -f "${BUILD_SCRIPT}" ]; then
         log_error "Failed to build translation-runner image"
         exit 1
     }
-    # Ensure the architecture-specific tag exists (build.sh may have created it)
-    if ! docker images | grep -q "glooscap-translation-runner.*local-${ARCH_TAG}"; then
+    # The build script creates: ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}
+    # and also tags it as: ghcr.io/dasmlab/glooscap-translation-runner:latest
+    # Verify the architecture-specific tag exists, if not tag from latest
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG}$"; then
+        log_info "Architecture-specific tag not found, tagging from latest..."
         # Tag from latest if needed
         docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
-            log_error "Failed to tag translation-runner image"
+            log_error "Failed to tag translation-runner image from latest"
+            log_info "Available translation-runner images:"
+            docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
             exit 1
         }
     fi
+    log_info "Verified translation-runner image exists: ${RUNNER_IMG}"
 else
     log_error "translation-runner/build.sh not found at: ${BUILD_SCRIPT}"
     log_info "PROJECT_ROOT resolved to: ${PROJECT_ROOT}"

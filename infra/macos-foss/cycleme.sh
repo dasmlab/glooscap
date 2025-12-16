@@ -155,6 +155,11 @@ log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch the generated install.yaml to use architecture-specific tags for VLLM_JOB_IMAGE
 log_info "Patching install.yaml with architecture-specific translation-runner tag..."
+# Replace full registry paths
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+# Also replace image names without registry (for backwards compatibility)
 sed -i.bak "s|glooscap-translation-runner:latest|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|glooscap-translation-runner:local-arm64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|glooscap-translation-runner:local-amd64|glooscap-translation-runner:local-${ARCH_TAG}|g" "${OPERATOR_DIR}/dist/install.yaml"
@@ -273,13 +278,19 @@ if [ -f "${BUILD_SCRIPT}" ]; then
         log_error "Failed to build translation-runner image"
         exit 1
     }
-    # Ensure architecture-specific tag exists
-    if ! docker images | grep -q "glooscap-translation-runner.*local-${ARCH_TAG}"; then
+    # The build script creates: ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}
+    # and also tags it as: ghcr.io/dasmlab/glooscap-translation-runner:latest
+    # Verify the architecture-specific tag exists, if not tag from latest
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG}$"; then
+        log_info "Architecture-specific tag not found, tagging from latest..."
         docker tag "${RUNNER_IMG%:*}:latest" "${RUNNER_IMG}" || {
             log_warn "Failed to tag translation-runner, trying to push latest"
+            log_info "Available translation-runner images:"
+            docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
             RUNNER_IMG="${RUNNER_IMG%:*}:latest"
         }
     fi
+    log_info "Verified translation-runner image exists: ${RUNNER_IMG}"
     log_info "📤 Pushing translation-runner image..."
     docker push "${RUNNER_IMG}" || {
         log_error "Failed to push translation-runner image"
