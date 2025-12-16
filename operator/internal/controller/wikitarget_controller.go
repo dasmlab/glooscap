@@ -82,6 +82,23 @@ func (r *WikiTargetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	status := target.Status.DeepCopy()
 	now := metav1.Now()
 
+	// Ensure InsecureSkipTLSVerify is set to true by default (for now, to handle self-signed certs)
+	// Update if it's false (default for bool is false, so this catches unset values)
+	if !target.Spec.InsecureSkipTLSVerify {
+		logger.Info("Setting InsecureSkipTLSVerify=true for WikiTarget (default for self-signed certs)")
+		target.Spec.InsecureSkipTLSVerify = true
+		if err := r.Update(ctx, target); err != nil {
+			logger.Error(err, "failed to update WikiTarget with InsecureSkipTLSVerify=true")
+			// Continue anyway - will try again next reconcile
+		} else {
+			logger.Info("Updated WikiTarget with InsecureSkipTLSVerify=true")
+			// Re-fetch to get updated version
+			if err := r.Get(ctx, req.NamespacedName, &target); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	// Handle paused state
 	if target.Spec.IsPaused {
 		status.Paused = true
