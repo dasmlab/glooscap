@@ -1154,7 +1154,17 @@ func Start(ctx context.Context, opts Options) error {
 
 	// WikiTarget CRUD endpoints (POST, PUT, DELETE)
 	router.Post("/api/v1/wikitargets", func(w http.ResponseWriter, r *http.Request) {
+		// Add panic recovery
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("[http] PANIC in POST /wikitargets: %v\n", r)
+				http.Error(w, fmt.Sprintf("internal server error: %v", r), http.StatusInternalServerError)
+			}
+		}()
+
+		fmt.Printf("[http] POST /api/v1/wikitargets received\n")
 		if opts.Client == nil {
+			fmt.Printf("[http] ERROR: kubernetes client not configured\n")
 			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
 			return
 		}
@@ -1167,23 +1177,39 @@ func Start(ctx context.Context, opts Options) error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		fmt.Printf("[http] Decoded request data, has secretToken: %v, has metadata: %v, has spec: %v\n",
+			requestData["secretToken"] != nil, requestData["metadata"] != nil, requestData["spec"] != nil)
 
 		// Extract secretToken if provided
 		var secretToken string
 		if tokenVal, ok := requestData["secretToken"].(string); ok {
 			secretToken = tokenVal
+			fmt.Printf("[http] Extracted secretToken (length: %d)\n", len(secretToken))
 		}
 		// Remove secretToken from requestData before decoding into WikiTarget
 		delete(requestData, "secretToken")
 
-		// Decode the rest into WikiTarget
-		targetBytes, _ := json.Marshal(requestData)
+		// Decode the rest into WikiTarget (metadata and spec should be preserved)
+		targetBytes, marshalErr := json.Marshal(requestData)
+		if marshalErr != nil {
+			fmt.Printf("[http] ERROR: Failed to marshal request data: %v\n", marshalErr)
+			http.Error(w, fmt.Sprintf("failed to process request: %v", marshalErr), http.StatusBadRequest)
+			return
+		}
+		previewLen := 200
+		if len(targetBytes) < previewLen {
+			previewLen = len(targetBytes)
+		}
+		fmt.Printf("[http] Marshaled request (length: %d): %s\n", len(targetBytes), string(targetBytes)[:previewLen])
+		
 		var target wikiv1alpha1.WikiTarget
 		if err := json.Unmarshal(targetBytes, &target); err != nil {
 			fmt.Printf("[http] ERROR: Failed to decode WikiTarget from request: %v\n", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("failed to decode WikiTarget: %v", err), http.StatusBadRequest)
 			return
 		}
+		fmt.Printf("[http] Decoded WikiTarget: name=%q, namespace=%q, uri=%q, secretName=%q\n",
+			target.Name, target.Namespace, target.Spec.URI, target.Spec.ServiceAccountSecretRef.Name)
 
 		// Set default namespace if not provided
 		if target.Namespace == "" {
