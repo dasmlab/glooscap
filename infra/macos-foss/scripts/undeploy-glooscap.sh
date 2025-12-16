@@ -13,6 +13,8 @@ NC='\033[0m'
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+OPERATOR_DIR="${PROJECT_ROOT}/operator"
 MANIFESTS_DIR="$(cd "${SCRIPT_DIR}/../manifests" && pwd)"
 
 # Functions
@@ -53,7 +55,6 @@ fi
 
 # Delete operator using make undeploy (like working operator/cycleme.sh)
 log_info "Deleting operator using make undeploy..."
-OPERATOR_DIR="$(cd "${SCRIPT_DIR}/../../operator" && pwd)"
 if [ -f "${OPERATOR_DIR}/Makefile" ]; then
     cd "${OPERATOR_DIR}"
     make undeploy || {
