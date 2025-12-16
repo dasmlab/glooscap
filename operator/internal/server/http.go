@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
 	"github.com/dasmlab/glooscap-operator/pkg/nanabush"
+	"github.com/dasmlab/glooscap-operator/pkg/outline"
 	"github.com/dasmlab/glooscap-operator/internal/controller"
 )
 
@@ -36,7 +38,10 @@ type Options struct {
 	ReconfigureTranslationService func(cfg TranslationServiceConfig) error
 	// OutlineClientFactory creates Outline clients for WikiTargets
 	OutlineClientFactory controller.OutlineClientFactory
+	// TranslationJobEventCh is a channel that receives TranslationJob events to trigger SSE broadcasts
+	TranslationJobEventCh <-chan controller.TranslationJobEvent
 }
+
 
 // eventBroadcaster manages SSE connections and broadcasts events.
 type eventBroadcaster struct {
@@ -119,6 +124,15 @@ func Start(ctx context.Context, opts Options) error {
 			case <-opts.NanabushStatusCh:
 				// Nanabush status changed, send event immediately
 				sendStateEvent(broadcaster, opts)
+			case jobEvent := <-opts.TranslationJobEventCh:
+				// TranslationJob event received, send it immediately
+				eventData := map[string]any{
+					"event": "translation_job",
+					"data":  jobEvent,
+				}
+				if data, err := json.Marshal(eventData); err == nil {
+					broadcaster.broadcast(data)
+				}
 			}
 		}
 	}()
@@ -624,6 +638,114 @@ func Start(ctx context.Context, opts Options) error {
 		})
 	})
 
+	// Publish draft page endpoint
+	router.Post("/api/v1/publish-draft", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "client not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if opts.OutlineClientFactory == nil {
+			http.Error(w, "outline client factory not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		var req struct {
+			JobName     string `json:"jobName"`
+			Namespace   string `json:"namespace"`
+			TargetRef   string `json:"targetRef"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if req.JobName == "" || req.Namespace == "" {
+			http.Error(w, "jobName and namespace are required", http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+
+		// Get TranslationJob
+		var job wikiv1alpha1.TranslationJob
+		if err := opts.Client.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.JobName}, &job); err != nil {
+			if errors.IsNotFound(err) {
+				http.Error(w, "TranslationJob not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Get page ID from annotations
+		pageID := ""
+		if job.Annotations != nil {
+			if id, ok := job.Annotations["glooscap.dasmlab.org/published-page-id"]; ok {
+				pageID = id
+			}
+		}
+
+		if pageID == "" {
+			http.Error(w, "no published page ID found in job annotations", http.StatusBadRequest)
+			return
+		}
+
+		// Get destination WikiTarget
+		destTargetRef := job.Spec.Source.TargetRef
+		if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
+			destTargetRef = job.Spec.Destination.TargetRef
+		}
+		if req.TargetRef != "" {
+			destTargetRef = req.TargetRef
+		}
+
+		var target wikiv1alpha1.WikiTarget
+		if err := opts.Client.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: destTargetRef}, &target); err != nil {
+			http.Error(w, fmt.Sprintf("failed to get WikiTarget: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Create Outline client
+		outlineClient, err := opts.OutlineClientFactory.New(ctx, opts.Client, &target)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to create outline client: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Publish the draft page
+		publishResp, err := outlineClient.PublishPage(ctx, outline.PublishPageRequest{
+			ID: pageID,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to publish page: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Update job annotations to mark as published
+		if job.Annotations == nil {
+			job.Annotations = make(map[string]string)
+		}
+		job.Annotations["glooscap.dasmlab.org/is-draft"] = "false"
+		if err := opts.Client.Update(ctx, &job); err != nil {
+			// Non-critical, log but don't fail
+			fmt.Printf("warning: failed to update job annotations: %v\n", err)
+		}
+
+		// Build page URL
+		pageURL := ""
+		if target.Spec.URI != "" {
+			pageURL = fmt.Sprintf("%s/doc/%s", strings.TrimSuffix(target.Spec.URI, "/"), publishResp.Data.Slug)
+		}
+
+		writeJSON(w, map[string]any{
+			"success": true,
+			"pageId":  publishResp.Data.ID,
+			"slug":    publishResp.Data.Slug,
+			"title":   publishResp.Data.Title,
+			"url":     pageURL,
+		})
+	})
+
 	// Direct translation endpoint (MVP)
 	router.Post("/api/v1/translate", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Client == nil {
@@ -1036,8 +1158,11 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 
+		// Decode request - UI sends {metadata: {name, namespace}, spec: {...}}
+		// WikiTarget's ObjectMeta should handle metadata nesting via JSON tags
 		var target wikiv1alpha1.WikiTarget
 		if err := json.NewDecoder(r.Body).Decode(&target); err != nil {
+			fmt.Printf("[http] ERROR: Failed to decode WikiTarget request: %v\n", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1048,6 +1173,10 @@ func Start(ctx context.Context, opts Options) error {
 		}
 
 		// Validate required fields
+		if target.Name == "" {
+			http.Error(w, "metadata.name or name is required", http.StatusBadRequest)
+			return
+		}
 		if target.Spec.URI == "" {
 			http.Error(w, "spec.uri is required", http.StatusBadRequest)
 			return
@@ -1061,13 +1190,43 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 
-		if err := opts.Client.Create(r.Context(), &target); err != nil {
-			if errors.IsAlreadyExists(err) {
-				http.Error(w, "WikiTarget already exists", http.StatusConflict)
+		// Set default key if not provided
+		if target.Spec.ServiceAccountSecretRef.Key == "" {
+			target.Spec.ServiceAccountSecretRef.Key = "token"
+		}
+
+		ctx := r.Context()
+		fmt.Printf("[http] POST /wikitargets: Creating/updating WikiTarget '%s/%s' with URI=%s, secret=%s, mode=%s\n",
+			target.Namespace, target.Name, target.Spec.URI, target.Spec.ServiceAccountSecretRef.Name, target.Spec.Mode)
+
+		// Get existing WikiTarget (if any)
+		var existing wikiv1alpha1.WikiTarget
+		err := opts.Client.Get(ctx, client.ObjectKey{Namespace: target.Namespace, Name: target.Name}, &existing)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create new WikiTarget
+				fmt.Printf("[http] WikiTarget '%s/%s' not found, creating new one\n", target.Namespace, target.Name)
+				if err := opts.Client.Create(ctx, &target); err != nil {
+					fmt.Printf("[http] ERROR: Failed to create WikiTarget '%s/%s': %v (error type: %T)\n", target.Namespace, target.Name, err, err)
+					http.Error(w, fmt.Sprintf("failed to create WikiTarget: %v", err), http.StatusInternalServerError)
+					return
+				}
+				fmt.Printf("[http] Successfully created WikiTarget: %s/%s\n", target.Namespace, target.Name)
+			} else {
+				fmt.Printf("[http] ERROR: Failed to get WikiTarget '%s/%s' (non-NotFound): %v (error type: %T)\n", target.Namespace, target.Name, err, err)
+				http.Error(w, fmt.Sprintf("failed to get WikiTarget: %v", err), http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		} else {
+			// Update existing WikiTarget
+			fmt.Printf("[http] WikiTarget '%s/%s' exists, updating\n", target.Namespace, target.Name)
+			existing.Spec = target.Spec
+			if err := opts.Client.Update(ctx, &existing); err != nil {
+				fmt.Printf("[http] ERROR: Failed to update WikiTarget '%s/%s': %v (error type: %T)\n", target.Namespace, target.Name, err, err)
+				http.Error(w, fmt.Sprintf("failed to update WikiTarget: %v", err), http.StatusInternalServerError)
+				return
+			}
+			fmt.Printf("[http] Successfully updated WikiTarget: %s/%s\n", target.Namespace, target.Name)
 		}
 
 		writeJSON(w, map[string]string{"name": target.Name, "namespace": target.Namespace})
@@ -1366,6 +1525,124 @@ func buildStateResponse(opts Options) map[string]any {
 	}
 
 	result["wikitargets"] = wikitargets
+
+	// Add translation jobs to SSE response
+	translationJobs := []map[string]any{}
+	if opts.Client != nil {
+		ctx := context.Background()
+		var jobList wikiv1alpha1.TranslationJobList
+		// List all TranslationJobs in glooscap-system namespace
+		if err := opts.Client.List(ctx, &jobList, client.InNamespace("glooscap-system")); err == nil {
+			for _, job := range jobList.Items {
+				// Build source page URI if we have the page info
+				sourceURI := ""
+				sourcePageTitle := job.Spec.Parameters["pageTitle"]
+				if opts.Catalogue != nil {
+					// Try to find the page in the catalog to get its URI
+					targetID := fmt.Sprintf("glooscap-system/%s", job.Spec.Source.TargetRef)
+					pages := opts.Catalogue.List(targetID)
+					for _, page := range pages {
+						if page.ID == job.Spec.Source.PageID {
+							sourceURI = page.URI
+							if sourcePageTitle == "" {
+								sourcePageTitle = page.Title
+							}
+							break
+						}
+					}
+				}
+
+				// Build destination info
+				destTargetRef := job.Spec.Source.TargetRef
+				if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
+					destTargetRef = job.Spec.Destination.TargetRef
+				}
+				languageTag := "fr-CA" // Default
+				if job.Spec.Destination != nil && job.Spec.Destination.LanguageTag != "" {
+					languageTag = job.Spec.Destination.LanguageTag
+				}
+
+				// Format timestamps
+				var startedAt, finishedAt string
+				if job.Status.StartedAt != nil {
+					startedAt = job.Status.StartedAt.Format(time.RFC3339)
+				}
+				if job.Status.FinishedAt != nil {
+					finishedAt = job.Status.FinishedAt.Format(time.RFC3339)
+				}
+
+				jobData := map[string]any{
+					"uuid":         string(job.UID), // Use UID as UUID for UI hooking
+					"name":         job.Name,
+					"namespace":    job.Namespace,
+					"state":        string(job.Status.State),
+					"message":      job.Status.Message,
+					"startedAt":    startedAt,
+					"finishedAt":   finishedAt,
+					"source": map[string]any{
+						"targetRef":  job.Spec.Source.TargetRef,
+						"pageId":      job.Spec.Source.PageID,
+						"pageTitle":   sourcePageTitle,
+						"pageURI":     sourceURI, // Source page URI for UI hooking
+					},
+					"destination": map[string]any{
+						"targetRef":  destTargetRef,
+						"languageTag": languageTag,
+					},
+					"pipeline":     string(job.Spec.Pipeline),
+					"isDiagnostic": job.Labels["glooscap.dasmlab.org/diagnostic"] == "true",
+				}
+
+				// Add translated page info if completed
+				if job.Status.State == wikiv1alpha1.TranslationJobStateCompleted {
+					// Get published page info from annotations
+					var publishedPageID, publishedPageSlug, publishedPageURL string
+					var isDraft bool = true
+					
+					if job.Annotations != nil {
+						if pageID, ok := job.Annotations["glooscap.dasmlab.org/published-page-id"]; ok {
+							publishedPageID = pageID
+						}
+						if pageSlug, ok := job.Annotations["glooscap.dasmlab.org/published-page-slug"]; ok {
+							publishedPageSlug = pageSlug
+						}
+						if pageURL, ok := job.Annotations["glooscap.dasmlab.org/published-page-url"]; ok {
+							publishedPageURL = pageURL
+						}
+						if draftFlag, ok := job.Annotations["glooscap.dasmlab.org/is-draft"]; ok {
+							isDraft = (draftFlag == "true")
+						}
+					}
+					
+					jobData["translatedPage"] = map[string]any{
+						"pageId":  publishedPageID,
+						"slug":    publishedPageSlug,
+						"url":     publishedPageURL,
+						"isDraft": isDraft,
+					}
+				}
+
+				translationJobs = append(translationJobs, jobData)
+			}
+		}
+	} else if opts.Jobs != nil {
+		// Fallback to JobStore if client not available
+		jobs := opts.Jobs.List()
+		for name, job := range jobs {
+			jobData := map[string]any{
+				"name":      name,
+				"state":     string(job.Status.State),
+				"message":   job.Status.Message,
+				"pipeline":  job.Pipeline,
+				"targetRef": job.TargetRef,
+				"pageId":    job.PageID,
+				"pageTitle": job.PageTitle,
+			}
+			translationJobs = append(translationJobs, jobData)
+		}
+	}
+
+	result["translationJobs"] = translationJobs
 	return result
 }
 
