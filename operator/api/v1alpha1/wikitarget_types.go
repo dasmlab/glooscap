@@ -52,6 +52,12 @@ type WikiTargetSpec struct {
 	// +optional
 	// +kubebuilder:default=false
 	IsPaused bool `json:"isPaused,omitempty"`
+
+	// InsecureSkipTLSVerify when true, skips TLS certificate verification for HTTPS connections.
+	// This is useful for self-signed certificates or internal wikis without proper CA certificates.
+	// +optional
+	// +kubebuilder:default=false
+	InsecureSkipTLSVerify bool `json:"insecureSkipTLSVerify,omitempty"`
 }
 
 // WikiTargetStatus defines the observed state of WikiTarget.

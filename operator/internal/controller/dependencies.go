@@ -55,8 +55,9 @@ func (DefaultOutlineClientFactory) New(ctx context.Context, c client.Client, tar
 	token = strings.TrimSpace(token)
 
 	client, err := outline.NewClient(outline.Config{
-		BaseURL: target.Spec.URI,
-		Token:   token,
+		BaseURL:              target.Spec.URI,
+		Token:                token,
+		InsecureSkipTLSVerify: target.Spec.InsecureSkipTLSVerify,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("outline factory: %w", err)

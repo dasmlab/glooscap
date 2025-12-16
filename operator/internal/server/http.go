@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -1243,6 +1244,13 @@ func Start(ctx context.Context, opts Options) error {
 			http.Error(w, "metadata.name or name is required", http.StatusBadRequest)
 			return
 		}
+
+		// Normalize name to RFC 1123 compliant format (lowercase, alphanumeric, dashes)
+		normalizedName := normalizeRFC1123Name(target.Name)
+		if normalizedName != target.Name {
+			fmt.Printf("[http] Normalized WikiTarget name from %q to %q (RFC 1123 compliance)\n", target.Name, normalizedName)
+			target.Name = normalizedName
+		}
 		if target.Spec.URI == "" {
 			http.Error(w, "spec.uri is required", http.StatusBadRequest)
 			return
@@ -1500,6 +1508,53 @@ type createJobRequest struct {
 	LanguageTag string `json:"languageTag"`
 	Pipeline    string `json:"pipeline"`
 	PageTitle   string `json:"pageTitle"`
+}
+
+// normalizeRFC1123Name normalizes a string to be RFC 1123 compliant:
+// - lowercase alphanumeric characters, '-' or '.'
+// - must start and end with an alphanumeric character
+func normalizeRFC1123Name(name string) string {
+	// Convert to lowercase
+	normalized := strings.ToLower(name)
+	
+	// Replace invalid characters with dashes
+	var result strings.Builder
+	for i, r := range normalized {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			result.WriteRune(r)
+		} else if r == '-' || r == '.' {
+			// Only allow dash/dot if not at start/end
+			if i > 0 && i < len(normalized)-1 {
+				result.WriteRune(r)
+			}
+		} else {
+			// Replace other characters with dash
+			if i > 0 && i < len(normalized)-1 {
+				result.WriteRune('-')
+			}
+		}
+	}
+	
+	normalized = result.String()
+	
+	// Remove leading/trailing dashes and dots
+	normalized = strings.Trim(normalized, "-.")
+	
+	// Ensure it starts and ends with alphanumeric
+	if len(normalized) > 0 {
+		first := normalized[0]
+		last := normalized[len(normalized)-1]
+		if !((first >= 'a' && first <= 'z') || (first >= '0' && first <= '9')) {
+			normalized = "a" + normalized
+		}
+		if !((last >= 'a' && last <= 'z') || (last >= '0' && last <= '9')) {
+			normalized = normalized + "a"
+		}
+	} else {
+		normalized = "wikitarget"
+	}
+	
+	return normalized
 }
 
 func (r *createJobRequest) validate() error {

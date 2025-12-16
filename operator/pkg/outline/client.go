@@ -3,6 +3,7 @@ package outline
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +33,10 @@ type Client struct {
 
 // Config contains Outline client settings.
 type Config struct {
-	BaseURL string
-	Token   string
-	Timeout time.Duration
+	BaseURL              string
+	Token                string
+	Timeout              time.Duration
+	InsecureSkipTLSVerify bool
 }
 
 // NewClient creates a new Outline client using the provided config.
@@ -54,10 +56,20 @@ func NewClient(cfg Config) (*Client, error) {
 		timeout = defaultTimeout
 	}
 
+	// Configure HTTP client with TLS settings
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: cfg.InsecureSkipTLSVerify,
+		},
+	}
+
 	return &Client{
 		baseURL:    u,
-		httpClient: &http.Client{Timeout: timeout},
-		token:      cfg.Token,
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+		token: cfg.Token,
 	}, nil
 }
 
