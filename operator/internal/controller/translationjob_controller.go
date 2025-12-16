@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
@@ -825,7 +826,13 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	requeue := ctrl.Result{}
 	if job.Status.State == wikiv1alpha1.TranslationJobStateQueued {
-		requeue.RequeueAfter = time.Minute
+		// Use a longer requeue delay for queued jobs to spread out processing
+		// This prevents overwhelming the translation service when many jobs are queued
+		// Add some jitter based on job name hash to avoid thundering herd
+		baseDelay := 2 * time.Minute
+		// Simple hash of job name for jitter (0-30 seconds)
+		jitter := time.Duration(len(job.Name)%30) * time.Second
+		requeue.RequeueAfter = baseDelay + jitter
 	}
 
 	return requeue, nil
@@ -846,6 +853,9 @@ func (r *TranslationJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wikiv1alpha1.TranslationJob{}).
 		Named("translationjob").
+		// Limit concurrent reconciles to prevent overwhelming the translation service
+		// This helps when many jobs are queued after a restart
+		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		Complete(r)
 }
 
