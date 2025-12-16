@@ -185,7 +185,7 @@ Management Team`,
 		},
 	}
 
-	// Clean up old completed diagnostic jobs (keep only last 5 per type)
+	// Clean up old diagnostic jobs (keep only last 5 per type, regardless of state)
 	logger.Info("cleaning up old diagnostic jobs (keeping last 5 per type)")
 	var existingJobs wikiv1alpha1.TranslationJobList
 	if err := r.Client.List(ctx, &existingJobs,
@@ -196,18 +196,15 @@ Management Team`,
 		// Group by test type (starwars, technical, business)
 		jobsByType := make(map[string][]wikiv1alpha1.TranslationJob)
 		for _, job := range existingJobs.Items {
-			if job.Status.State == wikiv1alpha1.TranslationJobStateCompleted ||
-				job.Status.State == wikiv1alpha1.TranslationJobStateFailed {
-				// Extract type from name (e.g., "diagnostic-starwars-1765867004" -> "starwars")
-				parts := strings.Split(job.Name, "-")
-				if len(parts) >= 2 {
-					jobType := parts[1] // "starwars", "technical", or "business"
-					jobsByType[jobType] = append(jobsByType[jobType], job)
-				}
+			// Extract type from name (e.g., "diagnostic-starwars-1765867004" -> "starwars")
+			parts := strings.Split(job.Name, "-")
+			if len(parts) >= 2 {
+				jobType := parts[1] // "starwars", "technical", or "business"
+				jobsByType[jobType] = append(jobsByType[jobType], job)
 			}
 		}
 
-		// Sort by creation timestamp and delete old ones (keep last 5)
+		// Sort by creation timestamp and delete old ones (keep last 5 per type)
 		deletedCount := 0
 		for jobType, jobs := range jobsByType {
 			if len(jobs) > 5 {
@@ -215,7 +212,7 @@ Management Team`,
 				sort.Slice(jobs, func(i, j int) bool {
 					return jobs[i].CreationTimestamp.Before(&jobs[j].CreationTimestamp)
 				})
-				// Delete oldest ones
+				// Delete oldest ones (keep only the last 5)
 				toDelete := len(jobs) - 5
 				for i := 0; i < toDelete; i++ {
 					if err := r.Client.Delete(ctx, &jobs[i]); err == nil {
