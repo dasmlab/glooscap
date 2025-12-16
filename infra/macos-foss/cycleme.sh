@@ -179,55 +179,11 @@ else
     RESTORE_KUSTOMIZATION=false
 fi
 
-# Build installer (generates dist/install.yaml with all CRDs, RBAC, deployment, etc.)
-log_info "Building installer (generating dist/install.yaml)..."
-make build-installer IMG="${OPERATOR_IMG}"
-
-# Restore original namespace if we changed it
+# Restore original namespace if we changed it (before deploying)
 if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
     log_info "Restoring original kustomization namespace..."
     mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
 fi
-
-if [ ! -f "${OPERATOR_DIR}/dist/install.yaml" ]; then
-    log_error "dist/install.yaml was not generated"
-    exit 1
-fi
-
-log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
-
-# Patch the generated install.yaml to use correct namespace
-log_info "Patching install.yaml to use namespace: ${NAMESPACE}..."
-sed -i.bak "s|namespace: operator-system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|namespace: system|namespace: ${NAMESPACE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-
-# Patch the generated install.yaml to use correct operator image name
-log_info "Patching install.yaml with correct operator image: ${OPERATOR_IMG}..."
-sed -i.bak "s|image: controller:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:latest|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-arm64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|image: ghcr.io/dasmlab/glooscap-operator:local-amd64|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
-# Set imagePullPolicy to IfNotPresent for local k3d development
-sed -i.bak "s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g" "${OPERATOR_DIR}/dist/install.yaml"
-
-# Patch VLLM_JOB_IMAGE env var
-RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
-log_info "Patching install.yaml with translation-runner image: ${RUNNER_IMG_VALUE}..."
-sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:latest|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|value: ${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:latest\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:local-arm64\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|value: \"ghcr.io/dasmlab/glooscap-translation-runner:local-amd64\"|value: \"${RUNNER_IMG_VALUE}\"|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:latest|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-arm64|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-sed -i.bak "s|ghcr.io/dasmlab/glooscap-translation-runner:local-amd64|${RUNNER_IMG_VALUE}|g" "${OPERATOR_DIR}/dist/install.yaml"
-
-# Clean up .bak files
-rm -f "${OPERATOR_DIR}/dist/install.yaml.bak"
-
-log_success "install.yaml patched with correct images and namespace"
 
 # Step 3: Build and push operator image
 log_step "Step 3: Building and pushing operator image"
