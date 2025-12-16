@@ -206,12 +206,18 @@ fi
 log_success "Installer generated: ${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch the generated install.yaml to use architecture-specific tags and LoadBalancer for API service
-log_info "Patching install.yaml with architecture-specific image tags and LoadBalancer service..."
+log_info "Patching install.yaml with architecture-specific image tags, LoadBalancer service, and Always pull policy..."
 
 # Patch operator image (may be controller:latest or ghcr.io/dasmlab/glooscap:latest)
 sed -i.bak "s|image:.*controller.*|image: ${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|ghcr.io/dasmlab/glooscap:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 sed -i.bak "s|controller:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
+
+# Set imagePullPolicy to Always to ensure latest images are pulled
+sed -i.bak 's|imagePullPolicy:.*|imagePullPolicy: Always|g' "${OPERATOR_DIR}/dist/install.yaml"
+# If imagePullPolicy doesn't exist, add it after the image line
+sed -i.bak "/image:.*glooscap-operator/a\\
+        imagePullPolicy: Always" "${OPERATOR_DIR}/dist/install.yaml"
 
 # Patch operator API service to use LoadBalancer (for k3d external access)
 # Add type: LoadBalancer after the ports section for the operator API service
@@ -272,6 +278,12 @@ kubectl apply -f "${OPERATOR_DIR}/dist/install.yaml"
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
 
+# Force rollout restart to ensure new image is pulled (even with Always policy, restart ensures fresh start)
+log_info "🔄 Restarting operator deployment to pull latest image..."
+kubectl rollout restart deployment/operator-controller-manager -n "${NAMESPACE}" 2>/dev/null || {
+    log_warn "Failed to restart deployment (may not exist yet, will restart when ready)"
+}
+
 log_success "Operator deployed from dist/install.yaml"
 
 # Patch the operator API service to use LoadBalancer (if not already patched in install.yaml)
@@ -324,7 +336,16 @@ log_step "Step 8: Deploying UI"
 
 log_info "Applying UI manifests..."
 if [ -f "${SCRIPT_DIR}/manifests/ui/deployment.yaml" ]; then
+    # Patch UI deployment to use Always pull policy
+    log_info "Patching UI deployment with Always pull policy..."
     kubectl apply -f "${SCRIPT_DIR}/manifests/ui/"
+    kubectl patch deployment glooscap-ui -n "${NAMESPACE}" -p '{"spec":{"template":{"spec":{"containers":[{"name":"glooscap-ui","imagePullPolicy":"Always"}]}}}}' 2>/dev/null || {
+        log_warn "Failed to patch UI deployment pull policy (may not exist yet)"
+    }
+    # Restart UI to pull latest image
+    kubectl rollout restart deployment/glooscap-ui -n "${NAMESPACE}" 2>/dev/null || {
+        log_warn "Failed to restart UI deployment (may not exist yet)"
+    }
     log_success "UI deployed"
 else
     log_warn "UI manifests not found at ${SCRIPT_DIR}/manifests/ui/"
