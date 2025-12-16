@@ -1,0 +1,26 @@
+---
+# Default TranslationService for iskoces-service.iskoces.svc.cluster.local:50051
+#
+# This resource configures the Glooscap operator to connect to the Iskoces
+# translation service running in the cluster. The operator will automatically
+# reconcile this resource and establish a gRPC connection.
+#
+# Note: TranslationService is cluster-scoped (no namespace)
+#
+apiVersion: wiki.glooscap.dasmlab.org/v1alpha1
+kind: TranslationService
+metadata:
+  name: glooscap-translation-service
+  labels:
+    app: glooscap
+    service: iskoces
+spec:
+  # gRPC address of the Iskoces translation service
+  address: iskoces-service.iskoces.svc.cluster.local:50051
+  
+  # Service type: iskoces or nanabush
+  type: iskoces
+  
+  # TLS/mTLS enabled (default: false)
+  secure: false
+

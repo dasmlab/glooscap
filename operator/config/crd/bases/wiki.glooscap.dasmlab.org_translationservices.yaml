@@ -14,7 +14,39 @@ spec:
     singular: translationservice
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Translation service address
+      jsonPath: .spec.address
+      name: Address
+      type: string
+    - description: Service type
+      jsonPath: .spec.type
+      name: Type
+      type: string
+    - description: Connection status
+      jsonPath: .status.connected
+      name: Connected
+      type: boolean
+    - description: Registration status
+      jsonPath: .status.registered
+      name: Registered
+      type: boolean
+    - description: Overall status
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: Client ID
+      jsonPath: .status.clientId
+      name: ClientID
+      type: string
+    - description: Ready condition
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: TranslationService is the Schema for the translationservices

@@ -4,6 +4,7 @@
 resources:
 - bases/wiki.glooscap.dasmlab.org_wikitargets.yaml
 - bases/wiki.glooscap.dasmlab.org_translationjobs.yaml
+- bases/wiki.glooscap.dasmlab.org_translationservices.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

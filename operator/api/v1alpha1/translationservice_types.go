@@ -78,6 +78,14 @@ type TranslationServiceStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Address",type="string",JSONPath=".spec.address",description="Translation service address"
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="Service type"
+// +kubebuilder:printcolumn:name="Connected",type="boolean",JSONPath=".status.connected",description="Connection status"
+// +kubebuilder:printcolumn:name="Registered",type="boolean",JSONPath=".status.registered",description="Registration status"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Overall status"
+// +kubebuilder:printcolumn:name="ClientID",type="string",JSONPath=".status.clientId",description="Client ID"
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Ready condition"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // TranslationService is the Schema for the translationservices API.
 type TranslationService struct {

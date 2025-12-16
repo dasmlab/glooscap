@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -134,7 +135,97 @@ func (r *TranslationServiceReconciler) Reconcile(ctx context.Context, req ctrl.R
 				"type", ts.Spec.Type,
 				"secure", ts.Spec.Secure)
 
-			client, err := r.CreateTranslationServiceClient(ts.Spec.Address, ts.Spec.Type, ts.Spec.Secure)
+			// Create client directly with OnStatusChange callback that triggers SSE and background CR update
+			namespace := os.Getenv("POD_NAMESPACE")
+			if namespace == "" {
+				namespace = os.Getenv("WATCH_NAMESPACE")
+			}
+			podName := os.Getenv("POD_NAME")
+			metadata := make(map[string]string)
+			if podName != "" {
+				metadata["pod_name"] = podName
+			}
+
+			// Capture req for the callback
+			reconcileReq := req
+			client, err := nanabush.NewClient(nanabush.Config{
+				Address:       ts.Spec.Address,
+				Secure:        ts.Spec.Secure,
+				Timeout:       30 * time.Second,
+				ClientName:    "glooscap",
+				ClientVersion: os.Getenv("OPERATOR_VERSION"),
+				Namespace:     namespace,
+				Metadata:      metadata,
+				OnStatusChange: func(status nanabush.Status) {
+					// Trigger SSE broadcast immediately
+					select {
+					case r.NanabushStatusCh <- struct{}{}:
+					default:
+					}
+					// Trigger background CR status update (non-blocking)
+					go func() {
+						// Create a background context for the update
+						bgCtx := context.Background()
+						bgLogger := log.FromContext(bgCtx).WithValues("translationservice", reconcileReq.NamespacedName, "source", "status-callback")
+						var tsCopy wikiv1alpha1.TranslationService
+						if err := r.Get(bgCtx, reconcileReq.NamespacedName, &tsCopy); err != nil {
+							bgLogger.V(1).Info("Failed to get TranslationService for status update", "error", err)
+							return
+						}
+						// Update status from client
+						statusCopy := tsCopy.Status.DeepCopy()
+						statusCopy.ClientID = status.ClientID
+						statusCopy.Connected = status.Connected
+						statusCopy.Registered = status.Registered
+						statusCopy.Status = status.Status
+						statusCopy.MissedHeartbeats = status.MissedHeartbeats
+						statusCopy.HeartbeatIntervalSeconds = int(status.HeartbeatInterval)
+						if !status.LastHeartbeat.IsZero() {
+							lastHeartbeat := metav1.NewTime(status.LastHeartbeat)
+							statusCopy.LastHeartbeat = &lastHeartbeat
+						} else {
+							statusCopy.LastHeartbeat = nil
+						}
+						// Update conditions
+						now := metav1.Now()
+						if status.Connected && status.Registered {
+							meta.SetStatusCondition(&statusCopy.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionTrue,
+								Reason:             "Connected",
+								Message:            fmt.Sprintf("Connected and registered with client ID: %s", status.ClientID),
+								LastTransitionTime: now,
+							})
+						} else if status.Connected && !status.Registered {
+							meta.SetStatusCondition(&statusCopy.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "Connecting",
+								Message:            "Connected but not yet registered",
+								LastTransitionTime: now,
+							})
+						} else {
+							meta.SetStatusCondition(&statusCopy.Conditions, metav1.Condition{
+								Type:               "Ready",
+								Status:             metav1.ConditionFalse,
+								Reason:             "Disconnected",
+								Message:            "Not connected to translation service",
+								LastTransitionTime: now,
+							})
+						}
+						tsCopy.Status = *statusCopy
+						if err := r.Status().Update(bgCtx, &tsCopy); err != nil {
+							bgLogger.V(1).Info("Failed to update TranslationService status from callback", "error", err)
+						} else {
+							bgLogger.Info("TranslationService status updated from callback",
+								"client_id", status.ClientID,
+								"connected", status.Connected,
+								"registered", status.Registered,
+								"status", status.Status)
+						}
+					}()
+				},
+			})
 			if err != nil {
 				logger.Error(err, "failed to create translation service client")
 				meta.SetStatusCondition(&status.Conditions, metav1.Condition{

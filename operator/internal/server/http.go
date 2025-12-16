@@ -829,6 +829,7 @@ func Start(ctx context.Context, opts Options) error {
 		// Create or update TranslationService CR
 		// Use a fixed name since TranslationService is cluster-scoped
 		tsName := "glooscap-translation-service"
+		fmt.Printf("[http] POST /translation-service: Creating/updating TranslationService CR '%s' with address=%s, type=%s, secure=%v\n", tsName, config.Address, config.Type, config.Secure)
 		var ts wikiv1alpha1.TranslationService
 		err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
 		if err != nil {
@@ -845,10 +846,13 @@ func Start(ctx context.Context, opts Options) error {
 					},
 				}
 				if err := opts.Client.Create(r.Context(), &ts); err != nil {
+					fmt.Printf("[http] ERROR: Failed to create TranslationService CR '%s': %v (error type: %T)\n", tsName, err, err)
 					http.Error(w, fmt.Sprintf("failed to create TranslationService: %v", err), http.StatusInternalServerError)
 					return
 				}
+				fmt.Printf("[http] Successfully created TranslationService CR: %s\n", tsName)
 			} else {
+				fmt.Printf("[http] ERROR: Failed to get TranslationService CR '%s' (non-NotFound): %v (error type: %T)\n", tsName, err, err)
 				http.Error(w, fmt.Sprintf("failed to get TranslationService: %v", err), http.StatusInternalServerError)
 				return
 			}
@@ -858,9 +862,11 @@ func Start(ctx context.Context, opts Options) error {
 			ts.Spec.Type = config.Type
 			ts.Spec.Secure = config.Secure
 			if err := opts.Client.Update(r.Context(), &ts); err != nil {
+				fmt.Printf("[http] ERROR: Failed to update TranslationService CR '%s': %v (error type: %T)\n", tsName, err, err)
 				http.Error(w, fmt.Sprintf("failed to update TranslationService: %v", err), http.StatusInternalServerError)
 				return
 			}
+			fmt.Printf("[http] Successfully updated TranslationService CR: %s\n", tsName)
 		}
 
 		// Store configuration in config store for backward compatibility
@@ -902,6 +908,7 @@ func Start(ctx context.Context, opts Options) error {
 
 		// Create or update TranslationService CR
 		tsName := "glooscap-translation-service"
+		fmt.Printf("[http] PUT /translation-service: Creating/updating TranslationService CR '%s' with address=%s, type=%s, secure=%v\n", tsName, config.Address, config.Type, config.Secure)
 		var ts wikiv1alpha1.TranslationService
 		err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
 		if err != nil {
@@ -918,10 +925,13 @@ func Start(ctx context.Context, opts Options) error {
 					},
 				}
 				if err := opts.Client.Create(r.Context(), &ts); err != nil {
+					fmt.Printf("[http] ERROR: Failed to create TranslationService CR '%s': %v (error type: %T)\n", tsName, err, err)
 					http.Error(w, fmt.Sprintf("failed to create TranslationService: %v", err), http.StatusInternalServerError)
 					return
 				}
+				fmt.Printf("[http] Successfully created TranslationService CR: %s\n", tsName)
 			} else {
+				fmt.Printf("[http] ERROR: Failed to get TranslationService CR '%s' (non-NotFound): %v (error type: %T)\n", tsName, err, err)
 				http.Error(w, fmt.Sprintf("failed to get TranslationService: %v", err), http.StatusInternalServerError)
 				return
 			}
@@ -931,9 +941,11 @@ func Start(ctx context.Context, opts Options) error {
 			ts.Spec.Type = config.Type
 			ts.Spec.Secure = config.Secure
 			if err := opts.Client.Update(r.Context(), &ts); err != nil {
+				fmt.Printf("[http] ERROR: Failed to update TranslationService CR '%s': %v (error type: %T)\n", tsName, err, err)
 				http.Error(w, fmt.Sprintf("failed to update TranslationService: %v", err), http.StatusInternalServerError)
 				return
 			}
+			fmt.Printf("[http] Successfully updated TranslationService CR: %s\n", tsName)
 		}
 
 		// Store configuration in config store for backward compatibility

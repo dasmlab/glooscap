@@ -185,9 +185,13 @@ func NewClient(cfg Config) (*Client, error) {
 	fmt.Printf("[nanabush] Client registered successfully: client_id=%q, heartbeat_interval=%v\n",
 		c.clientID, c.heartbeatInterval)
 
-	// Start heartbeat goroutine
+	// Start heartbeat goroutine (interval may have been updated during registration)
 	c.startHeartbeat()
 	fmt.Printf("[nanabush] Heartbeat goroutine started (interval: %v)\n", c.heartbeatInterval)
+	
+	// Start watchdog goroutine to monitor for missed heartbeats
+	c.startHeartbeatWatchdog()
+	fmt.Printf("[nanabush] Heartbeat watchdog started\n")
 
 	// Notify initial status after successful registration
 	if c.onStatusChange != nil {
@@ -267,13 +271,96 @@ func (c *Client) startHeartbeat() {
 	go func() {
 		defer c.heartbeatWg.Done()
 
-		ticker := time.NewTicker(c.heartbeatInterval)
+		// Get initial interval (should already be set from registration)
+		c.mu.RLock()
+		initialInterval := c.heartbeatInterval
+		c.mu.RUnlock()
+		
+		fmt.Printf("[nanabush] Starting heartbeat goroutine with interval: %v\n", initialInterval)
+		
+		// Use a dynamic ticker that can be updated if interval changes
+		ticker := time.NewTicker(initialInterval)
+		defer ticker.Stop()
+
+		// Track last tick time and current ticker interval for debugging
+		lastTickTime := time.Now()
+		tickCount := 0
+		currentTickerInterval := initialInterval
+
+		for {
+			select {
+			case <-ticker.C:
+				tickCount++
+				now := time.Now()
+				timeSinceLastTick := now.Sub(lastTickTime)
+				fmt.Printf("[nanabush] Heartbeat ticker fired (#%d): interval=%v, time_since_last_tick=%v\n",
+					tickCount, currentTickerInterval, timeSinceLastTick.Round(time.Millisecond))
+				lastTickTime = now
+				
+				c.sendHeartbeat()
+				
+				// Check if interval changed and recreate ticker if needed
+				c.mu.RLock()
+				desiredInterval := c.heartbeatInterval
+				c.mu.RUnlock()
+				if currentTickerInterval != desiredInterval {
+					fmt.Printf("[nanabush] Heartbeat interval changed, recreating ticker: %v -> %v\n", currentTickerInterval, desiredInterval)
+					ticker.Stop()
+					ticker = time.NewTicker(desiredInterval)
+					currentTickerInterval = desiredInterval
+					lastTickTime = time.Now() // Reset tick time
+				}
+			case <-c.heartbeatStop:
+				fmt.Printf("[nanabush] Heartbeat goroutine stopping (sent %d heartbeats)\n", tickCount)
+				return
+			}
+		}
+	}()
+}
+
+// startHeartbeatWatchdog starts a goroutine that monitors for missed heartbeats
+func (c *Client) startHeartbeatWatchdog() {
+	c.heartbeatWg.Add(1)
+	go func() {
+		defer c.heartbeatWg.Done()
+
+		checkInterval := 5 * time.Second // Check every 5 seconds
+		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				c.sendHeartbeat()
+				c.mu.RLock()
+				lastHeartbeat := c.lastHeartbeatTime
+				interval := c.heartbeatInterval
+				registered := c.registered
+				clientID := c.clientID
+				c.mu.RUnlock()
+
+				if !registered || clientID == "" {
+					continue // Not registered yet, skip check
+				}
+
+				now := time.Now()
+				timeSinceLastHeartbeat := now.Sub(lastHeartbeat)
+				threshold := interval * 2 // Alert if no heartbeat in 2x the interval
+
+				if !lastHeartbeat.IsZero() && timeSinceLastHeartbeat > threshold {
+					fmt.Printf("[nanabush] ⚠️  WARNING: No heartbeat received in %v (threshold: %v, last: %v)\n",
+						timeSinceLastHeartbeat, threshold, lastHeartbeat.Format(time.RFC3339))
+					// Increment missed heartbeats
+					c.mu.Lock()
+					c.missedHeartbeats++
+					c.mu.Unlock()
+					// Notify status change
+					if c.onStatusChange != nil {
+						c.onStatusChange(c.Status())
+					}
+				} else if !lastHeartbeat.IsZero() {
+					fmt.Printf("[nanabush] ✓ Heartbeat OK: last received %v ago (threshold: %v)\n",
+						timeSinceLastHeartbeat.Round(time.Second), threshold.Round(time.Second))
+				}
 			case <-c.heartbeatStop:
 				return
 			}
@@ -294,7 +381,8 @@ func (c *Client) sendHeartbeat() {
 		return
 	}
 
-	fmt.Printf("[nanabush] Sending heartbeat: client_id=%q, client_name=%q\n", clientID, clientName)
+	fmt.Printf("[nanabush] 📤 Sending heartbeat: client_id=%q, client_name=%q, time=%v\n",
+		clientID, clientName, time.Now().Format(time.RFC3339))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -354,9 +442,20 @@ func (c *Client) sendHeartbeat() {
 	// Mark heartbeat as successful
 	c.mu.Lock()
 	previousMissed := c.missedHeartbeats
+	previousLastHeartbeat := c.lastHeartbeatTime
 	c.lastHeartbeatTime = time.Now()
 	c.missedHeartbeats = 0 // Reset missed heartbeats on success
 	c.mu.Unlock()
+
+	// Log heartbeat received
+	if previousLastHeartbeat.IsZero() {
+		fmt.Printf("[nanabush] ✓ First heartbeat received: client_id=%q, acknowledged at %v\n",
+			clientID, time.Now().Format(time.RFC3339))
+	} else {
+		timeSinceLast := time.Since(previousLastHeartbeat)
+		fmt.Printf("[nanabush] ✓ Heartbeat received: client_id=%q, time_since_last=%v, acknowledged at %v\n",
+			clientID, timeSinceLast.Round(time.Millisecond), time.Now().Format(time.RFC3339))
+	}
 
 	if previousMissed > 0 {
 		fmt.Printf("[nanabush] Heartbeat recovered: client_id=%q, missed_heartbeats_reset=0\n", clientID)

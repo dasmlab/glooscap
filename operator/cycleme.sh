@@ -61,6 +61,10 @@ echo "📤 Pushing operator image..."
 echo "🚀 Deploying to cluster..."
 make install deploy
 
+# Wait for CRDs to be fully registered in the API server
+echo "⏳ Waiting for CRDs to be registered..."
+sleep 5
+
 # Create a Registry secret with your Token (pullSecret)
 echo "🔐 Creating registry secret..."
 ./create-registry-secret.sh || echo "⚠️  Warning: Registry secret creation failed (may already exist)"
@@ -85,5 +89,11 @@ echo "Sleeping 3 seconds..."
 sleep 3
 echo "🚀 Deploying Wiki Target (wiki.infra.dasmlab.org) to cluster..."
 kubectl apply -f ../infra/openshift/wikitarget-infra-dasmlab-org.yaml
+
+# Deploying Translation Service
+echo "Sleeping 2 seconds..."
+sleep 2
+echo "🚀 Deploying Translation Service (iskoces) to cluster..."
+kubectl apply -f ../infra/openshift/translationservice-iskoces.yaml
 
 echo "✅ Cycle complete!"

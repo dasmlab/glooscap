@@ -40,7 +40,7 @@ spec:
     key: token  # Optional, defaults to "token" if omitted
   
   # Mode: ReadOnly (discover only), ReadWrite (can publish alongside), PushOnly (external target)
-  mode: ReadOnly
+  mode: ReadWrite
   
   # Optional: Configure discovery sync cadence
   sync:
