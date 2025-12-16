@@ -263,9 +263,13 @@ log_success "UI image built and pushed"
 # Build and push translation-runner image
 log_info "🏗️  Building translation-runner image..."
 cd "${PROJECT_ROOT}"
-if [ -f "${PROJECT_ROOT}/translation-runner/build.sh" ]; then
+
+# Validate PROJECT_ROOT and translation-runner directory
+BUILD_SCRIPT="${PROJECT_ROOT}/translation-runner/build.sh"
+if [ -f "${BUILD_SCRIPT}" ]; then
+    log_info "Found build script at: ${BUILD_SCRIPT}"
     RUNNER_IMG="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
-    bash "${PROJECT_ROOT}/translation-runner/build.sh" "local-${ARCH_TAG}" || {
+    bash "${BUILD_SCRIPT}" "local-${ARCH_TAG}" || {
         log_error "Failed to build translation-runner image"
         exit 1
     }
@@ -283,7 +287,9 @@ if [ -f "${PROJECT_ROOT}/translation-runner/build.sh" ]; then
     }
     log_success "Translation-runner image built and pushed: ${RUNNER_IMG}"
 else
-    log_warn "translation-runner/build.sh not found, skipping translation-runner build"
+    log_warn "translation-runner/build.sh not found at: ${BUILD_SCRIPT}"
+    log_info "PROJECT_ROOT resolved to: ${PROJECT_ROOT}"
+    log_info "Skipping translation-runner build"
 fi
 
 # Step 7: Deploy UI

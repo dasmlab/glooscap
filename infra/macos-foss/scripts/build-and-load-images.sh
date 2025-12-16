@@ -128,10 +128,22 @@ log_success "UI image pushed: ${UI_IMG}"
 # Build translation-runner image
 log_info "Building translation-runner image..."
 cd "${PROJECT_ROOT}"
-if [ -f "${PROJECT_ROOT}/translation-runner/build.sh" ]; then
+
+# Validate PROJECT_ROOT and translation-runner directory
+if [ ! -d "${PROJECT_ROOT}/translation-runner" ]; then
+    log_error "translation-runner directory not found at: ${PROJECT_ROOT}/translation-runner"
+    log_info "PROJECT_ROOT resolved to: ${PROJECT_ROOT}"
+    log_info "Script directory: ${SCRIPT_DIR}"
+    log_info "Current working directory: $(pwd)"
+    exit 1
+fi
+
+BUILD_SCRIPT="${PROJECT_ROOT}/translation-runner/build.sh"
+if [ -f "${BUILD_SCRIPT}" ]; then
+    log_info "Found build script at: ${BUILD_SCRIPT}"
     # Use the build script with architecture-specific tag
     # The build script will create both the specified tag and "latest"
-    bash "${PROJECT_ROOT}/translation-runner/build.sh" "local-${ARCH_TAG}" || {
+    bash "${BUILD_SCRIPT}" "local-${ARCH_TAG}" || {
         log_error "Failed to build translation-runner image"
         exit 1
     }
@@ -144,7 +156,12 @@ if [ -f "${PROJECT_ROOT}/translation-runner/build.sh" ]; then
         }
     fi
 else
-    log_error "translation-runner/build.sh not found"
+    log_error "translation-runner/build.sh not found at: ${BUILD_SCRIPT}"
+    log_info "PROJECT_ROOT resolved to: ${PROJECT_ROOT}"
+    log_info "Script directory: ${SCRIPT_DIR}"
+    log_info "Current working directory: $(pwd)"
+    log_info "Contents of translation-runner directory:"
+    ls -la "${PROJECT_ROOT}/translation-runner/" 2>/dev/null || log_warn "Cannot list translation-runner directory"
     exit 1
 fi
 log_success "Translation-runner image built: ${RUNNER_IMG}"
