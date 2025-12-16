@@ -154,9 +154,8 @@ func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
 	}
 
 	for _, item := range list.Data {
-		if item.IsDraft {
-			continue
-		}
+		// Include both drafts and published pages (removed draft filter)
+		// This allows diagnostic jobs to find and update existing draft pages
 
 		collectionName := ""
 		if item.CollectionID != "" {

@@ -469,74 +469,55 @@ func main() {
 		baseContent := translateResp.TranslatedMarkdown
 		finalContent = baseContent + marker
 		
-		// Check if page with same title exists
-		fmt.Printf("Checking for existing page with title: %s\n", translatedTitle)
+		// Check if page with same title exists (for diagnostic jobs, always update existing)
+		// Check both drafts and published pages
+		fmt.Printf("Checking for existing page with title: %s (including drafts)\n", translatedTitle)
 		destPages, err := destClient.ListPages(ctx)
 		var existingPageID string
-		var existingPageContent string
 		if err == nil {
 			for _, dp := range destPages {
+				// Match by exact title (drafts and published pages both have titles)
 				if dp.Title == translatedTitle {
 					existingPageID = dp.ID
-					fmt.Printf("Found existing page with ID: %s\n", existingPageID)
-					// Fetch existing page content
-					existingContent, err := destClient.GetPageContent(ctx, dp.ID)
-					if err == nil {
-						existingPageContent = existingContent.Markdown
-					}
+					fmt.Printf("Found existing page with ID: %s (isDraft: %v)\n", existingPageID, dp.IsDraft)
 					break
 				}
 			}
+		} else {
+			fmt.Printf("warning: failed to list pages to check for existing: %v\n", err)
 		}
 		
 		if existingPageID != "" {
-			// Check if content is identical (excluding the UUID marker)
-			// Remove UUID markers from both for comparison
-			existingBase := removeUUIDMarker(existingPageContent)
-			newBase := baseContent
+			// For diagnostic jobs, always update existing page (add new UUID marker)
+			fmt.Printf("Updating existing diagnostic page with new UUID marker...\n")
+			updateReq := outline.UpdatePageRequest{
+				ID:   existingPageID,
+				Text: finalContent, // This includes the new UUID marker
+			}
+			updateResp, err := destClient.UpdatePage(ctx, updateReq)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: failed to update page: %v\n", err)
+				updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to update page: %v", err))
+				os.Exit(1)
+			}
 			
-			if existingBase == newBase {
-				// Content is identical, just update with new UUID marker
-				fmt.Printf("Content is identical, updating page with new UUID marker...\n")
-				updateReq := outline.UpdatePageRequest{
-					ID:   existingPageID,
-					Text: finalContent,
-				}
-				updateResp, err := destClient.UpdatePage(ctx, updateReq)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error: failed to update page: %v\n", err)
-					updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to update page: %v", err))
-					os.Exit(1)
-				}
-				
-				// Publish the updated page
-				fmt.Printf("Publishing updated page...\n")
-				_, err = destClient.PublishPage(ctx, outline.PublishPageRequest{ID: updateResp.Data.ID})
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "warning: failed to publish page: %v\n", err)
-				}
-				
-				createResp = &outline.CreatePageResponse{
-					Data: struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
-						Slug  string `json:"urlId"`
-					}{
-						ID:    updateResp.Data.ID,
-						Title: updateResp.Data.Title,
-						Slug:  updateResp.Data.Slug,
-					},
-				}
-				fmt.Printf("✓ Page updated successfully (existing page)\n")
-			} else {
-				// Content differs, create new page
-				fmt.Printf("Content differs, creating new page...\n")
-				// Fall through to create new page below
-				existingPageID = ""
+			// Keep the page as draft (don't publish)
+			fmt.Printf("✓ Page updated successfully (kept as draft)\n")
+			
+			createResp = &outline.CreatePageResponse{
+				Data: struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+					Slug  string `json:"urlId"`
+				}{
+					ID:    updateResp.Data.ID,
+					Title: updateResp.Data.Title,
+					Slug:  updateResp.Data.Slug,
+				},
 			}
 		}
 		
-		// If no existing page or content differs, create new
+		// If no existing page, create new
 		if existingPageID == "" {
 			// Will create new page below
 		}
