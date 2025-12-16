@@ -86,12 +86,13 @@ if [ "${DELETE_NAMESPACE}" = "true" ]; then
 fi
 
 # Then run undeploy to clean up resources (this will fail gracefully if nothing is deployed)
-if [ -f "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" ]; then
-    DELETE_NAMESPACE="false" bash "${SCRIPT_DIR}/scripts/undeploy-glooscap.sh" || {
+UNDEPLOY_SCRIPT="${SCRIPT_DIR}/scripts/undeploy-glooscap.sh"
+if [ -f "${UNDEPLOY_SCRIPT}" ]; then
+    DELETE_NAMESPACE="false" bash "${UNDEPLOY_SCRIPT}" || {
         log_warn "Undeploy failed (may not be deployed, continuing...)"
     }
 else
-    log_warn "undeploy-glooscap.sh not found, skipping undeploy"
+    log_warn "undeploy-glooscap.sh not found at ${UNDEPLOY_SCRIPT}, skipping undeploy"
 fi
 
 # Wait for namespace to fully terminate (only if we're deleting it)
