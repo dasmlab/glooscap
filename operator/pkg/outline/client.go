@@ -63,6 +63,11 @@ func NewClient(cfg Config) (*Client, error) {
 		},
 	}
 
+	// Log TLS configuration for debugging
+	if cfg.InsecureSkipTLSVerify {
+		fmt.Printf("[outline] Creating client with InsecureSkipTLSVerify=true for %s\n", cfg.BaseURL)
+	}
+
 	return &Client{
 		baseURL:    u,
 		httpClient: &http.Client{
