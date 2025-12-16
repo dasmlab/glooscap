@@ -1269,6 +1269,15 @@ func Start(ctx context.Context, opts Options) error {
 			target.Spec.ServiceAccountSecretRef.Key = "token"
 		}
 
+		// Set default InsecureSkipTLSVerify to true (for now, to handle self-signed certs)
+		// Check if the request explicitly set this field
+		_, hasInsecureSkipTLSVerify := getNestedBool(requestData, "spec", "insecureSkipTLSVerify")
+		if !hasInsecureSkipTLSVerify {
+			// Not explicitly set, default to true
+			target.Spec.InsecureSkipTLSVerify = true
+			fmt.Printf("[http] Setting InsecureSkipTLSVerify=true by default for WikiTarget '%s/%s'\n", target.Namespace, target.Name)
+		}
+
 		ctx := r.Context()
 		fmt.Printf("[http] POST /wikitargets: Creating/updating WikiTarget '%s/%s' with URI=%s, secret=%s, mode=%s\n",
 			target.Namespace, target.Name, target.Spec.URI, target.Spec.ServiceAccountSecretRef.Name, target.Spec.Mode)
@@ -1555,6 +1564,33 @@ func normalizeRFC1123Name(name string) string {
 	}
 	
 	return normalized
+}
+
+// getNestedBool safely extracts a boolean value from nested map structure
+func getNestedBool(data map[string]interface{}, keys ...string) (bool, bool) {
+	current := data
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			// Last key - return the bool value
+			if val, ok := current[key]; ok {
+				if boolVal, ok := val.(bool); ok {
+					return boolVal, true
+				}
+			}
+			return false, false
+		}
+		// Navigate deeper
+		if val, ok := current[key]; ok {
+			if nestedMap, ok := val.(map[string]interface{}); ok {
+				current = nestedMap
+			} else {
+				return false, false
+			}
+		} else {
+			return false, false
+		}
+	}
+	return false, false
 }
 
 func (r *createJobRequest) validate() error {

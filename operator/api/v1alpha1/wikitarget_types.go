@@ -56,7 +56,7 @@ type WikiTargetSpec struct {
 	// InsecureSkipTLSVerify when true, skips TLS certificate verification for HTTPS connections.
 	// This is useful for self-signed certificates or internal wikis without proper CA certificates.
 	// +optional
-	// +kubebuilder:default=false
+	// +kubebuilder:default=true
 	InsecureSkipTLSVerify bool `json:"insecureSkipTLSVerify,omitempty"`
 }
 
