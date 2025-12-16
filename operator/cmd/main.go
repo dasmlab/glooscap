@@ -22,7 +22,6 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -262,30 +261,10 @@ func main() {
 	// Create config store for runtime configuration
 	configStore := server.NewConfigStore()
 
-	// Initialize from environment variables if set
-	translationServiceAddr := os.Getenv("TRANSLATION_SERVICE_ADDR")
-	if translationServiceAddr == "" {
-		translationServiceAddr = os.Getenv("NANABUSH_GRPC_ADDR")
-	}
-
-	// Determine service type for logging (nanabush or iskoces)
-	serviceType := os.Getenv("TRANSLATION_SERVICE_TYPE")
-	if serviceType == "" {
-		// Try to infer from address (contains "iskoces" or "nanabush")
-		if translationServiceAddr != "" {
-			if strings.Contains(strings.ToLower(translationServiceAddr), "iskoces") {
-				serviceType = "iskoces"
-			} else if strings.Contains(strings.ToLower(translationServiceAddr), "nanabush") {
-				serviceType = "nanabush"
-			} else {
-				serviceType = "iskoces" // default to iskoces
-			}
-		} else {
-			// Default to Iskoces if no address is set
-			serviceType = "iskoces"
-			translationServiceAddr = "iskoces-service.iskoces.svc:50051"
-		}
-	}
+	// DO NOT initialize from environment variables - TranslationService CR is the source of truth
+	// The TranslationService controller will create the client when the CR is reconciled
+	// This prevents using hardcoded IPs or wrong addresses
+	// We do NOT create a client here - wait for TranslationService CR to be reconciled
 
 	// Helper function to create/update translation service client
 	createTranslationServiceClient := func(addr string, svcType string, secure bool) (*nanabush.Client, error) {
@@ -467,24 +446,9 @@ func main() {
 		return nil
 	}
 
-	// Initialize from environment if configured
-	if translationServiceAddr != "" {
-		secure := os.Getenv("TRANSLATION_SERVICE_SECURE") == "true" || os.Getenv("NANABUSH_SECURE") == "true"
-		client, err := createTranslationServiceClient(translationServiceAddr, serviceType, secure)
-		if err != nil {
-			setupLog.Error(err, "failed to create translation service client", "service_type", serviceType)
-		} else {
-			nanabushClient = client
-			// Store initial config
-			configStore.SetTranslationServiceConfig(&server.TranslationServiceConfig{
-				Address: translationServiceAddr,
-				Type:    serviceType,
-				Secure:  secure,
-			})
-		}
-	} else {
-		setupLog.Info("No translation service configured (TRANSLATION_SERVICE_ADDR or NANABUSH_GRPC_ADDR not set)")
-	}
+	// DO NOT create client from environment variables
+	// TranslationService CR is the ONLY source of truth - the controller will create the client
+	setupLog.Info("Waiting for TranslationService CR to configure translation service client")
 
 	if err := (&controller.TranslationJobReconciler{
 		Client:            mgr.GetClient(),
@@ -514,6 +478,14 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationService")
 		os.Exit(1)
 	}
+	
+	// Register diagnostic runnable (creates test TranslationJobs every 2 minutes)
+	if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
+		setupLog.Error(err, "unable to setup diagnostic runnable")
+		os.Exit(1)
+	}
+	setupLog.Info("diagnostic runnable registered (creates test jobs every 2 minutes)")
+	
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {

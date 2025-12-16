@@ -100,10 +100,16 @@ func (r *TranslationServiceReconciler) Reconcile(ctx context.Context, req ctrl.R
 	specChanged := false
 	r.NanabushClientMu.RLock()
 	hasClient := *r.NanabushClient != nil
+	// If we have a client, also check if it matches the current spec
+	clientMatches := false
+	if hasClient && lastAppliedSpec == currentSpec {
+		clientMatches = true
+	}
 	r.NanabushClientMu.RUnlock()
 
 	// Check if spec has changed or client doesn't exist
-	if !hasClient || lastAppliedSpec != currentSpec {
+	// Only recreate if client doesn't exist OR spec actually changed (not just annotation missing)
+	if !hasClient || (!clientMatches && lastAppliedSpec != "" && lastAppliedSpec != currentSpec) {
 		specChanged = true
 		logger.Info("TranslationService spec changed or client missing, recreating client",
 			"address", ts.Spec.Address,
@@ -288,15 +294,34 @@ func (r *TranslationServiceReconciler) Reconcile(ctx context.Context, req ctrl.R
 			default:
 			}
 
-			// Update annotation to track last applied spec
-			if ts.Annotations == nil {
-				ts.Annotations = make(map[string]string)
-			}
-			ts.Annotations["glooscap.dasmlab.org/last-applied-spec"] = currentSpec
-			if err := r.Update(ctx, &ts); err != nil {
-				logger.Error(err, "failed to update TranslationService annotation")
-				// Continue anyway - annotation update failure is not critical
-			}
+			// Update annotation to track last applied spec (async, non-blocking)
+			go func() {
+				for retry := 0; retry < 3; retry++ {
+					bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					var tsCopy wikiv1alpha1.TranslationService
+					if err := r.Get(bgCtx, req.NamespacedName, &tsCopy); err != nil {
+						cancel()
+						logger.V(1).Info("Failed to get TranslationService for annotation update", "error", err)
+						return
+					}
+					if tsCopy.Annotations == nil {
+						tsCopy.Annotations = make(map[string]string)
+					}
+					tsCopy.Annotations["glooscap.dasmlab.org/last-applied-spec"] = currentSpec
+					if err := r.Update(bgCtx, &tsCopy); err != nil {
+						cancel()
+						if errors.IsConflict(err) && retry < 2 {
+							time.Sleep(200 * time.Millisecond * time.Duration(retry+1))
+							continue
+						}
+						logger.V(1).Info("Failed to update TranslationService annotation (non-critical)", "error", err)
+						return
+					}
+					cancel()
+					// Success
+					return
+				}
+			}()
 		}
 	}
 

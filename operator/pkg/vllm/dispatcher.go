@@ -54,6 +54,10 @@ func (d *TektonJobDispatcher) Dispatch(ctx context.Context, req Request) error {
 	name := fmt.Sprintf("vllm-%s", req.JobName)
 
 	job := &batchv1.Job{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "batch/v1",
+			Kind:       "Job",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
