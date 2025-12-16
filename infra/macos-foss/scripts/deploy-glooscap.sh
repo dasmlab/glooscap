@@ -185,9 +185,25 @@ log_success "Operator deployed from dist/install.yaml"
 
 # Patch the operator API service to ensure it's LoadBalancer (fallback)
 log_info "Ensuring operator API service is exposed as LoadBalancer..."
-kubectl patch service operator-glooscap-operator-api -n "${NAMESPACE}" -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || {
-    log_warn "Failed to patch service (may already be LoadBalancer or service doesn't exist yet)"
-}
+# Wait a moment for the service to be created
+sleep 2
+# Try to patch the service - this is the most reliable method
+if kubectl get service operator-glooscap-operator-api -n "${NAMESPACE}" &>/dev/null; then
+    kubectl patch service operator-glooscap-operator-api -n "${NAMESPACE}" -p '{"spec":{"type":"LoadBalancer"}}' || {
+        log_warn "Failed to patch service to LoadBalancer"
+    }
+    # Verify the service type
+    SERVICE_TYPE=$(kubectl get service operator-glooscap-operator-api -n "${NAMESPACE}" -o jsonpath='{.spec.type}' 2>/dev/null || echo "")
+    if [ "${SERVICE_TYPE}" != "LoadBalancer" ]; then
+        log_warn "Service type is ${SERVICE_TYPE}, expected LoadBalancer. Attempting to fix..."
+        # Try alternative service name (without prefix)
+        kubectl patch service glooscap-operator-api -n "${NAMESPACE}" -p '{"spec":{"type":"LoadBalancer"}}' 2>/dev/null || true
+    else
+        log_success "Operator API service is LoadBalancer"
+    fi
+else
+    log_warn "Service operator-glooscap-operator-api not found, may need to wait for deployment"
+fi
 
 # Deploy UI (using current architecture-specific image)
 log_info "Deploying UI..."
