@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -37,7 +38,13 @@ import (
 // to test the translation pipeline end-to-end.
 type DiagnosticRunnable struct {
 	Client client.Client
+	// Track last failure time per job type to implement cooldown
+	lastFailureTime map[string]time.Time
+	lastFailureMu   sync.Mutex
 }
+
+// Cooldown period after a failed diagnostic job before trying again
+const diagnosticCooldownPeriod = 45 * time.Second
 
 // Start implements manager.Runnable
 func (r *DiagnosticRunnable) Start(ctx context.Context) error {
@@ -214,8 +221,32 @@ Management Team`,
 		}
 
 		// Sort by creation timestamp and delete old ones (keep last 5 per type)
+		// Also track recent failures for cooldown
 		deletedCount := 0
 		for jobType, jobs := range jobsByType {
+			// Check for recent failures in this job type
+			for _, job := range jobs {
+				if job.Status.State == wikiv1alpha1.TranslationJobStateFailed && job.Status.FinishedAt != nil {
+					timeSinceFailure := time.Since(job.Status.FinishedAt.Time)
+					if timeSinceFailure < diagnosticCooldownPeriod {
+						// Mark this job type as having failed recently
+						r.lastFailureMu.Lock()
+						if r.lastFailureTime == nil {
+							r.lastFailureTime = make(map[string]time.Time)
+						}
+						// Use the most recent failure time
+						if existingFailure, exists := r.lastFailureTime[jobType]; !exists || job.Status.FinishedAt.Time.After(existingFailure) {
+							r.lastFailureTime[jobType] = job.Status.FinishedAt.Time
+						}
+						r.lastFailureMu.Unlock()
+						logger.V(1).Info("found recent failed diagnostic job, setting cooldown",
+							"type", jobType,
+							"job", job.Name,
+							"time_since_failure", timeSinceFailure)
+					}
+				}
+			}
+
 			if len(jobs) > 5 {
 				// Sort by creation time (oldest first)
 				sort.Slice(jobs, func(i, j int) bool {
@@ -242,10 +273,61 @@ Management Team`,
 
 	created := 0
 	for _, testJob := range testJobs {
+		// Extract job type for cooldown tracking (e.g., "starwars", "technical", "business")
+		jobType := "unknown"
+		parts := strings.Split(testJob.name, "-")
+		if len(parts) >= 2 {
+			jobType = parts[1]
+		}
+
+		// Check cooldown: if this job type failed recently, skip it
+		r.lastFailureMu.Lock()
+		if r.lastFailureTime == nil {
+			r.lastFailureTime = make(map[string]time.Time)
+		}
+		lastFailure, hasFailure := r.lastFailureTime[jobType]
+		r.lastFailureMu.Unlock()
+
+		if hasFailure {
+			timeSinceFailure := time.Since(lastFailure)
+			if timeSinceFailure < diagnosticCooldownPeriod {
+				remaining := diagnosticCooldownPeriod - timeSinceFailure
+				logger.V(1).Info("skipping diagnostic job creation (cooldown active)",
+					"type", jobType,
+					"time_since_failure", timeSinceFailure,
+					"remaining_cooldown", remaining)
+				continue
+			}
+			// Cooldown expired, clear the failure time
+			r.lastFailureMu.Lock()
+			delete(r.lastFailureTime, jobType)
+			r.lastFailureMu.Unlock()
+		}
+
 		// Check if job already exists
 		var existing wikiv1alpha1.TranslationJob
 		if err := r.Client.Get(ctx, client.ObjectKey{Namespace: "glooscap-system", Name: testJob.name}, &existing); err == nil {
-			// Job exists, skip
+			// Job exists, check if it failed recently
+			if existing.Status.State == wikiv1alpha1.TranslationJobStateFailed {
+				// Check if it failed recently (within cooldown period)
+				if existing.Status.FinishedAt != nil {
+					timeSinceFailure := time.Since(existing.Status.FinishedAt.Time)
+					if timeSinceFailure < diagnosticCooldownPeriod {
+						// Mark this job type as having failed recently
+						r.lastFailureMu.Lock()
+						if r.lastFailureTime == nil {
+							r.lastFailureTime = make(map[string]time.Time)
+						}
+						r.lastFailureTime[jobType] = existing.Status.FinishedAt.Time
+						r.lastFailureMu.Unlock()
+						logger.V(1).Info("diagnostic job failed recently, setting cooldown",
+							"type", jobType,
+							"job", testJob.name,
+							"time_since_failure", timeSinceFailure)
+					}
+				}
+			}
+			// Job exists, skip creating a new one
 			continue
 		}
 
@@ -289,6 +371,13 @@ Management Team`,
 		if err := r.Client.Create(ctx, job); err != nil {
 			// Failures are ok - just log and continue with next job
 			logger.V(1).Info("failed to create diagnostic TranslationJob (may already exist)", "name", testJob.name, "error", err)
+			// Mark this job type as having failed (creation failure)
+			r.lastFailureMu.Lock()
+			if r.lastFailureTime == nil {
+				r.lastFailureTime = make(map[string]time.Time)
+			}
+			r.lastFailureTime[jobType] = time.Now()
+			r.lastFailureMu.Unlock()
 			continue
 		}
 
