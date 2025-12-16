@@ -72,6 +72,7 @@ type PageSummary struct {
 	Collection string    `json:"collection,omitempty"`
 	Template   string    `json:"template,omitempty"`
 	IsTemplate bool      `json:"isTemplate,omitempty"` // True if this is a template definition
+	IsDraft    bool      `json:"isDraft,omitempty"`    // True if this page is a draft
 }
 
 type documentsListResponse struct {
@@ -187,6 +188,7 @@ func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
 			Collection: collectionName,
 			Template:   template,
 			IsTemplate: isTemplate,
+			IsDraft:    item.IsDraft,
 		})
 	}
 
