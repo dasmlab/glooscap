@@ -179,12 +179,6 @@ else
     RESTORE_KUSTOMIZATION=false
 fi
 
-# Restore original namespace if we changed it (before deploying)
-if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
-    log_info "Restoring original kustomization namespace..."
-    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
-fi
-
 # Step 3: Build and push operator image
 log_step "Step 3: Building and pushing operator image"
 
@@ -258,6 +252,12 @@ make deploy IMG="${OPERATOR_IMG}"
 
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
+
+# Restore original namespace if we changed it (after deploying)
+if [ "${RESTORE_KUSTOMIZATION}" = "true" ] && [ -f "${KUSTOMIZATION_FILE}.bak" ]; then
+    log_info "Restoring original kustomization namespace..."
+    mv "${KUSTOMIZATION_FILE}.bak" "${KUSTOMIZATION_FILE}"
+fi
 
 # Patch VLLM_JOB_IMAGE env var in the operator deployment if needed
 RUNNER_IMG_VALUE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
