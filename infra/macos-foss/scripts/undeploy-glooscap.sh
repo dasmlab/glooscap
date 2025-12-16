@@ -13,7 +13,7 @@ NC='\033[0m'
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 OPERATOR_DIR="${PROJECT_ROOT}/operator"
 MANIFESTS_DIR="$(cd "${SCRIPT_DIR}/../manifests" && pwd)"
 
