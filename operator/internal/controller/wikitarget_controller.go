@@ -221,8 +221,43 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 	logger.Info("fetching pages from outline", "uri", target.Spec.URI)
 	pages, err := client.ListPages(ctx)
 	if err != nil {
-		logger.Error(err, "failed to list pages from outline")
-		return fmt.Errorf("list pages: %w", err)
+		// Check if this is a TLS certificate error and we haven't enabled skip verification yet
+		errStr := err.Error()
+		isCertError := strings.Contains(errStr, "certificate") || 
+			strings.Contains(errStr, "x509") || 
+			strings.Contains(errStr, "unknown authority") ||
+			strings.Contains(errStr, "certificate signed by unknown")
+		
+		if isCertError && !target.Spec.InsecureSkipTLSVerify {
+			logger.Info("TLS certificate error detected, automatically enabling InsecureSkipTLSVerify and retrying",
+				"error", errStr)
+			
+			// Update the WikiTarget to enable TLS skip verification
+			target.Spec.InsecureSkipTLSVerify = true
+			if updateErr := r.Client.Update(ctx, target); updateErr != nil {
+				logger.Error(updateErr, "failed to update WikiTarget with InsecureSkipTLSVerify")
+				return fmt.Errorf("list pages: %w (failed to enable TLS skip: %v)", err, updateErr)
+			}
+			
+			// Create a new client with TLS skip enabled
+			client, retryErr := r.OutlineClient.New(ctx, r.Client, target)
+			if retryErr != nil {
+				logger.Error(retryErr, "failed to create outline client with TLS skip")
+				return fmt.Errorf("create outline client with TLS skip: %w", retryErr)
+			}
+			
+			// Retry ListPages
+			pages, retryErr = client.ListPages(ctx)
+			if retryErr != nil {
+				logger.Error(retryErr, "failed to list pages from outline even with TLS skip enabled")
+				return fmt.Errorf("list pages (with TLS skip): %w", retryErr)
+			}
+			
+			logger.Info("successfully fetched pages after enabling TLS skip verification")
+		} else {
+			logger.Error(err, "failed to list pages from outline")
+			return fmt.Errorf("list pages: %w", err)
+		}
 	}
 	logger.Info("fetched pages from outline", "count", len(pages))
 
