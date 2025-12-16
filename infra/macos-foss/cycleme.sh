@@ -341,8 +341,15 @@ log_step "Step 7: Deploying UI"
 
 log_info "Applying UI manifests..."
 if [ -f "${SCRIPT_DIR}/manifests/ui/deployment.yaml" ]; then
-    kubectl apply -f "${SCRIPT_DIR}/manifests/ui/"
-    log_success "UI deployed"
+    # Patch UI deployment to use architecture-specific image tag
+    TEMP_UI_DEPLOYMENT=$(mktemp)
+    cp "${SCRIPT_DIR}/manifests/ui/deployment.yaml" "${TEMP_UI_DEPLOYMENT}"
+    # Update image tags to match detected architecture
+    sed -i.bak "s|:local-arm64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
+    sed -i.bak "s|:local-amd64|:local-${ARCH_TAG}|g" "${TEMP_UI_DEPLOYMENT}"
+    kubectl apply -f "${TEMP_UI_DEPLOYMENT}"
+    rm -f "${TEMP_UI_DEPLOYMENT}" "${TEMP_UI_DEPLOYMENT}.bak"
+    log_success "UI deployed with architecture-specific tag (${ARCH_TAG})"
 else
     log_warn "UI manifests not found at ${SCRIPT_DIR}/manifests/ui/"
 fi
