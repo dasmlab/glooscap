@@ -170,10 +170,6 @@ func NewClient(cfg Config) (*Client, error) {
 	// Initialize generated client stub
 	client := nanabushv1.NewTranslationServiceClient(conn)
 
-	// Initialize rate limiting semaphore (max 2 concurrent translation requests)
-	maxConcurrent := 2
-	translateSemaphore := make(chan struct{}, maxConcurrent)
-
 	c := &Client{
 		conn:                   conn,
 		addr:                   cfg.Address,
