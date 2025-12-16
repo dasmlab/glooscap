@@ -69,6 +69,20 @@ export const useJobStore = defineStore('jobs', () => {
     }
   }
 
+  async function approveTranslation(jobId, namespace) {
+    loading.value = true
+    try {
+      // Call the approve-translation endpoint to create a publish job
+      await api.post('/approve-translation', {
+        jobName: jobId,
+        namespace: namespace,
+      })
+      await refreshJobs()
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     jobs,
     recentJobs,
@@ -78,6 +92,7 @@ export const useJobStore = defineStore('jobs', () => {
     refreshJobs,
     submitJob,
     approveDuplicate,
+    approveTranslation,
   }
 })
 

@@ -53,6 +53,7 @@
             <div v-if="job.message" class="text-negative q-mt-xs">
               {{ job.message }}
             </div>
+            <!-- Duplicate Approval Banner -->
             <div v-if="job.state === 'AwaitingApproval' && job.duplicateInfo" class="q-mt-sm">
               <q-banner class="bg-warning text-dark">
                 <template #avatar>
@@ -71,6 +72,31 @@
                     :label="$t('jobs.approve')"
                     color="primary"
                     @click="showApprovalDialog(job)"
+                  />
+                </template>
+              </q-banner>
+            </div>
+            <!-- Draft Approval Banner -->
+            <div v-else-if="job.state === 'AwaitingApproval'" class="q-mt-sm">
+              <q-banner class="bg-info text-white">
+                <template #avatar>
+                  <q-icon name="description" color="white" />
+                </template>
+                <div class="text-body2">
+                  {{ $t('jobs.draftReady') }}
+                </div>
+                <div class="text-caption q-mt-xs">
+                  {{ job.message || $t('jobs.draftReadyMessage') }}
+                </div>
+                <template #action>
+                  <q-btn
+                    flat
+                    dense
+                    :label="$t('jobs.publish')"
+                    color="white"
+                    text-color="primary"
+                    :loading="jobStore.loading"
+                    @click="handlePublishApproval(job)"
                   />
                 </template>
               </q-banner>
@@ -206,6 +232,23 @@ async function handleApproval() {
     $q.notify({
       type: 'negative',
       message: err.message || t('jobs.approvalFailed'),
+    })
+  }
+}
+
+async function handlePublishApproval(job) {
+  try {
+    await jobStore.approveTranslation(job.id, job.namespace || 'glooscap-system')
+    $q.notify({
+      type: 'positive',
+      message: t('jobs.publishJobCreated'),
+      icon: 'check_circle',
+    })
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err.message || t('jobs.publishFailed'),
+      icon: 'error',
     })
   }
 }

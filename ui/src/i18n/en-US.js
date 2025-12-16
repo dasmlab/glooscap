@@ -50,6 +50,11 @@ export default {
     approveOverwrite: 'Approve Overwrite',
     duplicateApproved: 'Duplicate overwrite approved',
     approvalFailed: 'Failed to approve duplicate',
+    draftReady: 'Draft ready for review',
+    draftReadyMessage: 'Translation completed and created as draft. Review and approve to publish.',
+    publish: 'Publish',
+    publishJobCreated: 'Publish job created successfully',
+    publishFailed: 'Failed to create publish job',
   },
   settings: {
     title: 'Translation Defaults',
