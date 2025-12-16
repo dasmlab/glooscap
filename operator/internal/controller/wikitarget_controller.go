@@ -220,7 +220,32 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 	}
 
 	logger.Info("fetching pages from outline", "uri", target.Spec.URI, "InsecureSkipTLSVerify", target.Spec.InsecureSkipTLSVerify)
-	pages, err := client.ListPages(ctx)
+	
+	// MVP: Prefer "Maurice PDG Collection" if it exists, otherwise get all pages
+	var pages []outline.PageSummary
+	var collectionID string
+	
+	// First, try to find "Maurice PDG Collection"
+	collections, collErr := client.ListCollections(ctx)
+	if collErr == nil {
+		for _, coll := range collections {
+			if coll.Name == "Maurice PDG Collection" {
+				collectionID = coll.ID
+				logger.Info("Found 'Maurice PDG Collection', constraining search to this collection", "collectionID", collectionID)
+				break
+			}
+		}
+	} else {
+		logger.Info("Failed to list collections, will search all pages", "error", collErr)
+	}
+	
+	// Fetch pages (with collection filter if found)
+	if collectionID != "" {
+		pages, err = client.ListPages(ctx, collectionID)
+	} else {
+		logger.Info("'Maurice PDG Collection' not found, fetching all pages")
+		pages, err = client.ListPages(ctx)
+	}
 	if err != nil {
 		// Check if this is a TLS certificate error and we haven't enabled skip verification yet
 		// Check both the error string and unwrap to check for underlying TLS errors

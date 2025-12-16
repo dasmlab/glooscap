@@ -109,69 +109,98 @@ type collectionResponse struct {
 	Name string `json:"name"`
 }
 
-// ListPages fetches page summaries from Outline.
-func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
-	reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsListPath})
-
-	payload := map[string]any{
-		"direction": "DESC",
-		"sort":      "updatedAt",
-		"limit":     100, // Outline API maximum is 100
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("outline: marshal request body: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("outline: new request: %w", err)
+// ListPages fetches page summaries from Outline with pagination support.
+// If collectionID is provided, only fetches pages from that collection.
+func (c *Client) ListPages(ctx context.Context, collectionID ...string) ([]PageSummary, error) {
+	var allPages []PageSummary
+	offset := 0
+	limit := 100 // Outline API maximum is 100 per request
+	
+	// If collectionID is provided, use it
+	var targetCollectionID string
+	if len(collectionID) > 0 && collectionID[0] != "" {
+		targetCollectionID = collectionID[0]
+		fmt.Printf("[outline] ListPages: filtering by collection ID: %s\n", targetCollectionID)
 	}
 
-	// Ensure token is trimmed of any whitespace
-	token := strings.TrimSpace(c.token)
+	for {
+		reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsListPath})
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("outline: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		// Read response body for error details
-		bodyBytes, readErr := io.ReadAll(resp.Body)
-		bodyStr := ""
-		if readErr == nil {
-			bodyStr = string(bodyBytes)
+		payload := map[string]any{
+			"direction": "DESC",
+			"sort":      "updatedAt",
+			"limit":     limit,
+			"offset":    offset,
 		}
-		return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, bodyStr)
-	}
+		
+		// Add collection filter if specified
+		if targetCollectionID != "" {
+			payload["collectionId"] = targetCollectionID
+		}
+		
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("outline: marshal request body: %w", err)
+		}
 
-	var list documentsListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
-		return nil, fmt.Errorf("outline: decode response: %w", err)
-	}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("outline: new request: %w", err)
+		}
 
-	pages := make([]PageSummary, 0, len(list.Data))
+		// Ensure token is trimmed of any whitespace
+		token := strings.TrimSpace(c.token)
 
-	// Fetch collections map if we have collection IDs
-	collectionsMap := make(map[string]string)
-	if len(list.Data) > 0 {
-		// Try to fetch collection info (Outline API may require separate call)
-		// For now, we'll extract from collectionId if available
-		for _, item := range list.Data {
-			if item.CollectionID != "" && collectionsMap[item.CollectionID] == "" {
-				// Collection name would need to be fetched separately
-				// For now, use the ID as placeholder
-				collectionsMap[item.CollectionID] = item.CollectionID
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("outline: request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// Read response body for error details
+			bodyBytes, readErr := io.ReadAll(resp.Body)
+			bodyStr := ""
+			if readErr == nil {
+				bodyStr = string(bodyBytes)
+			}
+			return nil, fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, bodyStr)
+		}
+
+		var list documentsListResponse
+		if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+			return nil, fmt.Errorf("outline: decode response: %w", err)
+		}
+
+		// If no data returned, we've reached the end
+		if len(list.Data) == 0 {
+			break
+		}
+
+		pages := make([]PageSummary, 0, len(list.Data))
+
+		// Fetch collections map to get collection names
+		collectionsMap := make(map[string]string)
+		if len(list.Data) > 0 {
+			// Fetch all collections to map IDs to names
+			collections, collErr := c.ListCollections(ctx)
+			if collErr == nil {
+				for _, coll := range collections {
+					collectionsMap[coll.ID] = coll.Name
+				}
+			}
+			// Fallback: use collection ID as name if we couldn't fetch collections
+			for _, item := range list.Data {
+				if item.CollectionID != "" && collectionsMap[item.CollectionID] == "" {
+					collectionsMap[item.CollectionID] = item.CollectionID
+				}
 			}
 		}
-	}
 
-	for _, item := range list.Data {
+		for _, item := range list.Data {
 		// Include both drafts and published pages (removed draft filter)
 		// This allows diagnostic jobs to find and update existing draft pages
 
@@ -194,22 +223,35 @@ func (c *Client) ListPages(ctx context.Context) ([]PageSummary, error) {
 			isTemplate = true
 		}
 
-		pages = append(pages, PageSummary{
-			ID:        item.ID,
-			Title:     item.Title,
-			Slug:      item.Slug,
-			UpdatedAt: item.UpdatedAt,
-			// Outline does not expose language directly; try to extract from title
-			Language:   extractLanguageFromTitle(item.Title),
-			HasAssets:  false,
-			Collection: collectionName,
-			Template:   template,
-			IsTemplate: isTemplate,
-			IsDraft:    item.IsDraft,
-		})
+			pages = append(pages, PageSummary{
+				ID:        item.ID,
+				Title:     item.Title,
+				Slug:      item.Slug,
+				UpdatedAt: item.UpdatedAt,
+				// Outline does not expose language directly; try to extract from title
+				Language:   extractLanguageFromTitle(item.Title),
+				HasAssets:  false,
+				Collection: collectionName,
+				Template:   template,
+				IsTemplate: isTemplate,
+				IsDraft:    item.IsDraft,
+			})
+		}
+
+		allPages = append(allPages, pages...)
+		
+		// If we got fewer than the limit, we've reached the end
+		if len(list.Data) < limit {
+			break
+		}
+		
+		// Increment offset for next page
+		offset += limit
+		fmt.Printf("[outline] ListPages: fetched %d pages so far (offset: %d)\n", len(allPages), offset)
 	}
 
-	return pages, nil
+	fmt.Printf("[outline] ListPages: total pages fetched: %d\n", len(allPages))
+	return allPages, nil
 }
 
 // extractLanguageFromTitle tries to extract language code from page title
