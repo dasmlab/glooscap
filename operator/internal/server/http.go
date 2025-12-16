@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1158,11 +1159,28 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 
-		// Decode request - UI sends {metadata: {name, namespace}, spec: {...}}
-		// WikiTarget's ObjectMeta should handle metadata nesting via JSON tags
-		var target wikiv1alpha1.WikiTarget
-		if err := json.NewDecoder(r.Body).Decode(&target); err != nil {
+		// Decode request - UI sends {metadata: {name, namespace}, spec: {...}, secretToken: "..."}
+		// First decode into a map to extract secretToken separately
+		var requestData map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
 			fmt.Printf("[http] ERROR: Failed to decode WikiTarget request: %v\n", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Extract secretToken if provided
+		var secretToken string
+		if tokenVal, ok := requestData["secretToken"].(string); ok {
+			secretToken = tokenVal
+		}
+		// Remove secretToken from requestData before decoding into WikiTarget
+		delete(requestData, "secretToken")
+
+		// Decode the rest into WikiTarget
+		targetBytes, _ := json.Marshal(requestData)
+		var target wikiv1alpha1.WikiTarget
+		if err := json.Unmarshal(targetBytes, &target); err != nil {
+			fmt.Printf("[http] ERROR: Failed to decode WikiTarget from request: %v\n", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1198,6 +1216,58 @@ func Start(ctx context.Context, opts Options) error {
 		ctx := r.Context()
 		fmt.Printf("[http] POST /wikitargets: Creating/updating WikiTarget '%s/%s' with URI=%s, secret=%s, mode=%s\n",
 			target.Namespace, target.Name, target.Spec.URI, target.Spec.ServiceAccountSecretRef.Name, target.Spec.Mode)
+
+		// Create or update the Secret if token is provided
+		if secretToken != "" {
+			secretKey := target.Spec.ServiceAccountSecretRef.Key
+			if secretKey == "" {
+				secretKey = "token"
+			}
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      target.Spec.ServiceAccountSecretRef.Name,
+					Namespace: target.Namespace,
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					secretKey: secretToken,
+				},
+			}
+
+			// Check if secret exists
+			var existingSecret corev1.Secret
+			err := opts.Client.Get(ctx, client.ObjectKey{Namespace: target.Namespace, Name: secret.Name}, &existingSecret)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					// Create new secret
+					fmt.Printf("[http] Creating Secret '%s/%s' for WikiTarget\n", target.Namespace, secret.Name)
+					if err := opts.Client.Create(ctx, secret); err != nil {
+						fmt.Printf("[http] ERROR: Failed to create Secret '%s/%s': %v\n", target.Namespace, secret.Name, err)
+						http.Error(w, fmt.Sprintf("failed to create Secret: %v", err), http.StatusInternalServerError)
+						return
+					}
+					fmt.Printf("[http] Successfully created Secret: %s/%s\n", target.Namespace, secret.Name)
+				} else {
+					fmt.Printf("[http] ERROR: Failed to get Secret '%s/%s': %v\n", target.Namespace, secret.Name, err)
+					http.Error(w, fmt.Sprintf("failed to get Secret: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				// Update existing secret
+				fmt.Printf("[http] Updating Secret '%s/%s' for WikiTarget\n", target.Namespace, secret.Name)
+				// Update the secret data
+				if existingSecret.Data == nil {
+					existingSecret.Data = make(map[string][]byte)
+				}
+				existingSecret.Data[secretKey] = []byte(secretToken)
+				if err := opts.Client.Update(ctx, &existingSecret); err != nil {
+					fmt.Printf("[http] ERROR: Failed to update Secret '%s/%s': %v\n", target.Namespace, secret.Name, err)
+					http.Error(w, fmt.Sprintf("failed to update Secret: %v", err), http.StatusInternalServerError)
+					return
+				}
+				fmt.Printf("[http] Successfully updated Secret: %s/%s\n", target.Namespace, secret.Name)
+			}
+		}
 
 		// Get existing WikiTarget (if any)
 		var existing wikiv1alpha1.WikiTarget

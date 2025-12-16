@@ -435,6 +435,16 @@
               hint="Default: token"
               class="q-mt-md"
             />
+            <q-input
+              v-model="wikiTargetForm.secretToken"
+              label="API Token"
+              outlined
+              dense
+              type="password"
+              :rules="editingWikiTarget ? [] : [val => !!val || 'API token is required']"
+              :hint="editingWikiTarget ? 'Leave empty to keep existing token, or enter new token to update' : 'The Outline API token (will be stored in Kubernetes Secret)'"
+              class="q-mt-md"
+            />
             <q-select
               v-model="wikiTargetForm.spec.mode"
               :options="wikiTargetModes"
@@ -902,6 +912,7 @@ const wikiTargetForm = reactive({
     },
     mode: 'ReadOnly',
   },
+  secretToken: '', // The actual token value to store in the Secret
 })
 
 const wikiTypeOptions = [
@@ -1151,6 +1162,8 @@ async function fetchWikiTargets() {
 
 // Edit WikiTarget
 function editWikiTarget(target) {
+  // Note: We don't populate the token field when editing for security
+  // The secret already exists, so we just reference it
   editingWikiTarget.value = target
   wikiTargetForm.name = target.name
   wikiTargetForm.namespace = target.namespace || 'glooscap-system'
@@ -1216,6 +1229,7 @@ async function saveWikiTarget() {
         },
         mode: wikiTargetForm.spec.mode,
       },
+      secretToken: wikiTargetForm.secretToken, // Include token value for Secret creation
     }
 
     if (editingWikiTarget.value) {
@@ -1264,6 +1278,7 @@ async function saveWikiTarget() {
     wikiTargetForm.spec.serviceAccountSecretRef.name = ''
     wikiTargetForm.spec.serviceAccountSecretRef.key = 'token'
     wikiTargetForm.spec.mode = 'ReadOnly'
+    wikiTargetForm.secretToken = ''
     
     fetchWikiTargets()
   } catch (error) {
