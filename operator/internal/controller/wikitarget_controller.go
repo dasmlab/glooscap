@@ -226,7 +226,10 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		isCertError := strings.Contains(errStr, "certificate") || 
 			strings.Contains(errStr, "x509") || 
 			strings.Contains(errStr, "unknown authority") ||
-			strings.Contains(errStr, "certificate signed by unknown")
+			strings.Contains(errStr, "certificate signed by unknown") ||
+			strings.Contains(errStr, "failed to verify certificate")
+		
+		logger.Info("ListPages error", "error", errStr, "isCertError", isCertError, "InsecureSkipTLSVerify", target.Spec.InsecureSkipTLSVerify)
 		
 		if isCertError && !target.Spec.InsecureSkipTLSVerify {
 			logger.Info("TLS certificate error detected, automatically enabling InsecureSkipTLSVerify and retrying",
@@ -239,6 +242,18 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				return fmt.Errorf("list pages: %w (failed to enable TLS skip: %v)", err, updateErr)
 			}
 			
+			logger.Info("WikiTarget updated with InsecureSkipTLSVerify=true, creating new client")
+			
+			// Refresh the target from API server to ensure we have the latest version
+			var updatedTarget wikiv1alpha1.WikiTarget
+			if refreshErr := r.Client.Get(ctx, client.ObjectKeyFromObject(target), &updatedTarget); refreshErr != nil {
+				logger.Error(refreshErr, "failed to refresh WikiTarget after update")
+				// Continue with the updated target we have in memory
+				updatedTarget = *target
+			} else {
+				*target = updatedTarget
+			}
+			
 			// Create a new client with TLS skip enabled
 			client, retryErr := r.OutlineClient.New(ctx, r.Client, target)
 			if retryErr != nil {
@@ -246,6 +261,7 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				return fmt.Errorf("create outline client with TLS skip: %w", retryErr)
 			}
 			
+			logger.Info("Retrying ListPages with TLS skip verification enabled")
 			// Retry ListPages
 			pages, retryErr = client.ListPages(ctx)
 			if retryErr != nil {
@@ -253,7 +269,11 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				return fmt.Errorf("list pages (with TLS skip): %w", retryErr)
 			}
 			
-			logger.Info("successfully fetched pages after enabling TLS skip verification")
+			logger.Info("successfully fetched pages after enabling TLS skip verification", "count", len(pages))
+		} else if isCertError && target.Spec.InsecureSkipTLSVerify {
+			// Already has TLS skip enabled but still failing - this is unexpected
+			logger.Error(err, "TLS certificate error even with InsecureSkipTLSVerify enabled - check client configuration")
+			return fmt.Errorf("list pages (TLS skip already enabled): %w", err)
 		} else {
 			logger.Error(err, "failed to list pages from outline")
 			return fmt.Errorf("list pages: %w", err)
