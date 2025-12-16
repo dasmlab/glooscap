@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -136,6 +137,15 @@ func Start(ctx context.Context, opts Options) error {
 	}()
 
 	router := chi.NewRouter()
+
+	// Request logging middleware - log ALL requests
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(os.Stderr, "[http] %s %s %s\n", r.Method, r.URL.Path, r.RemoteAddr)
+			fmt.Printf("[http] %s %s %s\n", r.Method, r.URL.Path, r.RemoteAddr)
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// CORS headers for UI
 	router.Use(func(next http.Handler) http.Handler {
@@ -1171,6 +1181,9 @@ func Start(ctx context.Context, opts Options) error {
 			}
 		}()
 
+		// Log immediately - this should always appear if request reaches handler
+		fmt.Fprintf(os.Stderr, "[http] POST /api/v1/wikitargets received - Method: %s, URL: %s, Content-Type: %s\n", 
+			r.Method, r.URL.String(), r.Header.Get("Content-Type"))
 		fmt.Printf("[http] POST /api/v1/wikitargets received\n")
 		if opts.Client == nil {
 			fmt.Printf("[http] ERROR: kubernetes client not configured\n")
