@@ -194,17 +194,20 @@ if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
     exit 1
 fi
 
-log_info "🏗️  Building and pushing operator image using build-and-load-images.sh..."
-if [ -f "${SCRIPT_DIR}/scripts/build-and-load-images.sh" ]; then
-    bash "${SCRIPT_DIR}/scripts/build-and-load-images.sh" || {
-        log_error "Failed to build and push images"
-        exit 1
-    }
-    log_success "Images built and pushed"
-else
-    log_error "build-and-load-images.sh not found at ${SCRIPT_DIR}/scripts/build-and-load-images.sh"
+log_info "🏗️  Building operator image..."
+cd "${OPERATOR_DIR}"
+./buildme.sh || {
+    log_error "Failed to build operator image"
     exit 1
-fi
+}
+log_success "Operator image built"
+
+log_info "📤 Pushing operator image..."
+./pushme.sh || {
+    log_error "Failed to push operator image"
+    exit 1
+}
+log_success "Operator image pushed"
 
 # Step 4: Create namespace and registry secret
 log_step "Step 4: Creating namespace and registry secret"
@@ -245,7 +248,9 @@ log_info "Installing CRDs..."
 make install
 
 log_info "Deploying operator..."
-make deploy IMG="${OPERATOR_IMG}"
+# Set IMG environment variable for make deploy (like working operator/cycleme.sh)
+export IMG="${OPERATOR_IMG}"
+make deploy
 
 log_info "⏳ Waiting for CRDs to be registered..."
 sleep 5
