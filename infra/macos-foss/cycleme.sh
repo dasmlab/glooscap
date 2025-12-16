@@ -179,7 +179,7 @@ else
     RESTORE_KUSTOMIZATION=false
 fi
 
-# Step 3: Build and push operator image
+# Step 3: Build and push operator image using build-and-load-images.sh
 log_step "Step 3: Building and pushing operator image"
 
 # Source gh-pat to get DASMLAB_GHCR_PAT for pushing images
@@ -194,20 +194,17 @@ if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
     exit 1
 fi
 
-log_info "🏗️  Building operator image..."
-cd "${OPERATOR_DIR}"
-make docker-build IMG="${OPERATOR_IMG}" || {
-    log_error "Failed to build operator image"
+log_info "🏗️  Building and pushing operator image using build-and-load-images.sh..."
+if [ -f "${SCRIPT_DIR}/scripts/build-and-load-images.sh" ]; then
+    bash "${SCRIPT_DIR}/scripts/build-and-load-images.sh" || {
+        log_error "Failed to build and push images"
+        exit 1
+    }
+    log_success "Images built and pushed"
+else
+    log_error "build-and-load-images.sh not found at ${SCRIPT_DIR}/scripts/build-and-load-images.sh"
     exit 1
-}
-log_success "Operator image built: ${OPERATOR_IMG}"
-
-log_info "📤 Pushing operator image..."
-docker push "${OPERATOR_IMG}" || {
-    log_error "Failed to push operator image"
-    exit 1
-}
-log_success "Operator image pushed: ${OPERATOR_IMG}"
+fi
 
 # Step 4: Create namespace and registry secret
 log_step "Step 4: Creating namespace and registry secret"
