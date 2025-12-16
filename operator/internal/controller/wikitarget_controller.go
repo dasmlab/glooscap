@@ -35,6 +35,7 @@ import (
 
 	wikiv1alpha1 "github.com/dasmlab/glooscap-operator/api/v1alpha1"
 	"github.com/dasmlab/glooscap-operator/pkg/catalog"
+	"github.com/dasmlab/glooscap-operator/pkg/outline"
 )
 
 const (
