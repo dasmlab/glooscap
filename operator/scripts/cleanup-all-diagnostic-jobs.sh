@@ -18,16 +18,22 @@ echo ""
 # Delete all diagnostic TranslationJobs
 echo "📋 Finding diagnostic TranslationJobs..."
 DIAGNOSTIC_JOBS=$(kubectl get translationjobs -n "${NAMESPACE}" -o json 2>/dev/null | \
-    jq -r '.items[] | select(.metadata.labels."glooscap.dasmlab.org/diagnostic" == "true" or .metadata.name | startswith("diagnostic-")) | .metadata.name' || echo "")
+    jq -r '.items[] | select(
+        (.metadata.labels."glooscap.dasmlab.org/diagnostic" == "true") or 
+        (.metadata.name != null and (.metadata.name | type == "string") and (.metadata.name | startswith("diagnostic-")))
+    ) | .metadata.name' 2>/dev/null || echo "")
 
 if [ -n "${DIAGNOSTIC_JOBS}" ]; then
-    echo "   Found $(echo "${DIAGNOSTIC_JOBS}" | wc -l) diagnostic TranslationJobs"
-    echo "${DIAGNOSTIC_JOBS}" | while read -r job_name; do
-        if [ "${DRY_RUN}" = "true" ]; then
-            echo "   [DRY RUN] Would delete TranslationJob: ${job_name}"
-        else
-            echo "   🗑️  Deleting TranslationJob: ${job_name}"
-            kubectl delete translationjob "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true || true
+    COUNT=$(echo "${DIAGNOSTIC_JOBS}" | grep -v '^$' | wc -l)
+    echo "   Found ${COUNT} diagnostic TranslationJobs"
+    echo "${DIAGNOSTIC_JOBS}" | grep -v '^$' | while read -r job_name; do
+        if [ -n "${job_name}" ]; then
+            if [ "${DRY_RUN}" = "true" ]; then
+                echo "   [DRY RUN] Would delete TranslationJob: ${job_name}"
+            else
+                echo "   🗑️  Deleting TranslationJob: ${job_name}"
+                kubectl delete translationjob "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true || true
+            fi
         fi
     done
 else
@@ -38,16 +44,22 @@ fi
 echo ""
 echo "📋 Finding diagnostic Kubernetes Jobs..."
 DIAG_K8S_JOBS=$(kubectl get jobs -n "${NAMESPACE}" -o json 2>/dev/null | \
-    jq -r '.items[] | select(.metadata.labels."glooscap.dasmlab.org/diagnostic" == "true" or .metadata.name | startswith("translation-diagnostic-")) | .metadata.name' || echo "")
+    jq -r '.items[] | select(
+        (.metadata.labels."glooscap.dasmlab.org/diagnostic" == "true") or 
+        (.metadata.name != null and (.metadata.name | type == "string") and (.metadata.name | startswith("translation-diagnostic-")))
+    ) | .metadata.name' 2>/dev/null || echo "")
 
 if [ -n "${DIAG_K8S_JOBS}" ]; then
-    echo "   Found $(echo "${DIAG_K8S_JOBS}" | wc -l) diagnostic Kubernetes Jobs"
-    echo "${DIAG_K8S_JOBS}" | while read -r job_name; do
-        if [ "${DRY_RUN}" = "true" ]; then
-            echo "   [DRY RUN] Would delete Job: ${job_name}"
-        else
-            echo "   🗑️  Deleting Job: ${job_name}"
-            kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan || true
+    COUNT=$(echo "${DIAG_K8S_JOBS}" | grep -v '^$' | wc -l)
+    echo "   Found ${COUNT} diagnostic Kubernetes Jobs"
+    echo "${DIAG_K8S_JOBS}" | grep -v '^$' | while read -r job_name; do
+        if [ -n "${job_name}" ]; then
+            if [ "${DRY_RUN}" = "true" ]; then
+                echo "   [DRY RUN] Would delete Job: ${job_name}"
+            else
+                echo "   🗑️  Deleting Job: ${job_name}"
+                kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found=true --cascade=orphan || true
+            fi
         fi
     done
 else
@@ -58,16 +70,22 @@ fi
 echo ""
 echo "📋 Finding diagnostic Pods..."
 DIAG_PODS=$(kubectl get pods -n "${NAMESPACE}" -o json 2>/dev/null | \
-    jq -r '.items[] | select(.metadata.labels."glooscap.dasmlab.org/diagnostic" == "true" or .metadata.name | startswith("translation-diagnostic-")) | .metadata.name' || echo "")
+    jq -r '.items[] | select(
+        (.metadata.labels."glooscap.dasmlab.org/diagnostic" == "true") or 
+        (.metadata.name != null and (.metadata.name | type == "string") and (.metadata.name | startswith("translation-diagnostic-")))
+    ) | .metadata.name' 2>/dev/null || echo "")
 
 if [ -n "${DIAG_PODS}" ]; then
-    echo "   Found $(echo "${DIAG_PODS}" | wc -l) diagnostic Pods"
-    echo "${DIAG_PODS}" | while read -r pod_name; do
-        if [ "${DRY_RUN}" = "true" ]; then
-            echo "   [DRY RUN] Would delete Pod: ${pod_name}"
-        else
-            echo "   🗑️  Deleting Pod: ${pod_name}"
-            kubectl delete pod "${pod_name}" -n "${NAMESPACE}" --ignore-not-found=true || true
+    COUNT=$(echo "${DIAG_PODS}" | grep -v '^$' | wc -l)
+    echo "   Found ${COUNT} diagnostic Pods"
+    echo "${DIAG_PODS}" | grep -v '^$' | while read -r pod_name; do
+        if [ -n "${pod_name}" ]; then
+            if [ "${DRY_RUN}" = "true" ]; then
+                echo "   [DRY RUN] Would delete Pod: ${pod_name}"
+            else
+                echo "   🗑️  Deleting Pod: ${pod_name}"
+                kubectl delete pod "${pod_name}" -n "${NAMESPACE}" --ignore-not-found=true || true
+            fi
         fi
     done
 else
