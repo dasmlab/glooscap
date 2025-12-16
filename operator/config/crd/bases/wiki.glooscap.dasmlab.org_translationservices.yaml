@@ -1,0 +1,161 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: translationservices.wiki.glooscap.dasmlab.org
+spec:
+  group: wiki.glooscap.dasmlab.org
+  names:
+    kind: TranslationService
+    listKind: TranslationServiceList
+    plural: translationservices
+    singular: translationservice
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TranslationService is the Schema for the translationservices
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of TranslationService
+            properties:
+              address:
+                description: Address is the gRPC address of the translation service
+                  (e.g., iskoces-service.iskoces.svc.cluster.local:50051)
+                maxLength: 512
+                type: string
+              secure:
+                default: false
+                description: Secure enables TLS/mTLS for the connection
+                type: boolean
+              type:
+                description: Type specifies the translation service type (e.g., "iskoces",
+                  "nanabush")
+                enum:
+                - iskoces
+                - nanabush
+                type: string
+            required:
+            - address
+            - type
+            type: object
+          status:
+            description: Status defines the observed state of TranslationService
+            properties:
+              clientId:
+                description: ClientID is the client identifier assigned by the translation
+                  service after registration
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the service's state
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              connected:
+                default: false
+                description: Connected indicates whether the gRPC connection is established
+                type: boolean
+              heartbeatIntervalSeconds:
+                description: HeartbeatIntervalSeconds is the interval between heartbeats
+                  in seconds
+                type: integer
+              lastHeartbeat:
+                description: LastHeartbeat records the timestamp of the last heartbeat
+                  received
+                format: date-time
+                type: string
+              missedHeartbeats:
+                description: MissedHeartbeats counts how many heartbeats have been
+                  missed
+                type: integer
+              registered:
+                default: false
+                description: Registered indicates whether the client has successfully
+                  registered with the service
+                type: boolean
+              status:
+                description: Status is the overall connection status (e.g., "healthy",
+                  "warning", "error")
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

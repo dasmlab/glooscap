@@ -180,8 +180,40 @@ func Start(ctx context.Context, opts Options) error {
 
 	// Status endpoint for translation service connection
 	// Supports both Nanabush and Iskoces (backward compatible with /status/nanabush)
-	router.Get("/api/v1/status/nanabush", func(w http.ResponseWriter, _ *http.Request) {
-		if opts.Nanabush == nil {
+	router.Get("/api/v1/status/nanabush", func(w http.ResponseWriter, r *http.Request) {
+		// Try to read from TranslationService CR status first
+		if opts.Client != nil {
+			tsName := "glooscap-translation-service"
+			var ts wikiv1alpha1.TranslationService
+			err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
+			if err == nil {
+				// Return status from CR
+				var lastHeartbeat time.Time
+				if ts.Status.LastHeartbeat != nil {
+					lastHeartbeat = ts.Status.LastHeartbeat.Time
+				}
+				writeJSON(w, nanabush.Status{
+					ClientID:   ts.Status.ClientID,
+					Connected:  ts.Status.Connected,
+					Registered: ts.Status.Registered,
+					Status:     ts.Status.Status,
+					MissedHeartbeats: ts.Status.MissedHeartbeats,
+					HeartbeatInterval: int64(ts.Status.HeartbeatIntervalSeconds), // Already in seconds
+					LastHeartbeat: lastHeartbeat,
+				})
+				return
+			}
+		}
+
+		// Fallback to client status if CR doesn't exist
+		var nanabushClient *nanabush.Client
+		if opts.GetNanabushClient != nil {
+			nanabushClient = opts.GetNanabushClient()
+		} else if opts.Nanabush != nil {
+			nanabushClient = opts.Nanabush
+		}
+
+		if nanabushClient == nil {
 			writeJSON(w, nanabush.Status{
 				Connected:  false,
 				Registered: false,
@@ -189,13 +221,37 @@ func Start(ctx context.Context, opts Options) error {
 			})
 			return
 		}
-		status := opts.Nanabush.Status()
+		status := nanabushClient.Status()
 		writeJSON(w, status)
 	})
 
 	// Generic translation service status endpoint (alias for backward compatibility)
-	router.Get("/api/v1/status/translation", func(w http.ResponseWriter, _ *http.Request) {
-		// Use getter function if available (for runtime updates), otherwise use direct reference
+	router.Get("/api/v1/status/translation", func(w http.ResponseWriter, r *http.Request) {
+		// Try to read from TranslationService CR status first
+		if opts.Client != nil {
+			tsName := "glooscap-translation-service"
+			var ts wikiv1alpha1.TranslationService
+			err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
+			if err == nil {
+				// Return status from CR
+				var lastHeartbeat time.Time
+				if ts.Status.LastHeartbeat != nil {
+					lastHeartbeat = ts.Status.LastHeartbeat.Time
+				}
+				writeJSON(w, nanabush.Status{
+					ClientID:   ts.Status.ClientID,
+					Connected:  ts.Status.Connected,
+					Registered: ts.Status.Registered,
+					Status:     ts.Status.Status,
+					MissedHeartbeats: ts.Status.MissedHeartbeats,
+					HeartbeatInterval: int64(ts.Status.HeartbeatIntervalSeconds), // Already in seconds
+					LastHeartbeat: lastHeartbeat,
+				})
+				return
+			}
+		}
+
+		// Fallback to client status if CR doesn't exist
 		var nanabushClient *nanabush.Client
 		if opts.GetNanabushClient != nil {
 			nanabushClient = opts.GetNanabushClient()
@@ -716,26 +772,41 @@ func Start(ctx context.Context, opts Options) error {
 
 	// Translation Service Configuration CRUD endpoints
 	router.Get("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
-		if opts.ConfigStore == nil {
-			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
 			return
 		}
-		config := opts.ConfigStore.GetTranslationServiceConfig()
-		if config == nil {
-			// Return empty config if not set
-			writeJSON(w, TranslationServiceConfig{})
+
+		// Try to read from TranslationService CR first
+		tsName := "glooscap-translation-service"
+		var ts wikiv1alpha1.TranslationService
+		err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
+		if err == nil {
+			// Return config from CR
+			writeJSON(w, TranslationServiceConfig{
+				Address: ts.Spec.Address,
+				Type:    ts.Spec.Type,
+				Secure:  ts.Spec.Secure,
+			})
 			return
 		}
-		writeJSON(w, config)
+
+		// Fallback to ConfigStore for backward compatibility
+		if opts.ConfigStore != nil {
+			config := opts.ConfigStore.GetTranslationServiceConfig()
+			if config != nil {
+				writeJSON(w, config)
+				return
+			}
+		}
+
+		// Return empty config if not set
+		writeJSON(w, TranslationServiceConfig{})
 	})
 
 	router.Post("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
-		if opts.ConfigStore == nil {
-			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
-			return
-		}
-		if opts.ReconfigureTranslationService == nil {
-			http.Error(w, "translation service reconfiguration not available", http.StatusServiceUnavailable)
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -751,21 +822,53 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 		if config.Type == "" {
-			// Default to nanabush if not specified
-			config.Type = "nanabush"
+			// Default to iskoces if not specified
+			config.Type = "iskoces"
 		}
 
-		// Store configuration first (so UI can read it back immediately)
-		opts.ConfigStore.SetTranslationServiceConfig(&config)
-
-		// Reconfigure the translation service client (async - returns immediately)
-		// The actual connection/registration happens in the background
-		if err := opts.ReconfigureTranslationService(config); err != nil {
-			http.Error(w, fmt.Sprintf("failed to initiate translation service reconfiguration: %v", err), http.StatusInternalServerError)
-			return
+		// Create or update TranslationService CR
+		// Use a fixed name since TranslationService is cluster-scoped
+		tsName := "glooscap-translation-service"
+		var ts wikiv1alpha1.TranslationService
+		err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create new TranslationService
+				ts = wikiv1alpha1.TranslationService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: tsName,
+					},
+					Spec: wikiv1alpha1.TranslationServiceSpec{
+						Address: config.Address,
+						Type:    config.Type,
+						Secure:  config.Secure,
+					},
+				}
+				if err := opts.Client.Create(r.Context(), &ts); err != nil {
+					http.Error(w, fmt.Sprintf("failed to create TranslationService: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				http.Error(w, fmt.Sprintf("failed to get TranslationService: %v", err), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Update existing TranslationService
+			ts.Spec.Address = config.Address
+			ts.Spec.Type = config.Type
+			ts.Spec.Secure = config.Secure
+			if err := opts.Client.Update(r.Context(), &ts); err != nil {
+				http.Error(w, fmt.Sprintf("failed to update TranslationService: %v", err), http.StatusInternalServerError)
+				return
+			}
 		}
 
-		// Return success immediately - reconfiguration is happening in background
+		// Store configuration in config store for backward compatibility
+		if opts.ConfigStore != nil {
+			opts.ConfigStore.SetTranslationServiceConfig(&config)
+		}
+
+		// Return success - reconciliation will happen via controller
 		writeJSON(w, map[string]string{
 			"status":  "reconfiguration_initiated",
 			"address": config.Address,
@@ -776,12 +879,8 @@ func Start(ctx context.Context, opts Options) error {
 
 	router.Put("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
 		// PUT is same as POST for this resource - reuse POST handler logic
-		if opts.ConfigStore == nil {
-			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
-			return
-		}
-		if opts.ReconfigureTranslationService == nil {
-			http.Error(w, "translation service reconfiguration not available", http.StatusServiceUnavailable)
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -797,20 +896,52 @@ func Start(ctx context.Context, opts Options) error {
 			return
 		}
 		if config.Type == "" {
-			// Default to nanabush if not specified
-			config.Type = "nanabush"
+			// Default to iskoces if not specified
+			config.Type = "iskoces"
 		}
 
-		// Store configuration first (so UI can read it back immediately)
-		opts.ConfigStore.SetTranslationServiceConfig(&config)
-
-		// Reconfigure the translation service client (async - returns immediately)
-		if err := opts.ReconfigureTranslationService(config); err != nil {
-			http.Error(w, fmt.Sprintf("failed to initiate translation service reconfiguration: %v", err), http.StatusInternalServerError)
-			return
+		// Create or update TranslationService CR
+		tsName := "glooscap-translation-service"
+		var ts wikiv1alpha1.TranslationService
+		err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create new TranslationService
+				ts = wikiv1alpha1.TranslationService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: tsName,
+					},
+					Spec: wikiv1alpha1.TranslationServiceSpec{
+						Address: config.Address,
+						Type:    config.Type,
+						Secure:  config.Secure,
+					},
+				}
+				if err := opts.Client.Create(r.Context(), &ts); err != nil {
+					http.Error(w, fmt.Sprintf("failed to create TranslationService: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				http.Error(w, fmt.Sprintf("failed to get TranslationService: %v", err), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Update existing TranslationService
+			ts.Spec.Address = config.Address
+			ts.Spec.Type = config.Type
+			ts.Spec.Secure = config.Secure
+			if err := opts.Client.Update(r.Context(), &ts); err != nil {
+				http.Error(w, fmt.Sprintf("failed to update TranslationService: %v", err), http.StatusInternalServerError)
+				return
+			}
 		}
 
-		// Return success immediately - reconfiguration is happening in background
+		// Store configuration in config store for backward compatibility
+		if opts.ConfigStore != nil {
+			opts.ConfigStore.SetTranslationServiceConfig(&config)
+		}
+
+		// Return success - reconciliation will happen via controller
 		writeJSON(w, map[string]string{
 			"status":  "reconfiguration_initiated",
 			"address": config.Address,
@@ -820,6 +951,46 @@ func Start(ctx context.Context, opts Options) error {
 	})
 
 	router.Delete("/api/v1/translation-service", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Delete TranslationService CR
+		tsName := "glooscap-translation-service"
+		var ts wikiv1alpha1.TranslationService
+		err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Already deleted, return success
+				writeJSON(w, map[string]string{
+					"status":  "deleted",
+					"message": "Translation service configuration already cleared",
+				})
+				return
+			}
+			http.Error(w, fmt.Sprintf("failed to get TranslationService: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Delete the CR
+		if err := opts.Client.Delete(r.Context(), &ts); err != nil {
+			http.Error(w, fmt.Sprintf("failed to delete TranslationService: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Clear config store for backward compatibility
+		if opts.ConfigStore != nil {
+			opts.ConfigStore.SetTranslationServiceConfig(nil)
+		}
+
+		writeJSON(w, map[string]string{
+			"status":  "deleted",
+			"message": "Translation service configuration cleared",
+		})
+	})
+
+	router.Delete("/api/v1/translation-service-old", func(w http.ResponseWriter, r *http.Request) {
 		if opts.ConfigStore == nil {
 			http.Error(w, "configuration store not available", http.StatusServiceUnavailable)
 			return
@@ -1067,46 +1238,78 @@ func buildStateResponse(opts Options) map[string]any {
 		"wikitargets": []map[string]any{},
 	}
 
-	// Add nanabush status if client is available
-	// Use getter function if available (for runtime updates), otherwise use direct reference
-	var nanabushClient *nanabush.Client
-	if opts.GetNanabushClient != nil {
-		nanabushClient = opts.GetNanabushClient()
-	} else if opts.Nanabush != nil {
-		nanabushClient = opts.Nanabush
+	// Try to read status from TranslationService CR first (most authoritative)
+	var nanabushStatus map[string]any
+	if opts.Client != nil {
+		tsName := "glooscap-translation-service"
+		var ts wikiv1alpha1.TranslationService
+		ctx := context.Background() // Use background context for SSE
+		err := opts.Client.Get(ctx, client.ObjectKey{Name: tsName}, &ts)
+		if err == nil {
+			// Use status from CR
+			var lastHeartbeatStr string
+			if ts.Status.LastHeartbeat != nil {
+				lastHeartbeatStr = ts.Status.LastHeartbeat.Format(time.RFC3339)
+			}
+			nanabushStatus = map[string]any{
+				"connected":                ts.Status.Connected,
+				"registered":               ts.Status.Registered,
+				"clientId":                 ts.Status.ClientID,
+				"lastHeartbeat":            lastHeartbeatStr,
+				"missedHeartbeats":         ts.Status.MissedHeartbeats,
+				"heartbeatIntervalSeconds": ts.Status.HeartbeatIntervalSeconds,
+				"status":                   ts.Status.Status,
+			}
+		}
 	}
 
-	if nanabushClient != nil {
-		status := nanabushClient.Status()
-		// Only return error status if we have a client but it's not registered after reasonable time
-		// If clientId is empty but we just created the client, return "connecting" status
-		if status.ClientID == "" && status.Status != "error" {
-			// Client is still registering - return connecting status
-			result["nanabush"] = map[string]any{
-				"connected":                false,
-				"registered":               false,
-				"clientId":                 "",
-				"status":                   "connecting",
+	// Fallback to client status if CR doesn't exist or doesn't have status
+	if nanabushStatus == nil {
+		var nanabushClient *nanabush.Client
+		if opts.GetNanabushClient != nil {
+			nanabushClient = opts.GetNanabushClient()
+		} else if opts.Nanabush != nil {
+			nanabushClient = opts.Nanabush
+		}
+
+		if nanabushClient != nil {
+			status := nanabushClient.Status()
+			// Only return error status if we have a client but it's not registered after reasonable time
+			// If clientId is empty but we just created the client, return "connecting" status
+			if status.ClientID == "" && status.Status != "error" {
+				// Client is still registering - return connecting status
+				nanabushStatus = map[string]any{
+					"connected":                false,
+					"registered":               false,
+					"clientId":                 "",
+					"status":                   "connecting",
+				}
+			} else {
+				var lastHeartbeatStr string
+				if !status.LastHeartbeat.IsZero() {
+					lastHeartbeatStr = status.LastHeartbeat.Format(time.RFC3339)
+				}
+				nanabushStatus = map[string]any{
+					"connected":                status.Connected,
+					"registered":               status.Registered,
+					"clientId":                 status.ClientID,
+					"lastHeartbeat":            lastHeartbeatStr,
+					"missedHeartbeats":         status.MissedHeartbeats,
+					"heartbeatIntervalSeconds": status.HeartbeatInterval, // Already int64 in seconds
+					"status":                   status.Status,
+				}
 			}
 		} else {
-			result["nanabush"] = map[string]any{
-				"connected":                status.Connected,
-				"registered":               status.Registered,
-				"clientId":                 status.ClientID,
-				"lastHeartbeat":            status.LastHeartbeat,
-				"missedHeartbeats":         status.MissedHeartbeats,
-				"heartbeatIntervalSeconds": status.HeartbeatInterval,
-				"status":                   status.Status,
+			// No nanabush client configured
+			nanabushStatus = map[string]any{
+				"connected":  false,
+				"registered": false,
+				"status":     "error",
 			}
 		}
-	} else {
-		// No nanabush client configured
-		result["nanabush"] = map[string]any{
-			"connected":  false,
-			"registered": false,
-			"status":     "error",
-		}
 	}
+
+	result["nanabush"] = nanabushStatus
 
 	if opts.Catalogue == nil {
 		return result

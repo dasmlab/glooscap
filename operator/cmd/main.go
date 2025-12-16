@@ -256,8 +256,8 @@ func main() {
 	// Initialize translation service gRPC client if configured
 	// Supports both Nanabush and Iskoces (they use the same gRPC proto interface)
 	var nanabushClient *nanabush.Client
-	var nanabushStatusCh chan struct{}
-	var nanabushClientMu sync.Mutex // Protects nanabushClient during reconfiguration
+	nanabushStatusCh := make(chan struct{}, 10) // Buffered to avoid blocking
+	var nanabushClientMu sync.RWMutex // Protects nanabushClient during reconfiguration
 
 	// Create config store for runtime configuration
 	configStore := server.NewConfigStore()
@@ -498,6 +498,20 @@ func main() {
 		GetNanabushClient: getNanabushClient, // Getter function for runtime updates
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TranslationJob")
+		os.Exit(1)
+	}
+
+	// Register TranslationService controller
+	if err := (&controller.TranslationServiceReconciler{
+		Client:                        mgr.GetClient(),
+		Scheme:                        mgr.GetScheme(),
+		Recorder:                      eventRecorder,
+		NanabushClientMu:              &nanabushClientMu,
+		NanabushClient:                &nanabushClient,
+		NanabushStatusCh:              nanabushStatusCh,
+		CreateTranslationServiceClient: createTranslationServiceClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "TranslationService")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

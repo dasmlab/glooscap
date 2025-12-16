@@ -16,6 +16,7 @@ rules:
   - wiki.glooscap.dasmlab.org
   resources:
   - translationjobs
+  - translationservices
   - wikitargets
   verbs:
   - create
@@ -29,6 +30,7 @@ rules:
   - wiki.glooscap.dasmlab.org
   resources:
   - translationjobs/finalizers
+  - translationservices/finalizers
   - wikitargets/finalizers
   verbs:
   - update
@@ -36,6 +38,7 @@ rules:
   - wiki.glooscap.dasmlab.org
   resources:
   - translationjobs/status
+  - translationservices/status
   - wikitargets/status
   verbs:
   - get
