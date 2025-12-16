@@ -250,7 +250,8 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 			
 			// Refresh the target from API server to ensure we have the latest version
 			var updatedTarget wikiv1alpha1.WikiTarget
-			if refreshErr := r.Client.Get(ctx, client.ObjectKeyFromObject(target), &updatedTarget); refreshErr != nil {
+			key := types.NamespacedName{Namespace: target.Namespace, Name: target.Name}
+			if refreshErr := r.Client.Get(ctx, key, &updatedTarget); refreshErr != nil {
 				logger.Error(refreshErr, "failed to refresh WikiTarget after update")
 				// Continue with the updated target we have in memory
 				updatedTarget = *target
