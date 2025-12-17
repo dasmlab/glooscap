@@ -28,3 +28,15 @@ vendor/
 *.prof
 
 operator/main
+
+# Sensitive files (tokens, secrets)
+gh_token
+*_token.yaml
+*-token.yaml
+pes-setup.yaml
+wikitarget-*.yaml
+*.broken
+*.original
+*.test.bak
+*.test2
+*.test2.bak

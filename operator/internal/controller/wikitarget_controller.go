@@ -41,6 +41,8 @@ import (
 const (
 	// DefaultRefreshInterval is the default time between catalog refreshes
 	DefaultRefreshInterval = 15 * time.Second
+	// SSEBroadcastInterval is how often to send cached data over SSE (independent of refresh)
+	SSEBroadcastInterval = 30 * time.Second
 )
 
 // WikiTargetReconciler reconciles a WikiTarget object
@@ -239,29 +241,78 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 
 	logger.Info("fetching pages from outline", "uri", target.Spec.URI, "InsecureSkipTLSVerify", target.Spec.InsecureSkipTLSVerify)
 	
-	// MVP: Prefer "Maurice PDG Collection" if it exists, otherwise get all pages
+	// MVP: Prefer "Maurice (PDG)" or "Maurice PDG Collection" if it exists, otherwise get all pages
 	var pages []outline.PageSummary
 	var collectionID string
+	var collectionName string
 	
-	// First, try to find "Maurice PDG Collection"
-	collections, collErr := client.ListCollections(ctx)
-	if collErr == nil {
-		for _, coll := range collections {
-			if coll.Name == "Maurice PDG Collection" {
-				collectionID = coll.ID
-				logger.Info("Found 'Maurice PDG Collection', constraining search to this collection", "collectionID", collectionID)
-				break
-			}
-		}
+	// Use cached collectionID from status if available (avoids re-searching every time)
+	if status.CollectionID != "" {
+		collectionID = status.CollectionID
+		collectionName = status.CollectionName
+		logger.Info("Using cached collection ID", "collectionID", collectionID, "collectionName", collectionName)
 	} else {
-		logger.Info("Failed to list collections, will search all pages", "error", collErr)
+		// Target collection names to search for (variations)
+		// Note: Wiki shows "Maurice (PGD)" - prioritize this exact match
+		targetNames := []string{
+			"Maurice (PGD)",           // Actual name in wiki (PGD)
+			"Maurice (PDG)",           // Alternative spelling (PDG)
+			"Maurice PGD Collection",  // With Collection suffix (PGD)
+			"Maurice PDG Collection",  // Alternative spelling with Collection suffix (PDG)
+			"Maurice PGD",             // Without parentheses or Collection (PGD)
+			"Maurice PDG",             // Alternative spelling without suffix (PDG)
+		}
+		
+		// Helper function to normalize collection names for comparison
+		// This handles variations in parentheses, "Collection" suffix, and case
+		normalizeCollectionName := func(name string) string {
+			// Remove common suffixes
+			name = strings.TrimSuffix(name, " Collection")
+			name = strings.TrimSuffix(name, " collection")
+			// Remove parentheses (but keep the text inside)
+			name = strings.ReplaceAll(name, "(", "")
+			name = strings.ReplaceAll(name, ")", "")
+			// Normalize whitespace and convert to lowercase
+			name = strings.ToLower(strings.TrimSpace(name))
+			return name
+		}
+		
+		// First, try to find the target collection by fuzzy matching
+		collections, collErr := client.ListCollections(ctx)
+		if collErr == nil {
+			for _, coll := range collections {
+				normalizedCollName := normalizeCollectionName(coll.Name)
+				// Check if this collection matches any of our target names
+				for _, targetName := range targetNames {
+					normalizedTarget := normalizeCollectionName(targetName)
+					if normalizedCollName == normalizedTarget {
+						collectionID = coll.ID
+						collectionName = coll.Name
+						logger.Info("Found matching collection, constraining search", 
+							"collectionName", coll.Name, 
+							"collectionID", collectionID,
+							"matchedTarget", targetName)
+						// Store in status for future use
+						status.CollectionID = collectionID
+						status.CollectionName = collectionName
+						break
+					}
+				}
+				if collectionID != "" {
+					break
+				}
+			}
+		} else {
+			logger.Info("Failed to list collections, will search all pages", "error", collErr)
+		}
 	}
 	
 	// Fetch pages (with collection filter if found)
 	if collectionID != "" {
 		pages, err = client.ListPages(ctx, collectionID)
+		logger.Info("Fetching pages from specific collection", "collectionID", collectionID, "collectionName", collectionName)
 	} else {
-		logger.Info("'Maurice PDG Collection' not found, fetching all pages")
+		logger.Info("Target collection not found, fetching all pages")
 		pages, err = client.ListPages(ctx)
 	}
 	if err != nil {
@@ -310,9 +361,13 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				return fmt.Errorf("create outline client with TLS skip: %w", retryErr)
 			}
 			
-			logger.Info("Retrying ListPages with TLS skip verification enabled")
-			// Retry ListPages
-			pages, retryErr = client.ListPages(ctx)
+			logger.Info("Retrying ListPages with TLS skip verification enabled", "collectionID", collectionID)
+			// Retry ListPages - preserve collection constraint if we have one
+			if collectionID != "" {
+				pages, retryErr = client.ListPages(ctx, collectionID)
+			} else {
+				pages, retryErr = client.ListPages(ctx)
+			}
 			if retryErr != nil {
 				logger.Error(retryErr, "failed to list pages from outline even with TLS skip enabled")
 				return fmt.Errorf("list pages (with TLS skip): %w", retryErr)
@@ -335,24 +390,53 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		baseURI := strings.TrimSuffix(target.Spec.URI, "/")
 		catalogPages := make([]catalog.Page, 0, len(pages))
 
+		// Get existing pages from cache to compare
+		existingPages := r.Catalogue.List(targetID)
+		existingPagesByID := make(map[string]*catalog.Page)
+		for _, ep := range existingPages {
+			existingPagesByID[ep.ID] = ep
+		}
+
+		// Track if there are any changes
+		hasChanges := false
+		newPageCount := 0
+		updatedPageCount := 0
+
 		for i, page := range pages {
 			// Build full URI for the page
 			pageURI := fmt.Sprintf("%s/doc/%s", baseURI, page.Slug)
-
-			// Always log discovered pages with URI
-			logger.Info("discovered page",
-				"index", i+1,
-				"title", page.Title,
-				"id", page.ID,
-				"slug", page.Slug,
-				"uri", pageURI,
-				"updatedAt", page.UpdatedAt.Format(time.RFC3339),
-			)
 
 			// Default language to EN if not provided by Outline
 			language := page.Language
 			if language == "" {
 				language = "EN"
+			}
+
+			// Check if this is a new or updated page
+			if existingPage, exists := existingPagesByID[page.ID]; exists {
+				// Page exists - check if it was updated
+				if !existingPage.UpdatedAt.Equal(page.UpdatedAt) {
+					hasChanges = true
+					updatedPageCount++
+					logger.V(1).Info("page updated",
+						"title", page.Title,
+						"id", page.ID,
+						"oldUpdatedAt", existingPage.UpdatedAt.Format(time.RFC3339),
+						"newUpdatedAt", page.UpdatedAt.Format(time.RFC3339),
+					)
+				}
+			} else {
+				// New page
+				hasChanges = true
+				newPageCount++
+				logger.Info("discovered new page",
+					"index", i+1,
+					"title", page.Title,
+					"id", page.ID,
+					"slug", page.Slug,
+					"uri", pageURI,
+					"updatedAt", page.UpdatedAt.Format(time.RFC3339),
+				)
 			}
 
 			catalogPages = append(catalogPages, catalog.Page{
@@ -369,13 +453,44 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 			})
 		}
 
-		r.Catalogue.Update(targetID, catalog.Target{
-			ID:        targetID,
-			Namespace: target.Namespace,
-			Name:      target.Name,
-			Mode:      string(target.Spec.Mode),
-			URI:       target.Spec.URI,
-		}, catalogPages)
+		// Check for deleted pages (pages that exist in cache but not in fetched list)
+		deletedPageCount := 0
+		for _, existingPage := range existingPages {
+			found := false
+			for _, newPage := range catalogPages {
+				if newPage.ID == existingPage.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				hasChanges = true
+				deletedPageCount++
+				logger.V(1).Info("page removed from collection",
+					"title", existingPage.Title,
+					"id", existingPage.ID,
+				)
+			}
+		}
+
+		// Only update catalogue if there are actual changes
+		if hasChanges {
+			logger.Info("catalogue changes detected, updating cache",
+				"newPages", newPageCount,
+				"updatedPages", updatedPageCount,
+				"deletedPages", deletedPageCount,
+				"totalPages", len(catalogPages),
+			)
+			r.Catalogue.Update(targetID, catalog.Target{
+				ID:        targetID,
+				Namespace: target.Namespace,
+				Name:      target.Name,
+				Mode:      string(target.Spec.Mode),
+				URI:       target.Spec.URI,
+			}, catalogPages)
+		} else {
+			logger.V(1).Info("no catalogue changes detected, skipping update", "totalPages", len(catalogPages))
+		}
 	}
 
 	status.CatalogRevision++

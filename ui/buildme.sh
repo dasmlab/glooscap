@@ -30,6 +30,22 @@ echo "[buildme] Building ${app}:${version}..."
 echo "  Build number: ${next}"
 echo "  Version tag: ${tag}"
 echo "  Git SHA: ${git_sha}"
+echo "  Working directory: $(pwd)"
+
+# Verify required files exist before building
+if [ ! -f "package.json" ]; then
+    echo "ERROR: package.json not found in current directory ($(pwd))"
+    echo "Please ensure you are running buildme.sh from the ui directory"
+    exit 1
+fi
+
+if [ ! -f "Dockerfile" ]; then
+    echo "ERROR: Dockerfile not found in current directory ($(pwd))"
+    echo "Please ensure you are running buildme.sh from the ui directory"
+    exit 1
+fi
+
+echo "  Verifying build context: package.json=$(test -f package.json && echo 'OK' || echo 'MISSING'), Dockerfile=$(test -f Dockerfile && echo 'OK' || echo 'MISSING')"
 
 # Try buildx with --load first, fall back to regular build if not supported
 # Enable BuildKit for cache mounts (faster npm installs)

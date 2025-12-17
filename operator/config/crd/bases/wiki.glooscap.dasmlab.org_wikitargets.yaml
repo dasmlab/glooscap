@@ -39,6 +39,12 @@ spec:
           spec:
             description: spec defines the desired state of WikiTarget
             properties:
+              insecureSkipTLSVerify:
+                default: true
+                description: |-
+                  InsecureSkipTLSVerify when true, skips TLS certificate verification for HTTPS connections.
+                  This is useful for self-signed certificates or internal wikis without proper CA certificates.
+                type: boolean
               isPaused:
                 default: false
                 description: IsPaused when true, stops reconciliation of this WikiTarget.
@@ -108,6 +114,15 @@ spec:
                   refreshed.
                 format: int64
                 type: integer
+              collectionID:
+                description: |-
+                  CollectionID stores the ID of the target collection (e.g., "Maurice (PGD") once found.
+                  This avoids re-searching for the collection on every refresh.
+                type: string
+              collectionName:
+                description: CollectionName stores the name of the target collection
+                  for reference.
+                type: string
               conditions:
                 description: Conditions represent the latest available observations
                   of a target's state.

@@ -10,14 +10,28 @@ set -euo pipefail
 #
 # The secret will be created in the specified namespace (default: glooscap-system)
 
-GHCR_PAT="${DASMLAB_GHCR_PAT:-}"
 NAMESPACE="${1:-glooscap-system}"
+
+# Try to source GitHub token from standard locations if not set
+if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+    # Try ~/gh-pat (bash script)
+    if [ -f "${HOME}/gh-pat" ]; then
+        source "${HOME}/gh-pat" 2>/dev/null || true
+    # Try ~/gh-pat/token (plain token file)
+    elif [ -f "${HOME}/gh-pat/token" ]; then
+        export DASMLAB_GHCR_PAT="$(cat "${HOME}/gh-pat/token" | tr -d '\n\r ')"
+    fi
+fi
+
+GHCR_PAT="${DASMLAB_GHCR_PAT:-}"
 
 if [ -z "${GHCR_PAT}" ]; then
     echo "ERROR: DASMLAB_GHCR_PAT environment variable is required"
     echo ""
     echo "Usage:"
-    echo "  DASMLAB_GHCR_PAT=your_token ./create-registry-secret.sh [namespace]"
+    echo "  1. export DASMLAB_GHCR_PAT=your_token"
+    echo "  2. Create ~/gh-pat file with: export DASMLAB_GHCR_PAT=your_token"
+    echo "  3. Create ~/gh-pat/token file with just the token"
     echo ""
     echo "The token should be a GitHub Personal Access Token (PAT) with 'read:packages' permission"
     exit 1

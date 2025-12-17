@@ -8,6 +8,6 @@ app=glooscap
 version=scratch
 
 echo "[buildme] Building ${app}:${version}..."
-docker build -t "${app}:${version}" .
+docker build  --no-cache -t "${app}:${version}" .
 
 echo "[buildme] ✅ Build complete: ${app}:${version}"
