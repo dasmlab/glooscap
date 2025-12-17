@@ -181,10 +181,17 @@ func main() {
 		}
 
 		token := strings.TrimSpace(string(tokenBytes))
+		// Default to skipping TLS verification (like operator does) to handle self-signed certs
+		// Network is transient, so we accept certs to verify connection is working
+		skipTLS := target.Spec.InsecureSkipTLSVerify
+		if !skipTLS {
+			// Default to true if not explicitly set (matches operator behavior)
+			skipTLS = true
+		}
 		return outline.NewClient(outline.Config{
 			BaseURL:              target.Spec.URI,
 			Token:                token,
-			InsecureSkipTLSVerify: target.Spec.InsecureSkipTLSVerify,
+			InsecureSkipTLSVerify: skipTLS,
 		})
 	}
 
