@@ -124,38 +124,54 @@ Pursued by the Empire's sinister agents, Princess Leia races home aboard her sta
 	if err := r.Client.List(ctx, &existingJobs,
 		client.InNamespace("glooscap-system"),
 		client.MatchingLabels{"glooscap.dasmlab.org/diagnostic": "true"}); err == nil {
-		// Check if there's a recent job (within last 2 minutes) that's still processing
-		for _, job := range existingJobs.Items {
+		// Find the most recent test-starwars job
+		var mostRecentJob *wikiv1alpha1.TranslationJob
+		var mostRecentTime time.Time
+		
+		for i := range existingJobs.Items {
+			job := &existingJobs.Items[i]
 			if strings.HasPrefix(job.Name, "test-starwars-") {
-				// If job has no state and is older than 1 minute, it's likely stuck - allow new job
-				if job.Status.State == "" {
-					age := time.Since(job.CreationTimestamp.Time)
-					if age > 1*time.Minute {
-						logger.V(1).Info("test job has no state and is old, likely stuck - will create new one", "job", job.Name, "age", age)
-						// Delete the stuck job
-						if err := r.Client.Delete(ctx, &job); err == nil {
-							logger.V(1).Info("deleted stuck test job with no state", "name", job.Name)
-						}
-						continue
-					}
-					// Job is new and has no state yet, skip creating new one (wait for reconciliation)
-					logger.V(1).Info("test job has no state yet, waiting for reconciliation", "job", job.Name, "age", age)
-					return
-				}
-				// Check if job is still in progress (not completed or failed)
-				if job.Status.State != wikiv1alpha1.TranslationJobStateCompleted &&
-					job.Status.State != wikiv1alpha1.TranslationJobStateFailed {
-					// Job still processing, skip creating new one
-					logger.V(1).Info("test job still processing, skipping creation", "job", job.Name, "state", job.Status.State)
-					return
-				}
-				// If job completed or failed more than 2 minutes ago, we can create a new one
+				// Determine the relevant time for this job
+				var jobTime time.Time
 				if job.Status.FinishedAt != nil {
-					age := time.Since(job.Status.FinishedAt.Time)
-					if age < 2*time.Minute {
-						logger.V(1).Info("recent test job exists, skipping creation", "job", job.Name, "age", age)
-						return
+					jobTime = job.Status.FinishedAt.Time
+				} else {
+					jobTime = job.CreationTimestamp.Time
+				}
+				
+				if mostRecentJob == nil || jobTime.After(mostRecentTime) {
+					mostRecentJob = job
+					mostRecentTime = jobTime
+				}
+			}
+		}
+		
+		if mostRecentJob != nil {
+			// If job has no state and is older than 1 minute, it's likely stuck - allow new job
+			if mostRecentJob.Status.State == "" {
+				age := time.Since(mostRecentJob.CreationTimestamp.Time)
+				if age > 1*time.Minute {
+					logger.V(1).Info("test job has no state and is old, likely stuck - will create new one", "job", mostRecentJob.Name, "age", age)
+					// Delete the stuck job
+					if err := r.Client.Delete(ctx, mostRecentJob); err == nil {
+						logger.V(1).Info("deleted stuck test job with no state", "name", mostRecentJob.Name)
 					}
+				} else {
+					// Job is new and has no state yet, skip creating new one (wait for reconciliation)
+					logger.V(1).Info("test job has no state yet, waiting for reconciliation", "job", mostRecentJob.Name, "age", age)
+					return
+				}
+			} else if mostRecentJob.Status.State != wikiv1alpha1.TranslationJobStateCompleted &&
+				mostRecentJob.Status.State != wikiv1alpha1.TranslationJobStateFailed {
+				// Job still processing, skip creating new one
+				logger.V(1).Info("test job still processing, skipping creation", "job", mostRecentJob.Name, "state", mostRecentJob.Status.State)
+				return
+			} else if mostRecentJob.Status.FinishedAt != nil {
+				// Job completed or failed - check if it's recent
+				age := time.Since(mostRecentJob.Status.FinishedAt.Time)
+				if age < 2*time.Minute {
+					logger.V(1).Info("recent test job exists, skipping creation", "job", mostRecentJob.Name, "age", age)
+					return
 				}
 			}
 		}
