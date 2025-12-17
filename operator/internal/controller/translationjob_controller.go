@@ -78,6 +78,7 @@ type TranslationJobReconciler struct {
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=translationjobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=wiki.glooscap.dasmlab.org,resources=wikitargets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
