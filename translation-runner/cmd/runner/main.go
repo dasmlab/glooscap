@@ -130,12 +130,29 @@ func main() {
 	fmt.Println("\nStep 2: Fetching source page content")
 	fmt.Println("----------------------------------------")
 
-	// Get source WikiTarget
+	// Get source WikiTarget (skip for diagnostic jobs with embedded content)
 	var sourceTarget wikiv1alpha1.WikiTarget
-	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: job.Spec.Source.TargetRef}, &sourceTarget); err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to get source WikiTarget %s: %v\n", job.Spec.Source.TargetRef, err)
-		updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to get source target: %v", err))
-		os.Exit(1)
+	testContent := job.Spec.Parameters["testContent"]
+	fmt.Printf("DEBUG: isDiagnostic=%v, testContent present=%v, testContent length=%d\n", isDiagnostic, testContent != "", len(testContent))
+	if isDiagnostic && testContent != "" {
+		// Diagnostic job with embedded content - create dummy WikiTarget
+		fmt.Printf("Diagnostic job with embedded content - using dummy WikiTarget\n")
+		sourceTarget = wikiv1alpha1.WikiTarget{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      job.Spec.Source.TargetRef,
+				Namespace: namespace,
+			},
+			Spec: wikiv1alpha1.WikiTargetSpec{
+				URI: "diagnostic://test",
+			},
+		}
+	} else {
+		// Regular job - need WikiTarget
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: job.Spec.Source.TargetRef}, &sourceTarget); err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to get source WikiTarget %s: %v\n", job.Spec.Source.TargetRef, err)
+			updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to get source target: %v", err))
+			os.Exit(1)
+		}
 	}
 
 	// Create Outline client helper function
@@ -186,16 +203,30 @@ func main() {
 			os.Exit(1)
 		}
 		
-		// Get destination WikiTarget (same as source for publish jobs)
+		// Get destination WikiTarget (same as source for publish jobs, skip for diagnostic)
 		var destTarget wikiv1alpha1.WikiTarget
 		destTargetRef := job.Spec.Source.TargetRef
 		if job.Spec.Parameters["targetRef"] != "" {
 			destTargetRef = job.Spec.Parameters["targetRef"]
 		}
-		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: destTargetRef}, &destTarget); err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to get destination WikiTarget %s: %v\n", destTargetRef, err)
-			updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to get destination target: %v", err))
-			os.Exit(1)
+		if isDiagnostic && testContent != "" {
+			// Use dummy target for diagnostic jobs
+			destTarget = wikiv1alpha1.WikiTarget{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      destTargetRef,
+					Namespace: namespace,
+				},
+				Spec: wikiv1alpha1.WikiTargetSpec{
+					URI:  "diagnostic://test",
+					Mode: wikiv1alpha1.WikiTargetModeReadWrite,
+				},
+			}
+		} else {
+			if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: destTargetRef}, &destTarget); err != nil {
+				fmt.Fprintf(os.Stderr, "error: failed to get destination WikiTarget %s: %v\n", destTargetRef, err)
+				updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to get destination target: %v", err))
+				os.Exit(1)
+			}
 		}
 		
 		// Create destination Outline client
@@ -255,12 +286,17 @@ func main() {
 		os.Exit(0)
 	}
 	
-	// Create source Outline client (for regular translation jobs)
-	sourceClient, err := createOutlineClient(&sourceTarget)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to create source Outline client: %v\n", err)
-		updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to create source client: %v", err))
-		os.Exit(1)
+	// Create source Outline client (for regular translation jobs, skip for diagnostic with embedded content)
+	var sourceClient *outline.Client
+	if !isDiagnostic || job.Spec.Parameters["testContent"] == "" {
+		// Only create client if we have a real WikiTarget
+		var err error
+		sourceClient, err = createOutlineClient(&sourceTarget)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to create source Outline client: %v\n", err)
+			updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to create source client: %v", err))
+			os.Exit(1)
+		}
 	}
 
 	// Fetch source page content (or use embedded test content for diagnostics)
@@ -409,21 +445,53 @@ func main() {
 	fmt.Printf("  Translated content length: %d characters\n", len(translateResp.TranslatedMarkdown))
 	fmt.Printf("  Translated content preview (first 500 chars):\n%s\n", truncateString(translateResp.TranslatedMarkdown, 500))
 
+	// Step 4: Create target destination page with PREFIX (skip for diagnostic jobs)
+	if isDiagnostic {
+		// Diagnostic jobs just test the translation service - don't publish
+		fmt.Println("\nStep 4: Diagnostic job - skipping wiki publish (translation service test complete)")
+		fmt.Println("----------------------------------------")
+		fmt.Printf("✓ Translation service test successful!\n")
+		fmt.Printf("  Source text length: %d characters\n", len(pageContent.Markdown))
+		fmt.Printf("  Translated text length: %d characters\n", len(translateResp.TranslatedMarkdown))
+		fmt.Printf("  Source language: %s\n", sourceLang)
+		fmt.Printf("  Target language: %s\n", targetLang)
+		
+		// Update job status to Completed (without publishing)
+		now := metav1.Now()
+		job.Status.State = wikiv1alpha1.TranslationJobStateCompleted
+		job.Status.FinishedAt = &now
+		job.Status.Message = "Translation service test completed successfully (no wiki publish)"
+		
+		if err := k8sClient.Status().Update(ctx, &job); err != nil {
+			fmt.Printf("warning: failed to update job status: %v\n", err)
+		} else {
+			fmt.Printf("✓ Job status updated to Completed\n")
+		}
+		
+		os.Exit(0)
+	}
+
 	// Step 4: Create target destination page with PREFIX
 	fmt.Println("\nStep 4: Creating destination page with prefix")
 	fmt.Println("----------------------------------------")
 
-	// Get destination WikiTarget
-	destTargetRef := job.Spec.Source.TargetRef
-	if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
-		destTargetRef = job.Spec.Destination.TargetRef
-	}
-
+	// Get destination WikiTarget (skip for diagnostic jobs - they don't publish)
 	var destTarget wikiv1alpha1.WikiTarget
-	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: destTargetRef}, &destTarget); err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to get destination WikiTarget %s: %v\n", destTargetRef, err)
-		updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to get destination target: %v", err))
-		os.Exit(1)
+	if isDiagnostic {
+		// Diagnostic jobs don't publish to wiki - just test translation service
+		fmt.Printf("Diagnostic job - skipping destination WikiTarget fetch (results will be logged only)\n")
+	} else {
+		// Regular job - need destination WikiTarget
+		destTargetRef := job.Spec.Source.TargetRef
+		if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
+			destTargetRef = job.Spec.Destination.TargetRef
+		}
+		
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: destTargetRef}, &destTarget); err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to get destination WikiTarget %s: %v\n", destTargetRef, err)
+			updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to get destination target: %v", err))
+			os.Exit(1)
+		}
 	}
 
 	// Create destination Outline client

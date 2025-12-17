@@ -83,6 +83,15 @@ type WikiTargetStatus struct {
 	// +optional
 	// +kubebuilder:default=false
 	Paused bool `json:"paused,omitempty"`
+
+	// CollectionID stores the ID of the target collection (e.g., "Maurice (PGD") once found.
+	// This avoids re-searching for the collection on every refresh.
+	// +optional
+	CollectionID string `json:"collectionID,omitempty"`
+
+	// CollectionName stores the name of the target collection for reference.
+	// +optional
+	CollectionName string `json:"collectionName,omitempty"`
 }
 
 // WikiTargetMode enumerates supported publication modes.

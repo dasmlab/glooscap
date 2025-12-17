@@ -85,8 +85,9 @@ func (d *TektonJobDispatcher) Dispatch(ctx context.Context, req Request) error {
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "translation-runner",
-							Image: d.Image,
+							Name:            "translation-runner",
+							Image:           d.Image,
+							ImagePullPolicy: corev1.PullAlways,
 							Args: []string{
 								"--translation-job", fmt.Sprintf("%s/%s", ns, req.JobName),
 							},

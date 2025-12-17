@@ -34,7 +34,7 @@ import (
 )
 
 // DiagnosticRunnable creates test TranslationJobs periodically for diagnostic purposes.
-// This runs in the background and creates TranslationJobs every 5 minutes
+// This runs in the background and creates a StarWars test TranslationJob every 30 seconds
 // to test the translation pipeline end-to-end.
 type DiagnosticRunnable struct {
 	Client client.Client
@@ -50,13 +50,13 @@ const diagnosticCooldownPeriod = 45 * time.Second
 func (r *DiagnosticRunnable) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("diagnostic")
 
-	logger.Info("starting diagnostic job creator (creates jobs once at start, then every 5 minutes)")
+	logger.Info("starting background translation test job creator (runs every 30 seconds)")
 
-	// Create initial batch immediately
-	r.createDiagnosticJobs(ctx, logger)
+	// Create initial test job immediately
+	r.createTestJob(ctx, logger)
 
-	// Then run every 5 minutes
-	ticker := time.NewTicker(5 * time.Minute)
+	// Then run every 30 seconds
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -64,335 +64,166 @@ func (r *DiagnosticRunnable) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			// Create jobs - failures are ok, just log and continue
-			r.createDiagnosticJobs(ctx, logger)
+			// Create test job - failures are ok, just log and continue
+			r.createTestJob(ctx, logger)
 		}
 	}
 }
 
-func (r *DiagnosticRunnable) createDiagnosticJobs(ctx context.Context, logger logr.Logger) {
+// createTestJob creates a single StarWars test translation job
+func (r *DiagnosticRunnable) createTestJob(ctx context.Context, logger logr.Logger) {
 	// Failures are ok - just log and continue
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error(fmt.Errorf("panic in createDiagnosticJobs: %v", r), "diagnostic job creation panicked, continuing")
+			logger.Error(fmt.Errorf("panic in createTestJob: %v", r), "test job creation panicked, continuing")
 		}
 	}()
 
-	// Get all WikiTargets to find source and destination
+	// For diagnostic tests, we don't need WikiTargets - we just test the translation service
+	// Use dummy target references that won't be resolved (test will use embedded content)
+	var sourceTargetName string = "diagnostic-source"
+	var destTargetName string = "diagnostic-dest"
+	
+	// Try to find real targets if available (for better integration testing)
 	var targets wikiv1alpha1.WikiTargetList
-	if err := r.Client.List(ctx, &targets, client.InNamespace("glooscap-system")); err != nil {
-		logger.Error(err, "failed to list WikiTargets (diagnostic job creation will skip this cycle)")
-		return
-	}
-
-	if len(targets.Items) < 1 {
-		logger.Info("no WikiTargets found, skipping diagnostic job creation")
-		return
-	}
-
-	// Find a source target (prefer one with pages)
-	var sourceTarget *wikiv1alpha1.WikiTarget
-	var destTarget *wikiv1alpha1.WikiTarget
-
-	for i := range targets.Items {
-		target := &targets.Items[i]
-		if target.Spec.Mode != wikiv1alpha1.WikiTargetModeReadOnly {
-			if destTarget == nil {
-				destTarget = target
+	if err := r.Client.List(ctx, &targets, client.InNamespace("glooscap-system")); err == nil && len(targets.Items) > 0 {
+		// Use real targets if available
+		for i := range targets.Items {
+			target := &targets.Items[i]
+			if target.Spec.Mode != wikiv1alpha1.WikiTargetModeReadOnly {
+				if destTargetName == "diagnostic-dest" {
+					destTargetName = target.Name
+				}
+			}
+			if sourceTargetName == "diagnostic-source" {
+				sourceTargetName = target.Name
 			}
 		}
-		if sourceTarget == nil {
-			sourceTarget = target
-		}
+		logger.V(1).Info("using real WikiTargets for diagnostic test", "source", sourceTargetName, "dest", destTargetName)
+	} else {
+		logger.Info("no WikiTargets found, using dummy targets for translation service test only")
 	}
 
-	if sourceTarget == nil {
-		logger.Info("no source target found")
-		return
-	}
+	// Use a fixed test page ID for StarWars test
+	pageID := "998e669e-a2fe-496a-92d3-a265cb27a362"
 
-	if destTarget == nil {
-		// Use source as destination if no writable target found
-		destTarget = sourceTarget
-	}
-
-	// Try to find a real page ID from the source target
-	// We'll use a known test page ID, or try to find one from the catalog
-	pageID := "998e669e-a2fe-496a-92d3-a265cb27a362" // Default test page ID
-
-	// Create diagnostic TranslationJobs using iskoces test cases
-	// These use embedded test content that matches iskoces/run-tests.sh
-	testJobs := []struct {
-		name        string
-		pageTitle   string
-		languageTag string
-		pageID      string
-		testContent string // Embedded test content from iskoces
-	}{
-		{
-			name:        fmt.Sprintf("diagnostic-starwars-%d", time.Now().Unix()),
-			pageTitle:   "Star Wars Opening",
-			languageTag: "fr-CA",
-			pageID:      pageID,
-			testContent: `A long time ago in a galaxy far, far away...
+	// StarWars test content (from iskoces test suite)
+	starWarsContent := `A long time ago in a galaxy far, far away...
 
 It is a period of civil war. Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire.
 
 During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, the DEATH STAR, an armored space station with enough power to destroy an entire planet.
 
-Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...`,
-		},
-		{
-			name:        fmt.Sprintf("diagnostic-technical-%d", time.Now().Unix()),
-			pageTitle:   "Technical Documentation",
-			languageTag: "fr-CA",
-			pageID:      pageID,
-			testContent: `# Technical Documentation Translation Test
+Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...`
 
-This document contains technical terminology and code examples that should be translated accurately.
+	// Generate unique job name with timestamp
+	jobName := fmt.Sprintf("test-starwars-%d", time.Now().Unix())
 
-## Key Concepts
-
-- **Machine Translation**: The automatic translation of text from one language to another using computational methods.
-- **Neural Networks**: Artificial intelligence systems inspired by biological neural networks.
-- **API Endpoint**: A specific URL where an API can be accessed.
-
-## Code Example
-
-` + "```python" + `
-def translate_text(text, source_lang, target_lang):
-    """Translate text using the translation service."""
-    response = client.translate(
-        text=text,
-        source=source_lang,
-        target=target_lang
-    )
-    return response.translated_text
-` + "```" + `
-
-## Best Practices
-
-1. Always validate input before translation
-2. Handle errors gracefully
-3. Cache translations when possible
-4. Monitor translation quality`,
-		},
-		{
-			name:        fmt.Sprintf("diagnostic-business-%d", time.Now().Unix()),
-			pageTitle:   "Business Email",
-			languageTag: "fr-CA",
-			pageID:      pageID,
-			testContent: `Subject: Quarterly Business Review Meeting
-
-Dear Team,
-
-I hope this message finds you well. I am writing to schedule our quarterly business review meeting for next month.
-
-The meeting will cover:
-- Revenue performance for Q3
-- Strategic initiatives and their progress
-- Upcoming product launches
-- Budget allocation for next quarter
-
-Please confirm your availability by Friday. The meeting will be held in the main conference room at 2:00 PM.
-
-Best regards,
-Management Team`,
-		},
-	}
-
-	// Clean up old diagnostic jobs (keep only last 5 per type, regardless of state)
-	logger.Info("cleaning up old diagnostic jobs (keeping last 5 per type)")
+	// Check if a recent test job already exists and is still processing
 	var existingJobs wikiv1alpha1.TranslationJobList
 	if err := r.Client.List(ctx, &existingJobs,
 		client.InNamespace("glooscap-system"),
-		client.MatchingLabels{"glooscap.dasmlab.org/diagnostic": "true"}); err != nil {
-		logger.Error(err, "failed to list diagnostic jobs for cleanup")
-	} else {
-		// Group by test type (starwars, technical, business)
-		jobsByType := make(map[string][]wikiv1alpha1.TranslationJob)
+		client.MatchingLabels{"glooscap.dasmlab.org/diagnostic": "true"}); err == nil {
+		// Check if there's a recent job (within last 2 minutes) that's still processing
 		for _, job := range existingJobs.Items {
-			// Extract type from name (e.g., "diagnostic-starwars-1765867004" -> "starwars")
-			parts := strings.Split(job.Name, "-")
-			if len(parts) >= 2 {
-				jobType := parts[1] // "starwars", "technical", or "business"
-				jobsByType[jobType] = append(jobsByType[jobType], job)
-			}
-		}
-
-		// Sort by creation timestamp and delete old ones (keep last 5 per type)
-		// Also track recent failures for cooldown
-		deletedCount := 0
-		for jobType, jobs := range jobsByType {
-			// Check for recent failures in this job type
-			for _, job := range jobs {
-				if job.Status.State == wikiv1alpha1.TranslationJobStateFailed && job.Status.FinishedAt != nil {
-					timeSinceFailure := time.Since(job.Status.FinishedAt.Time)
-					if timeSinceFailure < diagnosticCooldownPeriod {
-						// Mark this job type as having failed recently
-						r.lastFailureMu.Lock()
-						if r.lastFailureTime == nil {
-							r.lastFailureTime = make(map[string]time.Time)
-						}
-						// Use the most recent failure time
-						if existingFailure, exists := r.lastFailureTime[jobType]; !exists || job.Status.FinishedAt.Time.After(existingFailure) {
-							r.lastFailureTime[jobType] = job.Status.FinishedAt.Time
-						}
-						r.lastFailureMu.Unlock()
-						logger.V(1).Info("found recent failed diagnostic job, setting cooldown",
-							"type", jobType,
-							"job", job.Name,
-							"time_since_failure", timeSinceFailure)
-					}
+			if strings.HasPrefix(job.Name, "test-starwars-") {
+				// Check if job is still in progress (not completed or failed)
+				if job.Status.State != wikiv1alpha1.TranslationJobStateCompleted &&
+					job.Status.State != wikiv1alpha1.TranslationJobStateFailed {
+					// Job still processing, skip creating new one
+					logger.V(1).Info("test job still processing, skipping creation", "job", job.Name, "state", job.Status.State)
+					return
 				}
-			}
-
-			if len(jobs) > 5 {
-				// Sort by creation time (oldest first)
-				sort.Slice(jobs, func(i, j int) bool {
-					return jobs[i].CreationTimestamp.Before(&jobs[j].CreationTimestamp)
-				})
-				// Delete oldest ones (keep only the last 5)
-				toDelete := len(jobs) - 5
-				for i := 0; i < toDelete; i++ {
-					if err := r.Client.Delete(ctx, &jobs[i]); err == nil {
-						logger.Info("deleted old diagnostic job", "name", jobs[i].Name, "type", jobType, "state", jobs[i].Status.State)
-						deletedCount++
-					} else {
-						logger.Error(err, "failed to delete old diagnostic job", "name", jobs[i].Name, "type", jobType)
+				// If job completed or failed more than 2 minutes ago, we can create a new one
+				if job.Status.FinishedAt != nil {
+					age := time.Since(job.Status.FinishedAt.Time)
+					if age < 2*time.Minute {
+						logger.V(1).Info("recent test job exists, skipping creation", "job", job.Name, "age", age)
+						return
 					}
 				}
 			}
 		}
-		if deletedCount > 0 {
-			logger.Info("diagnostic job cleanup complete", "deleted", deletedCount, "types", len(jobsByType))
-		} else {
-			logger.V(1).Info("no diagnostic jobs to clean up", "total_jobs", len(existingJobs.Items))
+
+		// Clean up old completed/failed test jobs (keep only last 3)
+		testJobs := []wikiv1alpha1.TranslationJob{}
+		for _, job := range existingJobs.Items {
+			if strings.HasPrefix(job.Name, "test-starwars-") {
+				testJobs = append(testJobs, job)
+			}
+		}
+		if len(testJobs) > 3 {
+			// Sort by creation time (oldest first)
+			sort.Slice(testJobs, func(i, j int) bool {
+				return testJobs[i].CreationTimestamp.Before(&testJobs[j].CreationTimestamp)
+			})
+			// Delete oldest ones (keep only the last 3)
+			toDelete := len(testJobs) - 3
+			for i := 0; i < toDelete; i++ {
+				if err := r.Client.Delete(ctx, &testJobs[i]); err == nil {
+					logger.V(1).Info("deleted old test job", "name", testJobs[i].Name, "state", testJobs[i].Status.State)
+				}
+			}
 		}
 	}
 
-	created := 0
-	for _, testJob := range testJobs {
-		// Extract job type for cooldown tracking (e.g., "starwars", "technical", "business")
-		jobType := "unknown"
-		parts := strings.Split(testJob.name, "-")
-		if len(parts) >= 2 {
-			jobType = parts[1]
-		}
+	// Check if this specific job already exists
+	var existing wikiv1alpha1.TranslationJob
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: "glooscap-system", Name: jobName}, &existing); err == nil {
+		// Job exists, skip
+		logger.V(1).Info("test job already exists", "name", jobName)
+		return
+	}
 
-		// Check cooldown: if this job type failed recently, skip it
-		r.lastFailureMu.Lock()
-		if r.lastFailureTime == nil {
-			r.lastFailureTime = make(map[string]time.Time)
-		}
-		lastFailure, hasFailure := r.lastFailureTime[jobType]
-		r.lastFailureMu.Unlock()
-
-		if hasFailure {
-			timeSinceFailure := time.Since(lastFailure)
-			if timeSinceFailure < diagnosticCooldownPeriod {
-				remaining := diagnosticCooldownPeriod - timeSinceFailure
-				logger.V(1).Info("skipping diagnostic job creation (cooldown active)",
-					"type", jobType,
-					"time_since_failure", timeSinceFailure,
-					"remaining_cooldown", remaining)
-				continue
-			}
-			// Cooldown expired, clear the failure time
-			r.lastFailureMu.Lock()
-			delete(r.lastFailureTime, jobType)
-			r.lastFailureMu.Unlock()
-		}
-
-		// Check if job already exists
-		var existing wikiv1alpha1.TranslationJob
-		if err := r.Client.Get(ctx, client.ObjectKey{Namespace: "glooscap-system", Name: testJob.name}, &existing); err == nil {
-			// Job exists, check if it failed recently
-			if existing.Status.State == wikiv1alpha1.TranslationJobStateFailed {
-				// Check if it failed recently (within cooldown period)
-				if existing.Status.FinishedAt != nil {
-					timeSinceFailure := time.Since(existing.Status.FinishedAt.Time)
-					if timeSinceFailure < diagnosticCooldownPeriod {
-						// Mark this job type as having failed recently
-						r.lastFailureMu.Lock()
-						if r.lastFailureTime == nil {
-							r.lastFailureTime = make(map[string]time.Time)
-						}
-						r.lastFailureTime[jobType] = existing.Status.FinishedAt.Time
-						r.lastFailureMu.Unlock()
-						logger.V(1).Info("diagnostic job failed recently, setting cooldown",
-							"type", jobType,
-							"job", testJob.name,
-							"time_since_failure", timeSinceFailure)
-					}
-				}
-			}
-			// Job exists, skip creating a new one
-			continue
-		}
-
-		// Check if context is canceled (during shutdown)
-		select {
-		case <-ctx.Done():
-			logger.Info("context canceled, stopping diagnostic job creation")
-			return
-		default:
-		}
-
-		// Create new TranslationJob
-		job := &wikiv1alpha1.TranslationJob{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      testJob.name,
-				Namespace: "glooscap-system",
-				Labels: map[string]string{
-					"app.kubernetes.io/managed-by":    "diagnostic-controller",
-					"glooscap.dasmlab.org/diagnostic": "true",
-				},
+	// Create new TranslationJob
+	job := &wikiv1alpha1.TranslationJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: "glooscap-system",
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by":    "diagnostic-controller",
+				"glooscap.dasmlab.org/diagnostic": "true",
 			},
-			Spec: wikiv1alpha1.TranslationJobSpec{
-				Source: wikiv1alpha1.TranslationSourceSpec{
-					TargetRef: sourceTarget.Name,
-					PageID:    testJob.pageID,
-				},
-				Destination: &wikiv1alpha1.TranslationDestinationSpec{
-					TargetRef:   destTarget.Name,
-					LanguageTag: testJob.languageTag,
-				},
-				Pipeline: wikiv1alpha1.TranslationPipelineModeTektonJob, // Use TektonJob pipeline to dispatch to runner
-				Parameters: map[string]string{
-					"pageTitle":   testJob.pageTitle,
-					"testContent": testJob.testContent, // Embedded test content
-					"diagnostic":  "true",              // Mark as diagnostic job
-					"prefix":      "AUTODIAG",          // Use AUTODIAG prefix
-				},
+		},
+		Spec: wikiv1alpha1.TranslationJobSpec{
+			Source: wikiv1alpha1.TranslationSourceSpec{
+				TargetRef: sourceTargetName,
+				PageID:    pageID,
 			},
-		}
-
-		if err := r.Client.Create(ctx, job); err != nil {
-			// Failures are ok - just log and continue with next job
-			logger.V(1).Info("failed to create diagnostic TranslationJob (may already exist)", "name", testJob.name, "error", err)
-			// Mark this job type as having failed (creation failure)
-			r.lastFailureMu.Lock()
-			if r.lastFailureTime == nil {
-				r.lastFailureTime = make(map[string]time.Time)
-			}
-			r.lastFailureTime[jobType] = time.Now()
-			r.lastFailureMu.Unlock()
-			continue
-		}
-
-		logger.Info("created diagnostic TranslationJob",
-			"name", testJob.name,
-			"source", sourceTarget.Name,
-			"destination", destTarget.Name,
-			"language", testJob.languageTag,
-			"pageID", testJob.pageID)
-		created++
+			Destination: &wikiv1alpha1.TranslationDestinationSpec{
+				TargetRef:   destTargetName,
+				LanguageTag: "fr-CA",
+			},
+			Pipeline: wikiv1alpha1.TranslationPipelineModeTektonJob, // Use TektonJob pipeline to dispatch to runner
+			Parameters: map[string]string{
+				"pageTitle":   "Star Wars Opening",
+				"testContent": starWarsContent, // Embedded test content
+				"diagnostic":  "true",          // Mark as diagnostic job
+				"prefix":      "AUTODIAG",     // Use AUTODIAG prefix
+			},
+		},
 	}
 
-	if created > 0 {
-		logger.Info("created diagnostic TranslationJobs", "count", created)
+	if err := r.Client.Create(ctx, job); err != nil {
+		// Failures are ok - just log and continue
+		logger.V(1).Info("failed to create test TranslationJob (may already exist)", "name", jobName, "error", err)
+		return
 	}
+
+	logger.Info("created test TranslationJob",
+		"name", jobName,
+		"source", sourceTargetName,
+		"destination", destTargetName,
+		"language", "fr-CA",
+		"pageID", pageID,
+		"note", "This job tests translation service connectivity - results will be logged but not posted to wiki")
+}
+
+// createDiagnosticJobs creates multiple diagnostic jobs (kept for backward compatibility, but not used by default)
+func (r *DiagnosticRunnable) createDiagnosticJobs(ctx context.Context, logger logr.Logger) {
+	// This is the old method that creates multiple jobs - kept for reference
+	// The new createTestJob method is used instead
+	r.createTestJob(ctx, logger)
 }
 
 // SetupDiagnosticRunnable sets up the diagnostic runnable with the Manager.

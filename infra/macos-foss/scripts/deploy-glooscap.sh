@@ -216,9 +216,18 @@ if [ -f "${MANIFESTS_DIR}/ui/deployment.yaml" ]; then
     sed -i.bak "s|ghcr.io/dasmlab/glooscap-ui:latest|${UI_IMG}|g" "${TEMP_UI_DEPLOYMENT}"
     kubectl apply -f "${TEMP_UI_DEPLOYMENT}"
     rm -f "${TEMP_UI_DEPLOYMENT}" "${TEMP_UI_DEPLOYMENT}.bak"
-    log_success "UI deployed with architecture-specific tags (${ARCH_TAG})"
+    log_success "UI deployment applied with architecture-specific tags (${ARCH_TAG})"
 else
     log_warn "UI deployment manifest not found at ${MANIFESTS_DIR}/ui/deployment.yaml"
+fi
+
+# Deploy UI service (LoadBalancer for direct host access)
+if [ -f "${MANIFESTS_DIR}/ui/service.yaml" ]; then
+    log_info "Deploying UI service (LoadBalancer)..."
+    kubectl apply -f "${MANIFESTS_DIR}/ui/service.yaml"
+    log_success "UI service deployed (LoadBalancer on port 80 -> 8080)"
+else
+    log_warn "UI service manifest not found at ${MANIFESTS_DIR}/ui/service.yaml"
 fi
 
 # Wait for operator to be ready (idempotent - won't fail if already ready)

@@ -57,11 +57,24 @@ OPERATOR_IMG="${REGISTRY}/glooscap-operator:local-${ARCH_TAG}"
 UI_IMG="${REGISTRY}/glooscap-ui:local-${ARCH_TAG}"
 RUNNER_IMG="${REGISTRY}/glooscap-translation-runner:local-${ARCH_TAG}"
 
-# Check for GitHub token
+# Check for GitHub token (try to source from standard locations if not set)
+if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+    # Try ~/gh-pat (bash script)
+    if [ -f "${HOME}/gh-pat" ]; then
+        source "${HOME}/gh-pat" 2>/dev/null || true
+    # Try ~/gh-pat/token (plain token file)
+    elif [ -f "${HOME}/gh-pat/token" ]; then
+        export DASMLAB_GHCR_PAT="$(cat "${HOME}/gh-pat/token" | tr -d '\n\r ')"
+    fi
+fi
+
 GHCR_PAT="${DASMLAB_GHCR_PAT:-}"
 if [ -z "${GHCR_PAT}" ]; then
     log_error "DASMLAB_GHCR_PAT environment variable is required"
-    log_info "Set it with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "Set it via one of:"
+    log_info "  1. export DASMLAB_GHCR_PAT=your_token"
+    log_info "  2. Create ~/gh-pat file with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "  3. Create ~/gh-pat/token file with just the token"
     log_info "The token should be a GitHub PAT with 'write:packages' permission"
     exit 1
 fi

@@ -49,6 +49,30 @@ log_step() {
     echo ""
 }
 
+# Helper function to source GitHub token from standard locations
+# Tries: /Users/dasm/gh_token, ~/gh-pat (script), ~/gh-pat/token (file), then checks env var
+source_gh_token() {
+    # Try /Users/dasm/gh_token (primary location)
+    if [ -f "/Users/dasm/gh_token" ]; then
+        log_info "🔑 Reading token from /Users/dasm/gh_token..."
+        export DASMLAB_GHCR_PAT="$(cat "/Users/dasm/gh_token" | tr -d '\n\r ')"
+    # Try ~/gh-pat (bash script that exports DASMLAB_GHCR_PAT)
+    elif [ -f "${HOME}/gh-pat" ]; then
+        log_info "🔑 Sourcing ${HOME}/gh-pat for credentials..."
+        source "${HOME}/gh-pat" || log_warn "Failed to source ${HOME}/gh-pat"
+    # Try ~/gh-pat/token (plain token file)
+    elif [ -f "${HOME}/gh-pat/token" ]; then
+        log_info "🔑 Reading token from ${HOME}/gh-pat/token..."
+        export DASMLAB_GHCR_PAT="$(cat "${HOME}/gh-pat/token" | tr -d '\n\r ')"
+    fi
+    
+    # Verify token is set
+    if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+        return 1
+    fi
+    return 0
+}
+
 # Check if running on macOS
 if [[ "$(uname)" != "Darwin" ]]; then
     log_error "This script is designed for macOS only"
@@ -145,15 +169,13 @@ log_info "Using UI image: ${UI_IMG}"
 # Step 3: Build and push operator and UI images using build-and-load-images.sh
 log_step "Step 3: Building and pushing operator and UI images"
 
-# Source gh-pat to get DASMLAB_GHCR_PAT for pushing images
-if [ -f ${HOME}/gh-pat ]; then
-    log_info "🔑 Sourcing ${HOME}/gh-pat for image push credentials..."
-    source ${HOME}/gh-pat
-fi
-
-if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+# Source GitHub token from standard locations
+if ! source_gh_token; then
     log_error "DASMLAB_GHCR_PAT is required to push images to registry"
-    log_info "Set it with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "Set it via one of:"
+    log_info "  1. export DASMLAB_GHCR_PAT=your_token"
+    log_info "  2. Create ~/gh-pat file with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "  3. Create ~/gh-pat/token file with just the token"
     exit 1
 fi
 
@@ -214,10 +236,20 @@ sed -i.bak "s|ghcr.io/dasmlab/glooscap:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR
 sed -i.bak "s|controller:latest|${OPERATOR_IMG}|g" "${OPERATOR_DIR}/dist/install.yaml"
 
 # Set imagePullPolicy to Always to ensure latest images are pulled
+# First, replace any existing imagePullPolicy
+perl -i.bak -pe 's/imagePullPolicy:.*/imagePullPolicy: Always/g' "${OPERATOR_DIR}/dist/install.yaml" 2>/dev/null || \
 sed -i.bak 's|imagePullPolicy:.*|imagePullPolicy: Always|g' "${OPERATOR_DIR}/dist/install.yaml"
-# If imagePullPolicy doesn't exist, add it after the image line
-sed -i.bak "/image:.*glooscap-operator/a\\
-        imagePullPolicy: Always" "${OPERATOR_DIR}/dist/install.yaml"
+
+# Fix any cases where imagePullPolicy was added without a newline (from previous sed issues)
+perl -i.bak -pe 's/imagePullPolicy: Always\s+livenessProbe:/imagePullPolicy: Always\n        livenessProbe:/g' "${OPERATOR_DIR}/dist/install.yaml" 2>/dev/null || \
+sed -i.bak 's|imagePullPolicy: Always[[:space:]]*livenessProbe:|imagePullPolicy: Always\
+        livenessProbe:|g' "${OPERATOR_DIR}/dist/install.yaml"
+
+# Add imagePullPolicy if it doesn't exist after image line (use awk for reliable insertion)
+if ! grep -A 1 "image:.*glooscap-operator" "${OPERATOR_DIR}/dist/install.yaml" | grep -q "imagePullPolicy:"; then
+    awk '/image:.*glooscap-operator/ {print; print "        imagePullPolicy: Always"; next}1' "${OPERATOR_DIR}/dist/install.yaml" > "${OPERATOR_DIR}/dist/install.yaml.tmp" && \
+    mv "${OPERATOR_DIR}/dist/install.yaml.tmp" "${OPERATOR_DIR}/dist/install.yaml"
+fi
 
 # Patch operator API service to use LoadBalancer (for k3d external access)
 # Add type: LoadBalancer at the spec level (after ports section)
@@ -259,21 +291,27 @@ else
 fi
 
 log_info "🔐 Creating registry secret..."
-if [ -f "${OPERATOR_DIR}/create-registry-secret.sh" ]; then
-    bash "${OPERATOR_DIR}/create-registry-secret.sh" || {
-        log_warn "Registry secret creation failed (may already exist)"
-    }
+# Ensure token is available (should already be set from earlier, but double-check)
+if ! source_gh_token; then
+    log_warn "DASMLAB_GHCR_PAT not available, skipping registry secret creation"
 else
-    log_warn "create-registry-secret.sh not found, creating secret manually..."
-    if ! kubectl get secret dasmlab-ghcr-pull -n "${NAMESPACE}" &>/dev/null; then
-        echo "${DASMLAB_GHCR_PAT}" | kubectl create secret docker-registry dasmlab-ghcr-pull \
-            --docker-server=ghcr.io \
-            --docker-username=lmcdasm \
-            --docker-password-stdin \
-            --docker-email=dasmlab-bot@dasmlab.org \
-            --namespace="${NAMESPACE}" || {
-            log_warn "Failed to create registry secret (may already exist)"
+    # Use the script from scripts directory (handles token sourcing itself)
+    if [ -f "${SCRIPT_DIR}/scripts/create-registry-secret.sh" ]; then
+        bash "${SCRIPT_DIR}/scripts/create-registry-secret.sh" "${NAMESPACE}" || {
+            log_warn "Registry secret creation failed (may already exist)"
         }
+    else
+        log_warn "create-registry-secret.sh not found, creating secret manually..."
+        if ! kubectl get secret dasmlab-ghcr-pull -n "${NAMESPACE}" &>/dev/null; then
+            echo "${DASMLAB_GHCR_PAT}" | kubectl create secret docker-registry dasmlab-ghcr-pull \
+                --docker-server=ghcr.io \
+                --docker-username=lmcdasm \
+                --docker-password-stdin \
+                --docker-email=dasmlab-bot@dasmlab.org \
+                --namespace="${NAMESPACE}" || {
+                log_warn "Failed to create registry secret (may already exist)"
+            }
+        fi
     fi
 fi
 
