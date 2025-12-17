@@ -182,8 +182,9 @@ func main() {
 
 		token := strings.TrimSpace(string(tokenBytes))
 		return outline.NewClient(outline.Config{
-			BaseURL: target.Spec.URI,
-			Token:   token,
+			BaseURL:              target.Spec.URI,
+			Token:                token,
+			InsecureSkipTLSVerify: target.Spec.InsecureSkipTLSVerify,
 		})
 	}
 
