@@ -22,8 +22,9 @@ MANIFESTS_DIR="$(cd "${SCRIPT_DIR}/../manifests" && pwd)"
 
 NAMESPACE="${NAMESPACE:-glooscap-system}"
 
-# Image version/tag to use (defaults to 'latest', can be overridden with GLOOSCAP_VERSION env var)
-GLOOSCAP_VERSION="${GLOOSCAP_VERSION:-latest}"
+# Image version/tag to use (defaults to 'released', can be overridden with GLOOSCAP_VERSION env var)
+# The 'released' tag represents the latest release images pushed by release_images.sh
+GLOOSCAP_VERSION="${GLOOSCAP_VERSION:-released}"
 
 # Functions
 log_info() {
