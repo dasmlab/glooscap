@@ -88,17 +88,17 @@ func (r *DiagnosticRunnable) createTestJob(ctx context.Context, logger logr.Logg
 	var targets wikiv1alpha1.WikiTargetList
 	if err := r.Client.List(ctx, &targets, client.InNamespace("glooscap-system")); err == nil && len(targets.Items) > 0 {
 		// Use real targets if available
-		for i := range targets.Items {
-			target := &targets.Items[i]
-			if target.Spec.Mode != wikiv1alpha1.WikiTargetModeReadOnly {
+	for i := range targets.Items {
+		target := &targets.Items[i]
+		if target.Spec.Mode != wikiv1alpha1.WikiTargetModeReadOnly {
 				if destTargetName == "diagnostic-dest" {
 					destTargetName = target.Name
-				}
-			}
-			if sourceTargetName == "diagnostic-source" {
-				sourceTargetName = target.Name
 			}
 		}
+			if sourceTargetName == "diagnostic-source" {
+				sourceTargetName = target.Name
+		}
+	}
 		logger.V(1).Info("using real WikiTargets for diagnostic test", "source", sourceTargetName, "dest", destTargetName)
 	} else {
 		logger.Info("no WikiTargets found, using dummy targets for translation service test only")
@@ -127,6 +127,21 @@ Pursued by the Empire's sinister agents, Princess Leia races home aboard her sta
 		// Check if there's a recent job (within last 2 minutes) that's still processing
 		for _, job := range existingJobs.Items {
 			if strings.HasPrefix(job.Name, "test-starwars-") {
+				// If job has no state and is older than 1 minute, it's likely stuck - allow new job
+				if job.Status.State == "" {
+					age := time.Since(job.CreationTimestamp.Time)
+					if age > 1*time.Minute {
+						logger.V(1).Info("test job has no state and is old, likely stuck - will create new one", "job", job.Name, "age", age)
+						// Delete the stuck job
+						if err := r.Client.Delete(ctx, &job); err == nil {
+							logger.V(1).Info("deleted stuck test job with no state", "name", job.Name)
+						}
+						continue
+					}
+					// Job is new and has no state yet, skip creating new one (wait for reconciliation)
+					logger.V(1).Info("test job has no state yet, waiting for reconciliation", "job", job.Name, "age", age)
+					return
+				}
 				// Check if job is still in progress (not completed or failed)
 				if job.Status.State != wikiv1alpha1.TranslationJobStateCompleted &&
 					job.Status.State != wikiv1alpha1.TranslationJobStateFailed {
@@ -150,65 +165,65 @@ Pursued by the Empire's sinister agents, Princess Leia races home aboard her sta
 		for _, job := range existingJobs.Items {
 			if strings.HasPrefix(job.Name, "test-starwars-") {
 				testJobs = append(testJobs, job)
-			}
-		}
+					}
+				}
 		if len(testJobs) > 3 {
-			// Sort by creation time (oldest first)
+				// Sort by creation time (oldest first)
 			sort.Slice(testJobs, func(i, j int) bool {
 				return testJobs[i].CreationTimestamp.Before(&testJobs[j].CreationTimestamp)
-			})
+				})
 			// Delete oldest ones (keep only the last 3)
 			toDelete := len(testJobs) - 3
-			for i := 0; i < toDelete; i++ {
+				for i := 0; i < toDelete; i++ {
 				if err := r.Client.Delete(ctx, &testJobs[i]); err == nil {
 					logger.V(1).Info("deleted old test job", "name", testJobs[i].Name, "state", testJobs[i].Status.State)
 				}
 			}
 		}
-	}
+		}
 
 	// Check if this specific job already exists
-	var existing wikiv1alpha1.TranslationJob
+		var existing wikiv1alpha1.TranslationJob
 	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: "glooscap-system", Name: jobName}, &existing); err == nil {
 		// Job exists, skip
 		logger.V(1).Info("test job already exists", "name", jobName)
-		return
-	}
+			return
+		}
 
-	// Create new TranslationJob
-	job := &wikiv1alpha1.TranslationJob{
-		ObjectMeta: metav1.ObjectMeta{
+		// Create new TranslationJob
+		job := &wikiv1alpha1.TranslationJob{
+			ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: "glooscap-system",
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by":    "diagnostic-controller",
-				"glooscap.dasmlab.org/diagnostic": "true",
+				Namespace: "glooscap-system",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by":    "diagnostic-controller",
+					"glooscap.dasmlab.org/diagnostic": "true",
+				},
 			},
-		},
-		Spec: wikiv1alpha1.TranslationJobSpec{
-			Source: wikiv1alpha1.TranslationSourceSpec{
+			Spec: wikiv1alpha1.TranslationJobSpec{
+				Source: wikiv1alpha1.TranslationSourceSpec{
 				TargetRef: sourceTargetName,
 				PageID:    pageID,
-			},
-			Destination: &wikiv1alpha1.TranslationDestinationSpec{
+				},
+				Destination: &wikiv1alpha1.TranslationDestinationSpec{
 				TargetRef:   destTargetName,
 				LanguageTag: "fr-CA",
-			},
-			Pipeline: wikiv1alpha1.TranslationPipelineModeTektonJob, // Use TektonJob pipeline to dispatch to runner
-			Parameters: map[string]string{
+				},
+				Pipeline: wikiv1alpha1.TranslationPipelineModeTektonJob, // Use TektonJob pipeline to dispatch to runner
+				Parameters: map[string]string{
 				"pageTitle":   "Star Wars Opening",
 				"testContent": starWarsContent, // Embedded test content
 				"diagnostic":  "true",          // Mark as diagnostic job
 				"prefix":      "AUTODIAG",     // Use AUTODIAG prefix
+				},
 			},
-		},
-	}
+		}
 
-	if err := r.Client.Create(ctx, job); err != nil {
+		if err := r.Client.Create(ctx, job); err != nil {
 		// Failures are ok - just log and continue
 		logger.V(1).Info("failed to create test TranslationJob (may already exist)", "name", jobName, "error", err)
 		return
-	}
+		}
 
 	logger.Info("created test TranslationJob",
 		"name", jobName,
