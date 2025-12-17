@@ -87,7 +87,10 @@ func (d *TektonJobDispatcher) Dispatch(ctx context.Context, req Request) error {
 						{
 							Name:            "translation-runner",
 							Image:           d.Image,
-							ImagePullPolicy: corev1.PullAlways,
+							// Use IfNotPresent to allow operation in isolated environments (e.g., VPN-connected)
+							// where GHCR may be unreachable. Once the image is pulled, it will be cached
+							// and reused. For fresh pulls, ensure the image is available before isolation.
+							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args: []string{
 								"--translation-job", fmt.Sprintf("%s/%s", ns, req.JobName),
 							},
