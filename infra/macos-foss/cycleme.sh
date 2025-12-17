@@ -454,6 +454,23 @@ else
     }
 fi
 
+# Step 11: Pre-pull translation-runner image on all nodes
+log_step "Step 11: Pre-pulling translation-runner image on all nodes"
+
+log_info "Pre-pulling translation-runner image to ensure it's cached before isolated operation..."
+log_info "This ensures the cluster is ready to run translation jobs even when VPN is connected and GHCR is unreachable."
+if [ -f "${SCRIPT_DIR}/scripts/pre-pull-runner-image.sh" ]; then
+    # Export the runner image so the script can use it if needed (fallback if operator detection fails)
+    export VLLM_JOB_IMAGE="ghcr.io/dasmlab/glooscap-translation-runner:local-${ARCH_TAG}"
+    bash "${SCRIPT_DIR}/scripts/pre-pull-runner-image.sh" || {
+        log_warn "Pre-pull script failed (may be non-critical if image is already cached)"
+        log_info "You can manually run: ${SCRIPT_DIR}/scripts/pre-pull-runner-image.sh"
+    }
+else
+    log_warn "pre-pull-runner-image.sh not found at ${SCRIPT_DIR}/scripts/pre-pull-runner-image.sh"
+    log_info "Skipping pre-pull step"
+fi
+
 echo ""
 log_success "✅ Cycle complete!"
 echo ""
