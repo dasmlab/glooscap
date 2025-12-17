@@ -61,10 +61,10 @@ if docker buildx version >/dev/null 2>&1 && docker buildx build --help 2>&1 | gr
       --tag "${app}:${version}" . || {
         echo "[buildme] buildx build failed, falling back to regular docker build"
         docker build \
-          --build-arg BUILD_VERSION="${tag}" \
-          --build-arg BUILD_NUMBER="${next}" \
-          --build-arg BUILD_SHA="${git_sha}" \
-          --tag "${app}:${version}" .
+      --build-arg BUILD_VERSION="${tag}" \
+      --build-arg BUILD_NUMBER="${next}" \
+      --build-arg BUILD_SHA="${git_sha}" \
+      --tag "${app}:${version}" .
     }
 else
     echo "[buildme] Using docker build (buildx --load not available, BuildKit cache mounts may not work)"

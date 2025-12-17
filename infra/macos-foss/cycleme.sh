@@ -298,19 +298,19 @@ else
     # Use the script from scripts directory (handles token sourcing itself)
     if [ -f "${SCRIPT_DIR}/scripts/create-registry-secret.sh" ]; then
         bash "${SCRIPT_DIR}/scripts/create-registry-secret.sh" "${NAMESPACE}" || {
-            log_warn "Registry secret creation failed (may already exist)"
+        log_warn "Registry secret creation failed (may already exist)"
+    }
+else
+    log_warn "create-registry-secret.sh not found, creating secret manually..."
+    if ! kubectl get secret dasmlab-ghcr-pull -n "${NAMESPACE}" &>/dev/null; then
+        echo "${DASMLAB_GHCR_PAT}" | kubectl create secret docker-registry dasmlab-ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username=lmcdasm \
+            --docker-password-stdin \
+            --docker-email=dasmlab-bot@dasmlab.org \
+            --namespace="${NAMESPACE}" || {
+            log_warn "Failed to create registry secret (may already exist)"
         }
-    else
-        log_warn "create-registry-secret.sh not found, creating secret manually..."
-        if ! kubectl get secret dasmlab-ghcr-pull -n "${NAMESPACE}" &>/dev/null; then
-            echo "${DASMLAB_GHCR_PAT}" | kubectl create secret docker-registry dasmlab-ghcr-pull \
-                --docker-server=ghcr.io \
-                --docker-username=lmcdasm \
-                --docker-password-stdin \
-                --docker-email=dasmlab-bot@dasmlab.org \
-                --namespace="${NAMESPACE}" || {
-                log_warn "Failed to create registry secret (may already exist)"
-            }
         fi
     fi
 fi

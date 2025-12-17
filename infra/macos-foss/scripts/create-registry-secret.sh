@@ -14,8 +14,11 @@ NAMESPACE="${1:-glooscap-system}"
 
 # Try to source GitHub token from standard locations if not set
 if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+    # Try /Users/dasm/gh_token (primary location for macOS)
+    if [ -f "/Users/dasm/gh_token" ]; then
+        export DASMLAB_GHCR_PAT="$(cat "/Users/dasm/gh_token" | tr -d '\n\r ')"
     # Try ~/gh-pat (bash script)
-    if [ -f "${HOME}/gh-pat" ]; then
+    elif [ -f "${HOME}/gh-pat" ]; then
         source "${HOME}/gh-pat" 2>/dev/null || true
     # Try ~/gh-pat/token (plain token file)
     elif [ -f "${HOME}/gh-pat/token" ]; then

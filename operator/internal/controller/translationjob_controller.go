@@ -23,6 +23,7 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
@@ -157,36 +158,36 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var sourceTarget wikiv1alpha1.WikiTarget
 	if !isDiagnostic {
 		// Only validate WikiTarget for non-diagnostic jobs
-		if job.Spec.Source.TargetRef != "" {
-			if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: job.Spec.Source.TargetRef}, &sourceTarget); err != nil {
-				if errors.IsNotFound(err) {
-					meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-						Type:               "Ready",
-						Status:             metav1.ConditionFalse,
-						Reason:             "TargetMissing",
-						Message:            "Referenced WikiTarget does not exist",
-						LastTransitionTime: now,
-					})
-					updated.State = wikiv1alpha1.TranslationJobStateFailed
-					updated.Message = "WikiTarget not found"
-					updated.FinishedAt = &now
-					job.Status = *updated
-					if err := r.Status().Update(ctx, &job); err != nil {
-						return ctrl.Result{}, err
-					}
-					return ctrl.Result{}, nil
+	if job.Spec.Source.TargetRef != "" {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: job.Spec.Source.TargetRef}, &sourceTarget); err != nil {
+			if errors.IsNotFound(err) {
+				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+					Type:               "Ready",
+					Status:             metav1.ConditionFalse,
+					Reason:             "TargetMissing",
+					Message:            "Referenced WikiTarget does not exist",
+					LastTransitionTime: now,
+				})
+				updated.State = wikiv1alpha1.TranslationJobStateFailed
+				updated.Message = "WikiTarget not found"
+				updated.FinishedAt = &now
+				job.Status = *updated
+				if err := r.Status().Update(ctx, &job); err != nil {
+					return ctrl.Result{}, err
 				}
-				return ctrl.Result{}, err
+				return ctrl.Result{}, nil
 			}
-		} else {
-			updated.State = wikiv1alpha1.TranslationJobStateFailed
-			updated.Message = "Source TargetRef is required"
-			updated.FinishedAt = &now
-			job.Status = *updated
-			if err := r.Status().Update(ctx, &job); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, err
+		}
+	} else {
+		updated.State = wikiv1alpha1.TranslationJobStateFailed
+		updated.Message = "Source TargetRef is required"
+		updated.FinishedAt = &now
+		job.Status = *updated
+		if err := r.Status().Update(ctx, &job); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 		}
 	} else {
 		logger.Info("diagnostic job: skipping WikiTarget validation, will use embedded test content", "job", job.Name)
@@ -228,10 +229,10 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		// Validate destination (skip for diagnostic jobs)
 		if !isDiagnostic {
-			destTargetRef := job.Spec.Source.TargetRef
-			if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
-				destTargetRef = job.Spec.Destination.TargetRef
-			}
+		destTargetRef := job.Spec.Source.TargetRef
+		if job.Spec.Destination != nil && job.Spec.Destination.TargetRef != "" {
+			destTargetRef = job.Spec.Destination.TargetRef
+		}
 
 		var destTarget wikiv1alpha1.WikiTarget
 		if err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: destTargetRef}, &destTarget); err != nil {
@@ -251,38 +252,15 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 						},
 					}
 				} else {
-					meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
-						Type:               "Ready",
-						Status:             metav1.ConditionFalse,
-						Reason:             "DestinationMissing",
-						Message:            "Destination WikiTarget does not exist",
-						LastTransitionTime: now,
-					})
-					updated.State = wikiv1alpha1.TranslationJobStateFailed
-					updated.Message = "Destination WikiTarget not found"
-					updated.FinishedAt = &now
-					job.Status = *updated
-					if err := r.Status().Update(ctx, &job); err != nil {
-						return ctrl.Result{}, err
-					}
-					return ctrl.Result{}, nil
-				}
-			} else {
-				return ctrl.Result{}, err
-			}
-		}
-
-		// Check if destination allows writes (skip for diagnostic jobs)
-		if !isDiagnostic && destTarget.Spec.Mode == wikiv1alpha1.WikiTargetModeReadOnly {
 				meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
 					Type:               "Ready",
 					Status:             metav1.ConditionFalse,
-					Reason:             "DestinationReadOnly",
-					Message:            "Destination WikiTarget is read-only",
+					Reason:             "DestinationMissing",
+					Message:            "Destination WikiTarget does not exist",
 					LastTransitionTime: now,
 				})
 				updated.State = wikiv1alpha1.TranslationJobStateFailed
-				updated.Message = "Destination WikiTarget is read-only and cannot accept translations"
+				updated.Message = "Destination WikiTarget not found"
 				updated.FinishedAt = &now
 				job.Status = *updated
 				if err := r.Status().Update(ctx, &job); err != nil {
@@ -290,11 +268,34 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				}
 				return ctrl.Result{}, nil
 			}
+			} else {
+			return ctrl.Result{}, err
+			}
+		}
+
+		// Check if destination allows writes (skip for diagnostic jobs)
+		if !isDiagnostic && destTarget.Spec.Mode == wikiv1alpha1.WikiTargetModeReadOnly {
+			meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "DestinationReadOnly",
+				Message:            "Destination WikiTarget is read-only",
+				LastTransitionTime: now,
+			})
+			updated.State = wikiv1alpha1.TranslationJobStateFailed
+			updated.Message = "Destination WikiTarget is read-only and cannot accept translations"
+			updated.FinishedAt = &now
+			job.Status = *updated
+			if err := r.Status().Update(ctx, &job); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
 
 		// Check for duplicate page at destination (skip for diagnostic jobs)
 		if !isDiagnostic && r.OutlineClient != nil && r.Catalogue != nil {
-				destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
-				if err == nil {
+			destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
+			if err == nil {
 					// Use collection constraint from destination WikiTarget if available
 					var destPages []outline.PageSummary
 					if destTarget.Status.CollectionID != "" {
@@ -304,46 +305,46 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 						destPages, err = destClient.ListPages(ctx)
 						logger.V(1).Info("checking duplicates in all destination pages (no collection constraint)")
 					}
-					if err == nil {
-						// Get source page title from catalog
-						sourcePageTitle := ""
-						targetID := fmt.Sprintf("%s/%s", sourceTarget.Namespace, sourceTarget.Name)
-						sourcePages := r.Catalogue.List(targetID)
-						for _, page := range sourcePages {
-							if page.ID == job.Spec.Source.PageID {
-								sourcePageTitle = page.Title
+				if err == nil {
+					// Get source page title from catalog
+					sourcePageTitle := ""
+					targetID := fmt.Sprintf("%s/%s", sourceTarget.Namespace, sourceTarget.Name)
+					sourcePages := r.Catalogue.List(targetID)
+					for _, page := range sourcePages {
+						if page.ID == job.Spec.Source.PageID {
+							sourcePageTitle = page.Title
+							break
+						}
+					}
+
+					// Check for existing page with AUTOTRANSLATED prefix
+					// We NEVER overwrite existing pages - if one exists, we'll create a unique one
+					existingTranslatedPage := ""
+					for _, destPage := range destPages {
+						// Check if this is an AUTOTRANSLATED page for our source
+						if strings.HasPrefix(destPage.Title, "AUTOTRANSLATED--> ") {
+							// Extract source title from AUTOTRANSLATED page
+							extractedSource := strings.TrimPrefix(destPage.Title, "AUTOTRANSLATED--> ")
+							if extractedSource == sourcePageTitle {
+								existingTranslatedPage = destPage.ID
+								logger.Info("found existing AUTOTRANSLATED page for source",
+									"source_title", sourcePageTitle,
+									"existing_page_id", destPage.ID,
+									"existing_page_title", destPage.Title)
 								break
 							}
 						}
+					}
 
-						// Check for existing page with AUTOTRANSLATED prefix
-						// We NEVER overwrite existing pages - if one exists, we'll create a unique one
-						existingTranslatedPage := ""
-						for _, destPage := range destPages {
-							// Check if this is an AUTOTRANSLATED page for our source
-							if strings.HasPrefix(destPage.Title, "AUTOTRANSLATED--> ") {
-								// Extract source title from AUTOTRANSLATED page
-								extractedSource := strings.TrimPrefix(destPage.Title, "AUTOTRANSLATED--> ")
-								if extractedSource == sourcePageTitle {
-									existingTranslatedPage = destPage.ID
-									logger.Info("found existing AUTOTRANSLATED page for source",
-										"source_title", sourcePageTitle,
-										"existing_page_id", destPage.ID,
-										"existing_page_title", destPage.Title)
-									break
-								}
-							}
-						}
-
-						// If we found an existing translated page, we'll create a unique one
-						// Store this info for later use in publishing
-						if existingTranslatedPage != "" {
-							logger.Info("existing AUTOTRANSLATED page found - will create unique page",
-								"source_title", sourcePageTitle,
-								"existing_page_id", existingTranslatedPage)
-						}
+					// If we found an existing translated page, we'll create a unique one
+					// Store this info for later use in publishing
+					if existingTranslatedPage != "" {
+						logger.Info("existing AUTOTRANSLATED page found - will create unique page",
+							"source_title", sourcePageTitle,
+							"existing_page_id", existingTranslatedPage)
 					}
 				}
+			}
 			}
 		} else {
 			logger.Info("diagnostic job: skipping destination WikiTarget validation", "job", job.Name)
@@ -477,8 +478,33 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				LastTransitionTime: now,
 			})
 		} else if k8sJob.Status.Failed > 0 {
-			// Job failed
+			// Job failed - check pod status for more details
 			logger.Info("Kubernetes Job failed", "k8sJob", k8sJobName, "job", job.Name, "failed", k8sJob.Status.Failed)
+			
+			// Get pods for this job to check for ImagePullBackOff or other pod-level errors
+			var pods corev1.PodList
+			if err := r.List(ctx, &pods, client.InNamespace(job.Namespace), client.MatchingLabels{"job-name": k8sJobName}); err == nil {
+				for _, pod := range pods.Items {
+					// Check pod container statuses for errors
+					for _, containerStatus := range pod.Status.ContainerStatuses {
+						if containerStatus.State.Waiting != nil {
+							reason := containerStatus.State.Waiting.Reason
+							message := containerStatus.State.Waiting.Message
+							if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+								logger.Error(nil, "Pod failed to pull image", "pod", pod.Name, "reason", reason, "message", message)
+							}
+						}
+						if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
+							logger.Info("Pod container terminated with error", "pod", pod.Name, "exitCode", containerStatus.State.Terminated.ExitCode, "reason", containerStatus.State.Terminated.Reason, "message", containerStatus.State.Terminated.Message)
+						}
+					}
+					// Also check pod phase
+					if pod.Status.Phase == corev1.PodFailed {
+						logger.Info("Pod in Failed phase", "pod", pod.Name, "reason", pod.Status.Reason, "message", pod.Status.Message)
+					}
+				}
+			}
+			
 			// Try to get failure message from job conditions
 			failureMessage := "Translation job failed"
 			for _, condition := range k8sJob.Status.Conditions {
@@ -501,10 +527,48 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				LastTransitionTime: now,
 			})
 		} else {
-			// Job still running, requeue to check again
-			logger.V(1).Info("Kubernetes Job still running", "k8sJob", k8sJobName, "job", job.Name,
-				"active", k8sJob.Status.Active, "succeeded", k8sJob.Status.Succeeded, "failed", k8sJob.Status.Failed)
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+			// Job still running - but check if pods are stuck (e.g., ImagePullBackOff)
+			// This helps detect issues even before the job is marked as failed
+			var pods corev1.PodList
+			if err := r.List(ctx, &pods, client.InNamespace(job.Namespace), client.MatchingLabels{"job-name": k8sJobName}); err == nil {
+				for _, pod := range pods.Items {
+					for _, containerStatus := range pod.Status.ContainerStatuses {
+						if containerStatus.State.Waiting != nil {
+							reason := containerStatus.State.Waiting.Reason
+							if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+								// Pod is stuck trying to pull image - mark job as failed
+								logger.Error(nil, "Pod stuck in ImagePullBackOff, marking job as failed", "pod", pod.Name, "reason", reason, "message", containerStatus.State.Waiting.Message)
+								updated.State = wikiv1alpha1.TranslationJobStateFailed
+								updated.FinishedAt = &now
+								updated.Message = fmt.Sprintf("Failed to pull image: %s - %s", reason, containerStatus.State.Waiting.Message)
+								meta.SetStatusCondition(&updated.Conditions, metav1.Condition{
+									Type:               "Ready",
+									Status:             metav1.ConditionFalse,
+									Reason:             "ImagePullFailed",
+									Message:            updated.Message,
+									LastTransitionTime: now,
+								})
+								// Break out of loops and continue to status update
+								break
+							}
+						}
+					}
+					// If we set updated.State to Failed above, break out of pod loop
+					if updated.State == wikiv1alpha1.TranslationJobStateFailed {
+						break
+					}
+				}
+			}
+			
+			// If we detected ImagePullBackOff and marked job as failed, continue to status update
+			if updated.State == wikiv1alpha1.TranslationJobStateFailed {
+				// Status already set above, continue to update
+			} else {
+				// Job still running normally, requeue to check again
+				logger.V(1).Info("Kubernetes Job still running", "k8sJob", k8sJobName, "job", job.Name,
+					"active", k8sJob.Status.Active, "succeeded", k8sJob.Status.Succeeded, "failed", k8sJob.Status.Failed)
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+			}
 		}
 	}
 

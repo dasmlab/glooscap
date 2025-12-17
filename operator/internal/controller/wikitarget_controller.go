@@ -278,15 +278,15 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 		}
 		
 		// First, try to find the target collection by fuzzy matching
-		collections, collErr := client.ListCollections(ctx)
-		if collErr == nil {
-			for _, coll := range collections {
+	collections, collErr := client.ListCollections(ctx)
+	if collErr == nil {
+		for _, coll := range collections {
 				normalizedCollName := normalizeCollectionName(coll.Name)
 				// Check if this collection matches any of our target names
 				for _, targetName := range targetNames {
 					normalizedTarget := normalizeCollectionName(targetName)
 					if normalizedCollName == normalizedTarget {
-						collectionID = coll.ID
+				collectionID = coll.ID
 						collectionName = coll.Name
 						logger.Info("Found matching collection, constraining search", 
 							"collectionName", coll.Name, 
@@ -299,11 +299,11 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 					}
 				}
 				if collectionID != "" {
-					break
-				}
+				break
 			}
-		} else {
-			logger.Info("Failed to list collections, will search all pages", "error", collErr)
+		}
+	} else {
+		logger.Info("Failed to list collections, will search all pages", "error", collErr)
 		}
 	}
 	
@@ -374,7 +374,7 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 			if collectionID != "" {
 				pages, retryErr = client.ListPages(ctx, collectionID)
 			} else {
-				pages, retryErr = client.ListPages(ctx)
+			pages, retryErr = client.ListPages(ctx)
 			}
 			if retryErr != nil {
 				logger.Error(retryErr, "failed to list pages from outline even with TLS skip enabled")
@@ -489,13 +489,13 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 				"deletedPages", deletedPageCount,
 				"totalPages", len(catalogPages),
 			)
-			r.Catalogue.Update(targetID, catalog.Target{
-				ID:        targetID,
-				Namespace: target.Namespace,
-				Name:      target.Name,
-				Mode:      string(target.Spec.Mode),
-				URI:       target.Spec.URI,
-			}, catalogPages)
+		r.Catalogue.Update(targetID, catalog.Target{
+			ID:        targetID,
+			Namespace: target.Namespace,
+			Name:      target.Name,
+			Mode:      string(target.Spec.Mode),
+			URI:       target.Spec.URI,
+		}, catalogPages)
 		} else {
 			logger.V(1).Info("no catalogue changes detected, skipping update", "totalPages", len(catalogPages))
 		}

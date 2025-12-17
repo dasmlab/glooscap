@@ -489,10 +489,10 @@ func main() {
 	}
 
 	// Register diagnostic runnable (creates test TranslationJobs every 30 seconds)
-	if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
-		setupLog.Error(err, "unable to setup diagnostic runnable")
-		os.Exit(1)
-	}
+		if err := controller.SetupDiagnosticRunnable(mgr); err != nil {
+			setupLog.Error(err, "unable to setup diagnostic runnable")
+			os.Exit(1)
+		}
 	setupLog.Info("diagnostic runnable registered (creates test jobs every 30 seconds)")
 
 	// Register WikiTarget diagnostic runnable (tests write access to readWrite WikiTargets every 5 minutes)
