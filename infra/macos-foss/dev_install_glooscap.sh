@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# install_glooscap.sh
-# User installation script - uses released/pre-built container images
+# dev_install_glooscap.sh
+# Developer installation script - builds containers from source
 # Sets up everything needed to run Glooscap on macOS: dependencies, cluster, and deployment
 # Supports optional plugins: --plugins iskoces,nokomis or --all
-# For developers building from source, use dev_install_glooscap.sh instead
+# For end users, use install_glooscap.sh instead (uses pre-built released images)
 
 set -euo pipefail
 
@@ -17,9 +17,6 @@ NC='\033[0m'
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMP_PLUGIN_DIR="${HOME}/.glooscap-plugins"
-
-# Image version/tag to use (defaults to 'latest', can be overridden with GLOOSCAP_VERSION env var)
-GLOOSCAP_VERSION="${GLOOSCAP_VERSION:-latest}"
 
 # Plugin repository URLs (adjust as needed)
 PLUGIN_REPOS=(
@@ -115,9 +112,8 @@ if [[ "$(uname)" != "Darwin" ]]; then
     exit 1
 fi
 
-log_info "Glooscap Installation for macOS (User Mode)"
-log_info "This will set up everything needed to run Glooscap locally using released images"
-log_info "Using image version: ${GLOOSCAP_VERSION}"
+log_info "Glooscap Installation for macOS"
+log_info "This will set up everything needed to run Glooscap locally"
 if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
     log_info "Plugins to install: ${SELECTED_PLUGINS[*]}"
 else
@@ -149,32 +145,38 @@ if [ -n "${DASMLAB_GHCR_PAT:-}" ]; then
 else
     log_warn "DASMLAB_GHCR_PAT not set - skipping registry secret creation"
     log_info "If you need to pull images from ghcr.io, set: export DASMLAB_GHCR_PAT=your_token"
-    log_info "Note: Public images may still be pullable without authentication"
 fi
 
-# Step 4: Deploy Glooscap (using released images)
-log_step "Step 4: Deploying Glooscap (using released images)"
-log_info "Deploying with released images (version: ${GLOOSCAP_VERSION})"
-log_info "Skipping build step - using pre-built images from registry"
+# Step 4: Build and push images
+log_step "Step 4: Building and pushing images"
+if [ -z "${DASMLAB_GHCR_PAT:-}" ]; then
+    log_error "DASMLAB_GHCR_PAT is required to push images to registry"
+    log_info "Set it with: export DASMLAB_GHCR_PAT=your_token"
+    log_info "The token should be a GitHub PAT with 'write:packages' permission"
+    exit 1
+fi
 
-# Export version for deploy script
-export GLOOSCAP_VERSION="${GLOOSCAP_VERSION}"
-export USE_RELEASED_IMAGES=true
+if ! bash "${SCRIPT_DIR}/scripts/build-and-load-images.sh"; then
+    log_error "Failed to build and push images"
+    exit 1
+fi
 
-if ! bash "${SCRIPT_DIR}/scripts/deploy-glooscap-released.sh"; then
+# Step 5: Deploy Glooscap
+log_step "Step 5: Deploying Glooscap"
+if ! bash "${SCRIPT_DIR}/scripts/deploy-glooscap.sh"; then
     log_error "Failed to deploy Glooscap"
     exit 1
 fi
 
-# Step 5: Install plugins (if any) - using released images
+# Step 6: Install plugins (if any)
 if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
-    log_step "Step 5: Installing plugins (using released images)"
+    log_step "Step 6: Installing plugins"
     
-    # Create temp directory for plugin repos (for manifests only, not building)
+    # Create temp directory for plugin repos
     mkdir -p "${TEMP_PLUGIN_DIR}"
     
     for plugin in "${SELECTED_PLUGINS[@]}"; do
-        log_info "Installing plugin: ${plugin} (using released images)"
+        log_info "Installing plugin: ${plugin}"
         
         # Find plugin repo URL
         PLUGIN_REPO=""
@@ -192,7 +194,7 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
         
         PLUGIN_DIR="${TEMP_PLUGIN_DIR}/${plugin}"
         
-        # Clone or update plugin repo (for manifests only)
+        # Clone or update plugin repo
         if [ -d "${PLUGIN_DIR}" ]; then
             log_info "Updating existing plugin repo: ${plugin}"
             cd "${PLUGIN_DIR}"
@@ -203,7 +205,7 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
         fi
         
         if [ ! -d "${PLUGIN_DIR}" ]; then
-            log_info "Cloning plugin repo: ${plugin} (for manifests only)"
+            log_info "Cloning plugin repo: ${plugin}"
             git clone "${PLUGIN_REPO}" "${PLUGIN_DIR}" || {
                 log_error "Failed to clone ${plugin} repository"
                 continue
@@ -217,8 +219,21 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
             continue
         fi
         
+        # Run plugin setup script (if it exists) to install build dependencies
+        if [ -f "${PLUGIN_INFRA_DIR}/scripts/setup-macos-env.sh" ]; then
+            log_info "Setting up build environment for ${plugin}..."
+            cd "${PLUGIN_INFRA_DIR}"
+            if ! bash scripts/setup-macos-env.sh; then
+                log_warn "Plugin ${plugin} setup failed (continuing anyway)"
+            fi
+        else
+            log_info "No setup script found for ${plugin} (skipping environment setup)"
+        fi
+        
         # Ensure registry secret exists in plugin namespace (if it has one)
+        # Most plugins will use the same secret from glooscap-system
         log_info "Ensuring registry secret exists for ${plugin}..."
+        # Try to create secret in plugin namespace if it exists, otherwise use glooscap-system
         PLUGIN_NAMESPACE="${plugin}"
         if kubectl get namespace "${PLUGIN_NAMESPACE}" &>/dev/null; then
             # Copy secret from glooscap-system if it exists
@@ -229,36 +244,28 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
             fi
         fi
         
-        # Deploy plugin using released images (skip build step)
+        # Build and push plugin image
+        if [ -f "${PLUGIN_INFRA_DIR}/scripts/build-and-load-images.sh" ]; then
+            log_info "Building and pushing ${plugin} image..."
+            cd "${PLUGIN_INFRA_DIR}"
+            if ! bash scripts/build-and-load-images.sh; then
+                log_warn "Failed to build ${plugin} image (continuing)"
+                continue
+            fi
+        else
+            log_warn "Plugin ${plugin} does not have build-and-load-images.sh (skipping build)"
+        fi
+        
+        # Deploy plugin (try different script name patterns)
         DEPLOY_SCRIPT=""
-        if [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}-released.sh" ]; then
-            DEPLOY_SCRIPT="scripts/deploy-${plugin}-released.sh"
-        elif [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh" ]; then
-            # Check if deploy script supports USE_RELEASED_IMAGES
-            if grep -q "USE_RELEASED_IMAGES\|GLOOSCAP_VERSION" "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh"; then
-                DEPLOY_SCRIPT="scripts/deploy-${plugin}.sh"
-                export USE_RELEASED_IMAGES=true
-                export GLOOSCAP_VERSION="${GLOOSCAP_VERSION}"
-            else
-                log_warn "Plugin ${plugin} deploy script does not support released images"
-                log_info "Trying to deploy anyway (may fail if images not available)..."
-                DEPLOY_SCRIPT="scripts/deploy-${plugin}.sh"
-            fi
+        if [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh" ]; then
+            DEPLOY_SCRIPT="scripts/deploy-${plugin}.sh"
         elif [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy.sh" ]; then
-            # Check if deploy script supports USE_RELEASED_IMAGES
-            if grep -q "USE_RELEASED_IMAGES\|GLOOSCAP_VERSION" "${PLUGIN_INFRA_DIR}/scripts/deploy.sh"; then
-                DEPLOY_SCRIPT="scripts/deploy.sh"
-                export USE_RELEASED_IMAGES=true
-                export GLOOSCAP_VERSION="${GLOOSCAP_VERSION}"
-            else
-                log_warn "Plugin ${plugin} deploy script does not support released images"
-                log_info "Trying to deploy anyway (may fail if images not available)..."
-                DEPLOY_SCRIPT="scripts/deploy.sh"
-            fi
+            DEPLOY_SCRIPT="scripts/deploy.sh"
         fi
         
         if [ -n "${DEPLOY_SCRIPT}" ]; then
-            log_info "Deploying ${plugin} with released images (version: ${GLOOSCAP_VERSION})..."
+            log_info "Deploying ${plugin}..."
             cd "${PLUGIN_INFRA_DIR}"
             if ! bash "${DEPLOY_SCRIPT}"; then
                 log_warn "Failed to deploy ${plugin} (continuing)"
@@ -288,15 +295,12 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ] && [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoc
 fi
 echo ""
 log_info "View logs:"
-echo "  Operator: kubectl logs -f -n glooscap-system deployment/operator-controller-manager"
+echo "  Operator: kubectl logs -f -n glooscap-system deployment/glooscap-operator"
 echo "  UI: kubectl logs -f -n glooscap-system deployment/glooscap-ui"
 if [ ${#SELECTED_PLUGINS[@]} -gt 0 ] && [[ " ${SELECTED_PLUGINS[*]} " =~ " iskoces " ]]; then
     echo "  Iskoces: kubectl logs -f -n iskoces deployment/iskoces-server"
 fi
 echo ""
 log_info "To uninstall, run: ./uninstall_glooscap.sh"
-echo ""
-log_info "Note: This installation used released images (version: ${GLOOSCAP_VERSION})"
-log_info "For development builds, use: ./dev_install_glooscap.sh"
 echo ""
 
