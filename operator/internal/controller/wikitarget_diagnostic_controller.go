@@ -145,25 +145,39 @@ This page is automatically updated every 30 seconds to verify that Glooscap can 
 `, diagnosticPageTitle, now.Format(time.RFC3339), diagUUID, target.Name, target.Namespace, now.Format(time.RFC3339))
 
 	// Check if diagnostic page already exists
-	// If listing fails, we'll still try to create/update (maybe we can write even if we can't list)
+	// Use collection ID if available to constrain search, but also search all pages since drafts might not be in a collection
 	var existingPageID string
 	var existingPageIsDraft bool
-	pages, err := client.ListPages(ctx)
-	if err != nil {
-		targetLogger.V(1).Info("failed to list pages (will attempt create/update anyway)", "error", err)
-		// Continue anyway - we'll try to create, and if it already exists, the API will tell us
+	var pages []outline.PageSummary
+	
+	// Try to list pages - use collection ID if available, but we also need to check drafts which might not be in collections
+	// First try with collection ID if available
+	if target.Status.CollectionID != "" {
+		pages, err = client.ListPages(ctx, target.Status.CollectionID)
+		if err != nil {
+			targetLogger.V(1).Info("failed to list pages with collection ID, trying all pages", "collectionID", target.Status.CollectionID, "error", err)
+			// Fallback to listing all pages
+			pages, err = client.ListPages(ctx)
+		}
 	} else {
-		// Successfully listed pages, check for existing diagnostic page
-		// Filter to only drafts since diagnostic pages are created in drafts
-		// Search for the page by title in drafts
-		for _, page := range pages {
-			// Only consider draft pages with matching title
-			if page.IsDraft && page.Title == diagnosticPageTitle {
-				existingPageID = page.ID
-				existingPageIsDraft = page.IsDraft
-				targetLogger.Info("found existing diagnostic page in drafts", "pageID", existingPageID, "isDraft", existingPageIsDraft)
-				break
-			}
+		pages, err = client.ListPages(ctx)
+	}
+	
+	if err != nil {
+		targetLogger.V(1).Info("failed to list pages, skipping diagnostic this cycle", "error", err)
+		// Don't try to create if we can't list - we might create duplicates
+		return
+	}
+	
+	// Search for existing diagnostic page - prefer drafts, but accept any page with matching title
+	// If multiple exist, use the most recent one (they're sorted by updatedAt DESC)
+	for _, page := range pages {
+		if page.Title == diagnosticPageTitle {
+			existingPageID = page.ID
+			existingPageIsDraft = page.IsDraft
+			targetLogger.Info("found existing diagnostic page", "pageID", existingPageID, "isDraft", existingPageIsDraft, "updatedAt", page.UpdatedAt)
+			// Use the first match (most recent due to sorting)
+			break
 		}
 	}
 
