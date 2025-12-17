@@ -295,7 +295,15 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if !isDiagnostic && r.OutlineClient != nil && r.Catalogue != nil {
 				destClient, err := r.OutlineClient.New(ctx, r.Client, &destTarget)
 				if err == nil {
-					destPages, err := destClient.ListPages(ctx)
+					// Use collection constraint from destination WikiTarget if available
+					var destPages []outline.PageSummary
+					if destTarget.Status.CollectionID != "" {
+						destPages, err = destClient.ListPages(ctx, destTarget.Status.CollectionID)
+						logger.V(1).Info("checking duplicates in destination collection", "collectionID", destTarget.Status.CollectionID, "collectionName", destTarget.Status.CollectionName)
+					} else {
+						destPages, err = destClient.ListPages(ctx)
+						logger.V(1).Info("checking duplicates in all destination pages (no collection constraint)")
+					}
 					if err == nil {
 						// Get source page title from catalog
 						sourcePageTitle := ""
@@ -778,15 +786,33 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 									sourcePageTitle := ""
 									if sourcePage != nil {
 										sourcePageTitle = sourcePage.Title
-										// Try to get source page details from Outline to get collection
-										if sourceClient != nil {
-											sourcePages, err := sourceClient.ListPages(ctx)
+										// Use collection ID from source target status if available
+										// The sourcePage.Collection is the collection name, we need the ID
+										if sourceTarget.Status.CollectionID != "" && sourceTarget.Status.CollectionName != "" {
+											// If the source page's collection name matches the cached collection name, use the cached ID
+											if sourcePage.Collection == sourceTarget.Status.CollectionName {
+												sourceCollectionID = sourceTarget.Status.CollectionID
+												logger.V(1).Info("using cached collection ID for source page", "collectionID", sourceCollectionID, "collectionName", sourceTarget.Status.CollectionName)
+											}
+										}
+										// If we still don't have a collection ID, try to find it from Outline
+										// This should be rare - only if the page is in a different collection than the cached one
+										if sourceCollectionID == "" && sourceClient != nil {
+											// Use collection constraint from source WikiTarget if available to limit search
+											var sourcePages []outline.PageSummary
+											if sourceTarget.Status.CollectionID != "" {
+												sourcePages, err = sourceClient.ListPages(ctx, sourceTarget.Status.CollectionID)
+											} else {
+												sourcePages, err = sourceClient.ListPages(ctx)
+											}
 											if err == nil {
 												for _, sp := range sourcePages {
 													if sp.ID == job.Spec.Source.PageID {
-														sourceCollectionID = sp.Collection
-														// Note: Outline API may not expose parent directly
-														// We'll use collection as a proxy for "same level"
+														// The page's Collection field is the name, not the ID
+														// We'd need to look up the ID, but for now, if it matches our cached collection, use that
+														if sp.Collection == sourceTarget.Status.CollectionName && sourceTarget.Status.CollectionID != "" {
+															sourceCollectionID = sourceTarget.Status.CollectionID
+														}
 														break
 													}
 												}
@@ -802,7 +828,15 @@ func (r *TranslationJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 									translatedTitle := fmt.Sprintf("AUTOTRANSLATED--> %s", baseTitle)
 
 									// Check if a page with this exact title already exists
-									destPages, err := destClient.ListPages(ctx)
+									// Use collection constraint from destination WikiTarget if available
+									var destPages []outline.PageSummary
+									if destTarget.Status.CollectionID != "" {
+										destPages, err = destClient.ListPages(ctx, destTarget.Status.CollectionID)
+										logger.V(1).Info("checking title uniqueness in destination collection", "collectionID", destTarget.Status.CollectionID, "collectionName", destTarget.Status.CollectionName)
+									} else {
+										destPages, err = destClient.ListPages(ctx)
+										logger.V(1).Info("checking title uniqueness in all destination pages (no collection constraint)")
+									}
 									uniqueTitle := translatedTitle
 									counter := 1
 									if err == nil {

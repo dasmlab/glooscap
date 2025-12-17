@@ -308,12 +308,20 @@ func (r *WikiTargetReconciler) refreshCatalogue(ctx context.Context, target *wik
 	}
 	
 	// Fetch pages (with collection filter if found)
+	// CRITICAL: If we have a collectionID (either cached or just discovered), ALWAYS use it
+	// Never fetch all pages if we have a collection constraint
 	if collectionID != "" {
 		pages, err = client.ListPages(ctx, collectionID)
 		logger.Info("Fetching pages from specific collection", "collectionID", collectionID, "collectionName", collectionName)
+		if err != nil {
+			logger.Error(err, "failed to fetch pages from collection, will retry", "collectionID", collectionID)
+		}
 	} else {
-		logger.Info("Target collection not found, fetching all pages")
+		logger.Info("Target collection not found, fetching all pages (this should only happen on initial discovery)")
 		pages, err = client.ListPages(ctx)
+		if err == nil && len(pages) > 0 {
+			logger.Info("fetched all pages without collection constraint", "pageCount", len(pages), "warning", "this should be constrained to collection once discovered")
+		}
 	}
 	if err != nil {
 		// Check if this is a TLS certificate error and we haven't enabled skip verification yet

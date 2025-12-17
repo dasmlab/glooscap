@@ -154,11 +154,14 @@ This page is automatically updated every 30 seconds to verify that Glooscap can 
 		// Continue anyway - we'll try to create, and if it already exists, the API will tell us
 	} else {
 		// Successfully listed pages, check for existing diagnostic page
+		// Filter to only drafts since diagnostic pages are created in drafts
+		// Search for the page by title in drafts
 		for _, page := range pages {
-			if page.Title == diagnosticPageTitle {
+			// Only consider draft pages with matching title
+			if page.IsDraft && page.Title == diagnosticPageTitle {
 				existingPageID = page.ID
 				existingPageIsDraft = page.IsDraft
-				targetLogger.Info("found existing diagnostic page", "pageID", existingPageID, "isDraft", existingPageIsDraft)
+				targetLogger.Info("found existing diagnostic page in drafts", "pageID", existingPageID, "isDraft", existingPageIsDraft)
 				break
 			}
 		}
