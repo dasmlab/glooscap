@@ -49,14 +49,23 @@ echo "  Verifying build context: package.json=$(test -f package.json && echo 'OK
 
 # Try buildx with --load first, fall back to regular build if not supported
 # Enable BuildKit for cache mounts (faster npm installs)
+# Use same logic as operator Makefile for consistency
 export DOCKER_BUILDKIT=1
 if docker buildx version >/dev/null 2>&1 && docker buildx build --help 2>&1 | grep -q "\--load"; then
     echo "[buildme] Using docker buildx build --load (with BuildKit cache mounts)"
+    # Use default builder (same as operator Makefile)
     docker buildx build --load \
       --build-arg BUILD_VERSION="${tag}" \
       --build-arg BUILD_NUMBER="${next}" \
       --build-arg BUILD_SHA="${git_sha}" \
-      --tag "${app}:${version}" .
+      --tag "${app}:${version}" . || {
+        echo "[buildme] buildx build failed, falling back to regular docker build"
+        docker build \
+          --build-arg BUILD_VERSION="${tag}" \
+          --build-arg BUILD_NUMBER="${next}" \
+          --build-arg BUILD_SHA="${git_sha}" \
+          --tag "${app}:${version}" .
+    }
 else
     echo "[buildme] Using docker build (buildx --load not available, BuildKit cache mounts may not work)"
     docker build \
