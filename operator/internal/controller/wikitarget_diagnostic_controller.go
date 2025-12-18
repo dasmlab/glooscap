@@ -18,11 +18,18 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	manager "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -37,13 +44,20 @@ import (
 type WikiTargetDiagnosticRunnable struct {
 	Client        client.Client
 	OutlineClient OutlineClientFactory
+	// Track master keys and last page IDs per target (in-memory cache)
+	masterKeys   map[string]string // target name -> master key (e.g., "GLOODIAG TEST abc123")
+	lastPageIDs  map[string]string // target name -> last page ID
+	keysMu       sync.RWMutex
 }
 
 const (
-	// Diagnostic page title
-	diagnosticPageTitle = "GLOODIAG TEST"
+	// Diagnostic page title prefix
+	diagnosticPageTitlePrefix = "GLOODIAG TEST"
 	// How often to run the diagnostic (every 30 seconds)
 	diagnosticInterval = 30 * time.Second
+	// Annotation keys for storing master key and last page ID
+	annotationMasterKey  = "glooscap.dasmlab.org/diagnostic-master-key"
+	annotationLastPageID = "glooscap.dasmlab.org/diagnostic-last-page-id"
 )
 
 // Start implements manager.Runnable
@@ -52,10 +66,18 @@ func (r *WikiTargetDiagnosticRunnable) Start(ctx context.Context) error {
 
 	logger.Info("starting WikiTarget write diagnostic (runs every 30 seconds)")
 
-	// Run initial diagnostic immediately
+	// Initialize maps if not already initialized
+	if r.masterKeys == nil {
+		r.masterKeys = make(map[string]string)
+	}
+	if r.lastPageIDs == nil {
+		r.lastPageIDs = make(map[string]string)
+	}
+
+	// Run initial diagnostic immediately (this will also clean up old pages on startup)
 	r.runDiagnostic(ctx, logger)
 
-	// Then run every 5 minutes
+	// Then run every 30 seconds
 	ticker := time.NewTicker(diagnosticInterval)
 	defer ticker.Stop()
 
@@ -69,6 +91,31 @@ func (r *WikiTargetDiagnosticRunnable) Start(ctx context.Context) error {
 	}
 }
 
+// isDiagnosticEnabled checks if write diagnostic is enabled via ConfigMap
+func (r *WikiTargetDiagnosticRunnable) isDiagnosticEnabled(ctx context.Context, logger logr.Logger) bool {
+	configMapName := "glooscap-config"
+	namespace := "glooscap-system"
+
+	var cm corev1.ConfigMap
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// ConfigMap doesn't exist, default to enabled
+			return true
+		}
+		logger.V(1).Info("failed to get config map, defaulting to enabled", "error", err)
+		return true // Default to enabled on error
+	}
+
+	// Check the diagnostic-write-enabled key
+	if val, exists := cm.Data["diagnostic-write-enabled"]; exists {
+		return val == "true"
+	}
+
+	// Key doesn't exist, default to enabled
+	return true
+}
+
 // runDiagnostic checks all readWrite WikiTargets and creates/updates diagnostic pages
 func (r *WikiTargetDiagnosticRunnable) runDiagnostic(ctx context.Context, logger logr.Logger) {
 	// Failures are ok - just log and continue
@@ -77,6 +124,12 @@ func (r *WikiTargetDiagnosticRunnable) runDiagnostic(ctx context.Context, logger
 			logger.Error(fmt.Errorf("panic in runDiagnostic: %v", r), "diagnostic panicked, continuing")
 		}
 	}()
+
+	// Check if diagnostic is enabled
+	if !r.isDiagnosticEnabled(ctx, logger) {
+		logger.V(1).Info("write diagnostic is disabled, skipping")
+		return
+	}
 
 	// Get all WikiTargets
 	var targets wikiv1alpha1.WikiTargetList
@@ -107,6 +160,63 @@ func (r *WikiTargetDiagnosticRunnable) runDiagnostic(ctx context.Context, logger
 	}
 }
 
+// generateRandomSuffix generates a random 6-character suffix for the master key
+func generateRandomSuffix() (string, error) {
+	bytes := make([]byte, 3) // 3 bytes = 6 hex characters
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// getOrCreateMasterKey gets the master key for a target from annotations, or creates a new one
+func (r *WikiTargetDiagnosticRunnable) getOrCreateMasterKey(ctx context.Context, target *wikiv1alpha1.WikiTarget, logger logr.Logger) (string, error) {
+	// Check in-memory cache first
+	r.keysMu.RLock()
+	if key, exists := r.masterKeys[target.Name]; exists {
+		r.keysMu.RUnlock()
+		return key, nil
+	}
+	r.keysMu.RUnlock()
+
+	// Check annotations
+	if target.Annotations != nil {
+		if key, exists := target.Annotations[annotationMasterKey]; exists && key != "" {
+			// Store in cache
+			r.keysMu.Lock()
+			r.masterKeys[target.Name] = key
+			r.keysMu.Unlock()
+			return key, nil
+		}
+	}
+
+	// Generate new master key
+	suffix, err := generateRandomSuffix()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random suffix: %w", err)
+	}
+	masterKey := fmt.Sprintf("%s %s", diagnosticPageTitlePrefix, suffix)
+
+	// Store in annotations
+	if target.Annotations == nil {
+		target.Annotations = make(map[string]string)
+	}
+	target.Annotations[annotationMasterKey] = masterKey
+
+	// Update the target
+	if err := r.Client.Update(ctx, target); err != nil {
+		return "", fmt.Errorf("failed to update target annotations: %w", err)
+	}
+
+	// Store in cache
+	r.keysMu.Lock()
+	r.masterKeys[target.Name] = masterKey
+	r.keysMu.Unlock()
+
+	logger.Info("generated new master key for diagnostic", "target", target.Name, "masterKey", masterKey)
+	return masterKey, nil
+}
+
 // testTargetWrite creates or updates the diagnostic page for a specific target
 func (r *WikiTargetDiagnosticRunnable) testTargetWrite(ctx context.Context, logger logr.Logger, target *wikiv1alpha1.WikiTarget) {
 	targetLogger := logger.WithValues("wikitarget", target.Name, "uri", target.Spec.URI)
@@ -121,6 +231,88 @@ func (r *WikiTargetDiagnosticRunnable) testTargetWrite(ctx context.Context, logg
 	if err != nil {
 		targetLogger.Error(err, "failed to create outline client for diagnostic")
 		return
+	}
+
+	// Get or create master key for this target
+	masterKey, err := r.getOrCreateMasterKey(ctx, target, targetLogger)
+	if err != nil {
+		targetLogger.Error(err, "failed to get or create master key")
+		return
+	}
+
+	// On startup, clean up all old "GLOODIAG TEST *" pages (any with the prefix)
+	// This ensures we start fresh
+	targetLogger.Info("checking for old diagnostic pages to clean up", "masterKey", masterKey)
+
+	// List all pages to find any matching "GLOODIAG TEST *" pattern
+	var pages []outline.PageSummary
+	if target.Status.CollectionID != "" {
+		pages, err = client.ListPages(ctx, target.Status.CollectionID)
+		if err != nil {
+			targetLogger.V(1).Info("failed to list pages with collection ID, trying all pages", "collectionID", target.Status.CollectionID, "error", err)
+			pages, err = client.ListPages(ctx)
+		}
+	} else {
+		pages, err = client.ListPages(ctx)
+	}
+
+	if err != nil {
+		targetLogger.V(1).Info("failed to list pages, skipping diagnostic this cycle", "error", err)
+		return
+	}
+
+	// Find all pages matching "GLOODIAG TEST *" pattern (any diagnostic pages)
+	var oldDiagnosticPages []outline.PageSummary
+	for _, page := range pages {
+		if strings.HasPrefix(page.Title, diagnosticPageTitlePrefix) {
+			// Only delete if it's not our current master key (we'll handle that separately)
+			if page.Title != masterKey {
+				oldDiagnosticPages = append(oldDiagnosticPages, page)
+			}
+		}
+	}
+
+	// Delete all old diagnostic pages (cleanup on startup and ongoing)
+	if len(oldDiagnosticPages) > 0 {
+		targetLogger.Info("found old diagnostic pages to clean up", "count", len(oldDiagnosticPages))
+		for _, page := range oldDiagnosticPages {
+			targetLogger.Info("deleting old diagnostic page", "pageID", page.ID, "title", page.Title, "isDraft", page.IsDraft)
+			if err := client.DeletePage(ctx, page.ID); err != nil {
+				targetLogger.Error(err, "failed to delete old diagnostic page", "pageID", page.ID)
+				// Continue deleting others even if one fails
+			} else {
+				targetLogger.Info("deleted old diagnostic page", "pageID", page.ID, "title", page.Title)
+			}
+		}
+	}
+
+	// Get last page ID from annotations or cache
+	var lastPageID string
+	r.keysMu.RLock()
+	if id, exists := r.lastPageIDs[target.Name]; exists {
+		lastPageID = id
+	}
+	r.keysMu.RUnlock()
+
+	// Also check annotations (in case cache was cleared)
+	if lastPageID == "" && target.Annotations != nil {
+		if id, exists := target.Annotations[annotationLastPageID]; exists {
+			lastPageID = id
+		}
+	}
+
+	// If we have a last page ID, delete it first (from previous run)
+	if lastPageID != "" {
+		targetLogger.Info("deleting previous diagnostic page", "pageID", lastPageID)
+		if err := client.DeletePage(ctx, lastPageID); err != nil {
+			// Page might already be deleted, that's ok
+			targetLogger.V(1).Info("failed to delete previous page (may already be gone)", "pageID", lastPageID, "error", err)
+		} else {
+			targetLogger.Info("deleted previous diagnostic page", "pageID", lastPageID)
+
+			// Verify it's gone by trying to get it (optional verification)
+			// We'll just proceed - if it still exists, we'll handle it in the next cycle
+		}
 	}
 
 	// Generate diagnostic content with timestamp and UUID
@@ -142,125 +334,42 @@ This page is automatically updated every 30 seconds to verify that Glooscap can 
 
 ---
 *This page can be safely ignored or deleted. It is used only for connectivity testing.*
-`, diagnosticPageTitle, now.Format(time.RFC3339), diagUUID, target.Name, target.Namespace, now.Format(time.RFC3339))
+`, masterKey, now.Format(time.RFC3339), diagUUID, target.Name, target.Namespace, now.Format(time.RFC3339))
 
-	// Check if diagnostic page already exists
-	// Use collection ID if available to constrain search, but also search all pages since drafts might not be in a collection
-	var existingPageID string
-	var existingPageIsDraft bool
-	var pages []outline.PageSummary
-	
-	// Try to list pages - use collection ID if available, but we also need to check drafts which might not be in collections
-	// First try with collection ID if available
-	if target.Status.CollectionID != "" {
-		pages, err = client.ListPages(ctx, target.Status.CollectionID)
-		if err != nil {
-			targetLogger.V(1).Info("failed to list pages with collection ID, trying all pages", "collectionID", target.Status.CollectionID, "error", err)
-			// Fallback to listing all pages
-			pages, err = client.ListPages(ctx)
-		}
-	} else {
-		pages, err = client.ListPages(ctx)
+	// Create new page with master key as title
+	targetLogger.Info("creating new diagnostic page", "masterKey", masterKey)
+	createReq := outline.CreatePageRequest{
+		Title: masterKey,
+		Text:  content,
+		// Don't specify collection - will be created in drafts
 	}
-	
+	createResp, err := client.CreatePage(ctx, createReq)
 	if err != nil {
-		targetLogger.V(1).Info("failed to list pages, skipping diagnostic this cycle", "error", err)
-		// Don't try to create if we can't list - we might create duplicates
+		targetLogger.Error(err, "failed to create diagnostic page")
 		return
 	}
-	
-	// Find all pages with the diagnostic title
-	// Track the last link to draft (prefer draft pages, then most recent)
-	var allDiagnosticPages []outline.PageSummary
-	for _, page := range pages {
-		if page.Title == diagnosticPageTitle {
-			allDiagnosticPages = append(allDiagnosticPages, page)
-		}
+
+	newPageID := createResp.Data.ID
+	targetLogger.Info("diagnostic page created successfully",
+		"pageID", newPageID,
+		"slug", createResp.Data.Slug,
+		"uuid", diagUUID,
+		"masterKey", masterKey)
+
+	// Store the new page ID in annotations and cache for next run
+	if target.Annotations == nil {
+		target.Annotations = make(map[string]string)
+	}
+	target.Annotations[annotationLastPageID] = newPageID
+	if err := r.Client.Update(ctx, target); err != nil {
+		targetLogger.Error(err, "failed to update target with last page ID")
+		// Continue anyway - cache will help
 	}
 
-	// If we found diagnostic pages, keep the best one and delete the rest
-	if len(allDiagnosticPages) > 0 {
-		// Find the best page to keep: prefer drafts, then most recent
-		var bestPage *outline.PageSummary
-		var bestIndex int
-		for i := range allDiagnosticPages {
-			page := &allDiagnosticPages[i]
-			if bestPage == nil {
-				bestPage = page
-				bestIndex = i
-				continue
-			}
-			// Prefer draft pages
-			if page.IsDraft && !bestPage.IsDraft {
-				bestPage = page
-				bestIndex = i
-				continue
-			}
-			// If both are drafts or both are not drafts, prefer most recent
-			if page.IsDraft == bestPage.IsDraft {
-				if page.UpdatedAt.After(bestPage.UpdatedAt) {
-					bestPage = page
-					bestIndex = i
-				}
-			}
-		}
-
-		existingPageID = bestPage.ID
-		existingPageIsDraft = bestPage.IsDraft
-		targetLogger.Info("found diagnostic pages", "total", len(allDiagnosticPages), "keeping", existingPageID, "isDraft", existingPageIsDraft)
-
-		// Delete all other diagnostic pages (loop through and delete duplicates)
-		for i, page := range allDiagnosticPages {
-			if i != bestIndex {
-				targetLogger.Info("deleting duplicate diagnostic page", "pageID", page.ID, "isDraft", page.IsDraft)
-				if err := client.DeletePage(ctx, page.ID); err != nil {
-					targetLogger.Error(err, "failed to delete duplicate diagnostic page", "pageID", page.ID)
-					// Continue deleting others even if one fails
-				} else {
-					targetLogger.Info("deleted duplicate diagnostic page", "pageID", page.ID)
-				}
-			}
-		}
-
-		// Update the kept page
-		targetLogger.Info("updating existing diagnostic page", "pageID", existingPageID)
-		updateReq := outline.UpdatePageRequest{
-			ID:   existingPageID,
-			Text: content,
-		}
-		updateResp, err := client.UpdatePage(ctx, updateReq)
-		if err != nil {
-			targetLogger.Error(err, "failed to update diagnostic page")
-			// If update fails, try creating a new one (maybe the page was deleted)
-			targetLogger.Info("update failed, attempting to create new page instead")
-			existingPageID = "" // Clear so we try create below
-		} else {
-			targetLogger.Info("diagnostic page updated successfully",
-				"pageID", updateResp.Data.ID,
-				"slug", updateResp.Data.Slug,
-				"uuid", diagUUID)
-			return // Success, we're done
-		}
-	}
-
-	// Create new page (either doesn't exist, or update failed and we're retrying)
-	if existingPageID == "" {
-		targetLogger.Info("creating new diagnostic page")
-		createReq := outline.CreatePageRequest{
-			Title: diagnosticPageTitle,
-			Text:  content,
-			// Don't specify collection - will be created in drafts
-		}
-		createResp, err := client.CreatePage(ctx, createReq)
-		if err != nil {
-			targetLogger.Error(err, "failed to create diagnostic page")
-			return
-		}
-		targetLogger.Info("diagnostic page created successfully",
-			"pageID", createResp.Data.ID,
-			"slug", createResp.Data.Slug,
-			"uuid", diagUUID)
-	}
+	// Update cache
+	r.keysMu.Lock()
+	r.lastPageIDs[target.Name] = newPageID
+	r.keysMu.Unlock()
 }
 
 // SetupWikiTargetDiagnosticRunnable sets up the WikiTarget diagnostic runnable with the Manager.

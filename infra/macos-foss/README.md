@@ -20,11 +20,15 @@ This setup provides a fully FOSS (Free and Open Source Software) stack for runni
 - Administrator access (for some installations)
 - GitHub Personal Access Token with `write:packages` permission (for pushing images)
 
+> **Important:** Do **NOT** be connected to VPN during installation. Connect to VPN only after installation is complete and you've configured your WikiTarget (see [HOWTO.md](../../HOWTO.md) for details).
+
 ## For End Users: Simple Installation
 
 If you just want to **install and use Glooscap**, use these simple scripts:
 
 ### Install Glooscap
+
+> **Important:** Ensure you are **NOT** connected to VPN before starting installation.
 
 ```bash
 cd infra/macos-foss

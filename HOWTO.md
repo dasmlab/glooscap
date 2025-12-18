@@ -12,17 +12,20 @@ You have successfully run `./install_glooscap.sh` on your machine and can access
 
 > **Note:** The FQDN `glooscap-ui.testdev.dasmlab.org` is not an external domain. The installer automatically adds a host entry to your `/etc/hosts` file to make this work locally. If you prefer, you can use `http://localhost:8080` instead.
 
-### Prerequisite 2: MCN VPN Connected and API Key Created
+### Prerequisite 2: API Key Created (Before VPN Connection)
 
-1. **Connect to MCN VPN**
-2. **Log into the wiki.pes site**
-3. **Click on your profile** (bottom right corner)
-4. **Click on "API Key"**
-5. **Create an API key for yourself** - you will need this in the next step
+1. **Log into the wiki.pes site** (you may need VPN for this step, but disconnect after)
+2. **Click on your profile** (bottom right corner)
+3. **Click on "API Key"**
+4. **Create an API key for yourself** - you will need this in the next step
+
+> **Note:** You can create the API key before connecting to VPN, or temporarily connect to VPN just to create the key, then disconnect. The key will work once you reconnect to VPN later.
 
 ---
 
 ## Step 1: Configure the Wiki Target
+
+> **Important:** At this point, you should **NOT** be connected to VPN. Configure the WikiTarget first, then connect to VPN in the next step.
 
 1. **Navigate to Settings** → **WikiTarget Tab**
 2. **Click "Add a new Target"**
@@ -62,11 +65,14 @@ If the connection fails, check:
 
 ---
 
-## Step 2: Refresh and View Catalogue
+## Step 2: Connect to VPN and Refresh Catalogue
 
-1. **Navigate to Catalogue**
-2. **Click "Refresh Catalogue"**
-3. **Observe that all pages within the MAURICE (PDG) collection are shown**
+> **Important:** Now that your WikiTarget is configured, **connect to MCN VPN**. Once connected, the catalogue will be able to fetch pages from your wiki.
+
+1. **Connect to MCN VPN**
+2. **Navigate to Catalogue**
+3. **Click "Refresh Catalogue"**
+4. **Observe that all pages within the MAURICE (PDG) collection are shown**
 
 > **Note:** A picture will be added here showing the catalogue view with pages from the MAURICE (PDG) collection.
 
@@ -79,6 +85,8 @@ The catalogue will display:
 ---
 
 ## Step 3: Translate a Page (Author View)
+
+> **Note:** Ensure VPN is still connected for translation to work properly.
 
 1. **Navigate to Author View**
 2. **Go to the page you want to translate**
@@ -124,7 +132,8 @@ Once published, the translated page will be available to all users in your wiki 
 
 ### WikiTarget Connection Issues
 
-- Verify VPN is connected
+- **During installation:** Ensure VPN is **NOT** connected
+- **After WikiTarget configuration:** Ensure VPN **IS** connected
 - Check that the API token is correct and has proper permissions
 - Ensure the wiki URL is accessible
 - Check browser console for error messages
@@ -143,6 +152,7 @@ Once published, the translated page will be available to all users in your wiki 
 
 ### Catalogue Not Refreshing
 
+- **Most common issue:** VPN is not connected - connect to VPN first, then refresh
 - Ensure WikiTarget is configured and connected (green status)
 - Check that the collection name matches (e.g., "Maurice (PDG)")
 - Verify VPN connection is active

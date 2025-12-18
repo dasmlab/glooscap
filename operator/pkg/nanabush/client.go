@@ -480,6 +480,25 @@ func (c *Client) sendHeartbeat() {
 	fmt.Printf("[nanabush] Heartbeat acknowledged: client_id=%q, success=%v, message=%q\n",
 		clientID, resp.Success, resp.Message)
 
+	// Check if heartbeat was successful - if not, we need to re-register
+	if !resp.Success {
+		// Server says client is not registered or expired - need to re-register
+		fmt.Printf("[nanabush] Heartbeat failed (success=false): %s, triggering re-registration\n", resp.Message)
+		c.mu.Lock()
+		c.registered = false
+		c.mu.Unlock()
+
+		// Re-register
+		if err := c.register(context.Background()); err != nil {
+			// If registration fails, try to reconnect
+			fmt.Printf("[nanabush] Re-registration failed, attempting reconnect: %v\n", err)
+			go c.reconnectAndRegister()
+		} else {
+			fmt.Printf("[nanabush] Re-registration successful after failed heartbeat\n")
+		}
+		return
+	}
+
 	if resp.ReRegisterRequired {
 		// Server requested re-registration
 		c.mu.Lock()

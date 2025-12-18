@@ -9,7 +9,11 @@ This guide will help you get Glooscap running on macOS in just a few steps.
 - Internet connection
 - GitHub Personal Access Token with `write:packages` permission
 
+> **Important:** Do **NOT** be connected to VPN during installation. Connect to VPN only after installation is complete and you've configured your WikiTarget (see [HOWTO.md](../../HOWTO.md) for details).
+
 ## Quick Installation (Recommended)
+
+> **Important:** Ensure you are **NOT** connected to VPN before starting installation.
 
 For most users, the simplest way to install Glooscap:
 

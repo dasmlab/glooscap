@@ -1175,6 +1175,97 @@ func Start(ctx context.Context, opts Options) error {
 		writeJSON(w, map[string]string{"status": "deleted"})
 	})
 
+	// Diagnostic write enabled flag endpoints
+	router.Get("/api/v1/diagnostic/write-enabled", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		ctx := r.Context()
+		configMapName := "glooscap-config"
+		namespace := "glooscap-system"
+
+		var cm corev1.ConfigMap
+		err := opts.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// ConfigMap doesn't exist, return default (enabled)
+				writeJSON(w, map[string]bool{"enabled": true})
+				return
+			}
+			http.Error(w, fmt.Sprintf("failed to get config: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Check the diagnostic-write-enabled key
+		enabled := true // Default to enabled
+		if val, exists := cm.Data["diagnostic-write-enabled"]; exists {
+			enabled = val == "true"
+		}
+
+		writeJSON(w, map[string]bool{"enabled": enabled})
+	})
+
+	router.Put("/api/v1/diagnostic/write-enabled", func(w http.ResponseWriter, r *http.Request) {
+		if opts.Client == nil {
+			http.Error(w, "kubernetes client not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		var req map[string]bool
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		enabled, exists := req["enabled"]
+		if !exists {
+			http.Error(w, "enabled field is required", http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+		configMapName := "glooscap-config"
+		namespace := "glooscap-system"
+
+		var cm corev1.ConfigMap
+		err := opts.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Create new ConfigMap
+				cm = corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      configMapName,
+						Namespace: namespace,
+					},
+					Data: map[string]string{
+						"diagnostic-write-enabled": fmt.Sprintf("%v", enabled),
+					},
+				}
+				if err := opts.Client.Create(ctx, &cm); err != nil {
+					http.Error(w, fmt.Sprintf("failed to create config: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				http.Error(w, fmt.Sprintf("failed to get config: %v", err), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Update existing ConfigMap
+			if cm.Data == nil {
+				cm.Data = make(map[string]string)
+			}
+			cm.Data["diagnostic-write-enabled"] = fmt.Sprintf("%v", enabled)
+			if err := opts.Client.Update(ctx, &cm); err != nil {
+				http.Error(w, fmt.Sprintf("failed to update config: %v", err), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		writeJSON(w, map[string]bool{"enabled": enabled})
+	})
+
 	// WikiTarget CRUD endpoints (POST, PUT, DELETE)
 	router.Post("/api/v1/wikitargets", func(w http.ResponseWriter, r *http.Request) {
 		// Add panic recovery
