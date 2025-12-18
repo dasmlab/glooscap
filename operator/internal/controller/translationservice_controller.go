@@ -132,6 +132,10 @@ func (r *TranslationServiceReconciler) Reconcile(ctx context.Context, req ctrl.R
 			if err := oldClient.Close(); err != nil {
 				logger.Error(err, "error closing old translation service client")
 			}
+			// Brief delay to ensure old client's heartbeat goroutines are fully stopped
+			// and any in-flight heartbeats complete before creating new client
+			time.Sleep(500 * time.Millisecond)
+			logger.Info("Old translation service client closed and cleaned up")
 		}
 
 		// Create new client
