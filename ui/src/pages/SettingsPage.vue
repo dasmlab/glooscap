@@ -115,6 +115,32 @@
               </q-card>
             </div>
 
+            <!-- Diagnostic Configuration -->
+            <div class="col-12">
+              <q-card flat bordered>
+                <q-card-section>
+                  <div class="text-subtitle1 q-mb-md">Diagnostic Configuration</div>
+                  <q-list>
+                    <!-- Write Diagnostic Toggle -->
+                    <q-item>
+                      <q-item-section>
+                        <q-item-label class="text-weight-medium">Write Diagnostic</q-item-label>
+                        <q-item-label caption>Enable automatic write diagnostic pages to test wiki connectivity (default: enabled)</q-item-label>
+                      </q-item-section>
+                      <q-item-section side>
+                        <q-toggle
+                          v-model="writeDiagnosticEnabled"
+                          color="primary"
+                          @update:model-value="saveWriteDiagnostic"
+                          :loading="savingWriteDiagnostic"
+                        />
+                      </q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-card-section>
+              </q-card>
+            </div>
+
             <!-- Service Configuration -->
             <div class="col-12">
               <q-card flat bordered>
@@ -893,6 +919,10 @@ const nanabushStatus = ref({
   lastHeartbeat: null,
 })
 
+// Write Diagnostic Toggle
+const writeDiagnosticEnabled = ref(true)
+const savingWriteDiagnostic = ref(false)
+
 // WikiTargets Management
 const wikiTargets = ref([])
 const loadingWikiTargets = ref(false)
@@ -1137,6 +1167,43 @@ const nanabushStatusText = computed(() => {
   }
 })
 
+// Fetch write diagnostic enabled status
+async function fetchWriteDiagnostic() {
+  try {
+    const response = await api.get('/diagnostic/write-enabled')
+    writeDiagnosticEnabled.value = response.data.enabled ?? true
+  } catch (error) {
+    logToConsole('WARN', 'Failed to fetch write diagnostic status', error.message)
+    // Default to enabled on error
+    writeDiagnosticEnabled.value = true
+  }
+}
+
+// Save write diagnostic enabled status
+async function saveWriteDiagnostic() {
+  savingWriteDiagnostic.value = true
+  try {
+    await api.put('/diagnostic/write-enabled', { enabled: writeDiagnosticEnabled.value })
+    logToConsole('INFO', 'Write diagnostic setting updated', { enabled: writeDiagnosticEnabled.value })
+    $q.notify({
+      type: 'positive',
+      message: `Write diagnostic ${writeDiagnosticEnabled.value ? 'enabled' : 'disabled'}`,
+      timeout: 2000,
+    })
+  } catch (error) {
+    logToConsole('ERROR', 'Failed to update write diagnostic setting', error.message)
+    $q.notify({
+      type: 'negative',
+      message: `Failed to update setting: ${error.message}`,
+      timeout: 3000,
+    })
+    // Revert on error
+    await fetchWriteDiagnostic()
+  } finally {
+    savingWriteDiagnostic.value = false
+  }
+}
+
 // Fetch WikiTargets
 async function fetchWikiTargets() {
   loadingWikiTargets.value = true
@@ -1342,6 +1409,7 @@ onMounted(() => {
   fetchWikiTargets()
   fetchTelemetryStatus()
   fetchNokomisStatus()
+  fetchWriteDiagnostic()
   window.addEventListener('nanabush-status', handleNanabushStatusEvent)
   window.addEventListener('api-connection-status', handleApiConnectionStatus)
   
