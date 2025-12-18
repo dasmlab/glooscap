@@ -458,11 +458,12 @@ func (c *Client) sendHeartbeat() {
 		Metadata:   c.metadata,
 	})
 	if err != nil {
-		// Connection error - need to re-register
-		// BUT: Don't re-register if there are ongoing translations (would break them by closing connection)
+		// Connection error - check if we have active translations
+		// If translations are in progress, just log the failure and continue
+		// (Iskoces will wait 60 seconds before dropping the client, giving time for translations to complete)
 		ongoingTranslations := c.maxConcurrentTranslate - len(c.translateSemaphore)
 		if ongoingTranslations > 0 {
-			fmt.Printf("[nanabush] Heartbeat failed: client_id=%q, error=%v, but %d translation(s) in progress - deferring re-registration\n", clientID, err, ongoingTranslations)
+			fmt.Printf("[nanabush] ⚠️  Heartbeat failed (out of band): client_id=%q, error=%v, but %d translation(s) in progress - connection remains open, will retry next heartbeat\n", clientID, err, ongoingTranslations)
 			c.mu.Lock()
 			c.missedHeartbeats++ // Increment missed heartbeats on error
 			fmt.Printf("[nanabush] Missed heartbeats: %d\n", c.missedHeartbeats)
@@ -471,11 +472,13 @@ func (c *Client) sendHeartbeat() {
 			if c.onStatusChange != nil {
 				c.onStatusChange(c.Status())
 			}
-			// Will re-register after translations complete (next heartbeat will check)
+			// Don't close connection or re-register - let translation complete
+			// Next heartbeat will retry, and if still failing after translations complete, we'll re-register then
 			return
 		}
 		
-		fmt.Printf("[nanabush] Heartbeat failed: client_id=%q, error=%v\n", clientID, err)
+		// No active translations - safe to re-register
+		fmt.Printf("[nanabush] Heartbeat failed: client_id=%q, error=%v (no active translations, re-registering)\n", clientID, err)
 		c.mu.Lock()
 		c.registered = false
 		c.missedHeartbeats++ // Increment missed heartbeats on error
@@ -499,18 +502,22 @@ func (c *Client) sendHeartbeat() {
 	// Check if heartbeat was successful - if not, we need to re-register
 	if !resp.Success {
 		// Server says client is not registered or expired - need to re-register
-		// BUT: Don't re-register if there are ongoing translations (would break them)
+		// BUT: Don't re-register if there are ongoing translations (would break them by closing connection)
 		ongoingTranslations := c.maxConcurrentTranslate - len(c.translateSemaphore)
 		if ongoingTranslations > 0 {
-			fmt.Printf("[nanabush] Heartbeat failed (success=false): %s, but %d translation(s) in progress - deferring re-registration\n", resp.Message, ongoingTranslations)
-			// Mark as needing re-registration but don't do it now
+			fmt.Printf("[nanabush] ⚠️  Heartbeat failed (success=false, out of band): %s, but %d translation(s) in progress - connection remains open, will retry next heartbeat\n", resp.Message, ongoingTranslations)
+			// Don't mark as unregistered or close connection - let translation complete
+			// Next heartbeat will retry, and if still failing after translations complete, we'll re-register then
 			c.mu.Lock()
-			c.registered = false
+			c.missedHeartbeats++
 			c.mu.Unlock()
-			// Will re-register after translations complete (next heartbeat will check)
+			if c.onStatusChange != nil {
+				c.onStatusChange(c.Status())
+			}
 			return
 		}
 		
+		// No active translations - safe to re-register
 		fmt.Printf("[nanabush] Heartbeat failed (success=false): %s, triggering re-registration\n", resp.Message)
 		c.mu.Lock()
 		c.registered = false
@@ -529,15 +536,18 @@ func (c *Client) sendHeartbeat() {
 
 	if resp.ReRegisterRequired {
 		// Server requested re-registration
-		// BUT: Don't re-register if there are ongoing translations (would break them)
+		// BUT: Don't re-register if there are ongoing translations (would break them by closing connection)
 		ongoingTranslations := c.maxConcurrentTranslate - len(c.translateSemaphore)
 		if ongoingTranslations > 0 {
-			fmt.Printf("[nanabush] Server requested re-registration, but %d translation(s) in progress - deferring\n", ongoingTranslations)
-			// Mark as needing re-registration but don't do it now
+			fmt.Printf("[nanabush] ⚠️  Server requested re-registration, but %d translation(s) in progress - deferring (connection remains open)\n", ongoingTranslations)
+			// Don't mark as unregistered or close connection - let translation complete
+			// Next heartbeat will retry, and if still failing after translations complete, we'll re-register then
 			c.mu.Lock()
-			c.registered = false
+			c.missedHeartbeats++
 			c.mu.Unlock()
-			// Will re-register after translations complete (next heartbeat will check)
+			if c.onStatusChange != nil {
+				c.onStatusChange(c.Status())
+			}
 			return
 		}
 		
