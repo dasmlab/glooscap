@@ -47,13 +47,16 @@ type WikiTargetDiagnosticRunnable struct {
 	masterKeys   map[string]string // target name -> master key (e.g., "GLOODIAG TEST abc123")
 	lastPageIDs  map[string]string // target name -> last page ID
 	keysMu       sync.RWMutex
+	// Track which targets are currently being processed to prevent concurrent runs
+	processingTargets map[string]bool // target name -> is processing
+	processingMu     sync.Mutex
 }
 
 const (
 	// Diagnostic page title prefix
 	diagnosticPageTitlePrefix = "GLOODIAG TEST"
-	// How often to run the diagnostic (every 30 seconds)
-	diagnosticInterval = 30 * time.Second
+	// How often to run the diagnostic (every 5 minutes after startup)
+	diagnosticInterval = 5 * time.Minute
 	// Annotation keys for storing master key and last page ID
 	annotationMasterKey  = "glooscap.dasmlab.org/diagnostic-master-key"
 	annotationLastPageID = "glooscap.dasmlab.org/diagnostic-last-page-id"
@@ -63,7 +66,7 @@ const (
 func (r *WikiTargetDiagnosticRunnable) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("wikitarget-diagnostic")
 
-	logger.Info("starting WikiTarget write diagnostic (runs every 30 seconds)")
+	logger.Info("starting WikiTarget write diagnostic (runs at startup, then every 5 minutes)")
 
 	// Initialize maps if not already initialized
 	if r.masterKeys == nil {
@@ -72,11 +75,14 @@ func (r *WikiTargetDiagnosticRunnable) Start(ctx context.Context) error {
 	if r.lastPageIDs == nil {
 		r.lastPageIDs = make(map[string]string)
 	}
+	if r.processingTargets == nil {
+		r.processingTargets = make(map[string]bool)
+	}
 
 	// Run initial diagnostic immediately (this will also clean up old pages on startup)
 	r.runDiagnostic(ctx, logger)
 
-	// Then run every 30 seconds
+	// Then run every 5 minutes
 	ticker := time.NewTicker(diagnosticInterval)
 	defer ticker.Stop()
 
@@ -224,6 +230,23 @@ func (r *WikiTargetDiagnosticRunnable) getOrCreateMasterKey(ctx context.Context,
 
 // testTargetWrite creates or updates the diagnostic page for a specific target
 func (r *WikiTargetDiagnosticRunnable) testTargetWrite(ctx context.Context, logger logr.Logger, target *wikiv1alpha1.WikiTarget) {
+	// Check if this target is already being processed (prevent concurrent runs)
+	r.processingMu.Lock()
+	if r.processingTargets[target.Name] {
+		r.processingMu.Unlock()
+		logger.V(1).Info("diagnostic already in progress for target, skipping", "target", target.Name)
+		return
+	}
+	r.processingTargets[target.Name] = true
+	r.processingMu.Unlock()
+
+	// Ensure we clear the processing flag when done
+	defer func() {
+		r.processingMu.Lock()
+		delete(r.processingTargets, target.Name)
+		r.processingMu.Unlock()
+	}()
+
 	targetLogger := logger.WithValues("wikitarget", target.Name, "uri", target.Spec.URI)
 
 	// Create Outline client
@@ -260,7 +283,7 @@ This is an automated diagnostic page created by Glooscap to verify write access 
 - **Namespace**: %s
 - **Last Updated**: %s
 
-This page is automatically updated every 30 seconds to verify that Glooscap can write to drafts in this wiki.
+This page is automatically updated every 5 minutes to verify that Glooscap can write to drafts in this wiki.
 
 ---
 *This page can be safely ignored or deleted. It is used only for connectivity testing.*

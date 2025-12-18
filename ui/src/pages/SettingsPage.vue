@@ -131,7 +131,7 @@
                         <q-toggle
                           v-model="writeDiagnosticEnabled"
                           color="primary"
-                          @update:model-value="saveWriteDiagnostic"
+                          @update:model-value="(val) => saveWriteDiagnostic(val)"
                           :loading="savingWriteDiagnostic"
                         />
                       </q-item-section>
@@ -1180,25 +1180,29 @@ async function fetchWriteDiagnostic() {
 }
 
 // Save write diagnostic enabled status
-async function saveWriteDiagnostic() {
+async function saveWriteDiagnostic(newValue) {
+  // Use the new value passed from the toggle, or fall back to the current value
+  const enabled = newValue !== undefined ? newValue : writeDiagnosticEnabled.value
   savingWriteDiagnostic.value = true
   try {
-    await api.put('/diagnostic/write-enabled', { enabled: writeDiagnosticEnabled.value })
-    logToConsole('INFO', 'Write diagnostic setting updated', { enabled: writeDiagnosticEnabled.value })
+    await api.put('/diagnostic/write-enabled', { enabled: enabled })
+    logToConsole('INFO', 'Write diagnostic setting updated', { enabled: enabled })
+    // Ensure the local value matches what was saved
+    writeDiagnosticEnabled.value = enabled
     $q.notify({
       type: 'positive',
-      message: `Write diagnostic ${writeDiagnosticEnabled.value ? 'enabled' : 'disabled'}`,
+      message: `Write diagnostic ${enabled ? 'enabled' : 'disabled'}`,
       timeout: 2000,
     })
   } catch (error) {
     logToConsole('ERROR', 'Failed to update write diagnostic setting', error.message)
+    // Revert the toggle on error
+    writeDiagnosticEnabled.value = !enabled
     $q.notify({
       type: 'negative',
       message: `Failed to update setting: ${error.message}`,
       timeout: 3000,
     })
-    // Revert on error
-    await fetchWriteDiagnostic()
   } finally {
     savingWriteDiagnostic.value = false
   }
