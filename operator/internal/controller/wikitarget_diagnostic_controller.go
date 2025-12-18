@@ -239,81 +239,6 @@ func (r *WikiTargetDiagnosticRunnable) testTargetWrite(ctx context.Context, logg
 		return
 	}
 
-	// On startup, clean up all old "GLOODIAG TEST *" pages (any with the prefix)
-	// This ensures we start fresh
-	targetLogger.Info("checking for old diagnostic pages to clean up", "masterKey", masterKey)
-
-	// List all pages to find any matching "GLOODIAG TEST *" pattern
-	var pages []outline.PageSummary
-	if target.Status.CollectionID != "" {
-		pages, err = client.ListPages(ctx, target.Status.CollectionID)
-		if err != nil {
-			targetLogger.V(1).Info("failed to list pages with collection ID, trying all pages", "collectionID", target.Status.CollectionID, "error", err)
-			pages, err = client.ListPages(ctx)
-		}
-	} else {
-		pages, err = client.ListPages(ctx)
-	}
-
-	if err != nil {
-		targetLogger.V(1).Info("failed to list pages, skipping diagnostic this cycle", "error", err)
-		return
-	}
-
-	// Find all pages matching "GLOODIAG TEST *" pattern (any diagnostic pages)
-	var oldDiagnosticPages []outline.PageSummary
-	for _, page := range pages {
-		if strings.HasPrefix(page.Title, diagnosticPageTitlePrefix) {
-			// Only delete if it's not our current master key (we'll handle that separately)
-			if page.Title != masterKey {
-				oldDiagnosticPages = append(oldDiagnosticPages, page)
-			}
-		}
-	}
-
-	// Delete all old diagnostic pages (cleanup on startup and ongoing)
-	if len(oldDiagnosticPages) > 0 {
-		targetLogger.Info("found old diagnostic pages to clean up", "count", len(oldDiagnosticPages))
-		for _, page := range oldDiagnosticPages {
-			targetLogger.Info("deleting old diagnostic page", "pageID", page.ID, "title", page.Title, "isDraft", page.IsDraft)
-			if err := client.DeletePage(ctx, page.ID); err != nil {
-				targetLogger.Error(err, "failed to delete old diagnostic page", "pageID", page.ID)
-				// Continue deleting others even if one fails
-			} else {
-				targetLogger.Info("deleted old diagnostic page", "pageID", page.ID, "title", page.Title)
-			}
-		}
-	}
-
-	// Get last page ID from annotations or cache
-	var lastPageID string
-	r.keysMu.RLock()
-	if id, exists := r.lastPageIDs[target.Name]; exists {
-		lastPageID = id
-	}
-	r.keysMu.RUnlock()
-
-	// Also check annotations (in case cache was cleared)
-	if lastPageID == "" && target.Annotations != nil {
-		if id, exists := target.Annotations[annotationLastPageID]; exists {
-			lastPageID = id
-		}
-	}
-
-	// If we have a last page ID, delete it first (from previous run)
-	if lastPageID != "" {
-		targetLogger.Info("deleting previous diagnostic page", "pageID", lastPageID)
-		if err := client.DeletePage(ctx, lastPageID); err != nil {
-			// Page might already be deleted, that's ok
-			targetLogger.V(1).Info("failed to delete previous page (may already be gone)", "pageID", lastPageID, "error", err)
-		} else {
-			targetLogger.Info("deleted previous diagnostic page", "pageID", lastPageID)
-
-			// Verify it's gone by trying to get it (optional verification)
-			// We'll just proceed - if it still exists, we'll handle it in the next cycle
-		}
-	}
-
 	// Generate diagnostic content with timestamp and UUID
 	now := time.Now()
 	diagUUID := uuid.New().String()
@@ -335,12 +260,62 @@ This page is automatically updated every 30 seconds to verify that Glooscap can 
 *This page can be safely ignored or deleted. It is used only for connectivity testing.*
 `, masterKey, now.Format(time.RFC3339), diagUUID, target.Name, target.Namespace, now.Format(time.RFC3339))
 
-	// Create new page with master key as title
+	// Get stored page ID from annotations or cache
+	var existingPageID string
+	r.keysMu.RLock()
+	if id, exists := r.lastPageIDs[target.Name]; exists {
+		existingPageID = id
+	}
+	r.keysMu.RUnlock()
+
+	// Also check annotations (in case cache was cleared)
+	if existingPageID == "" && target.Annotations != nil {
+		if id, exists := target.Annotations[annotationLastPageID]; exists {
+			existingPageID = id
+		}
+	}
+
+	// If we have an existing page ID, try to update it
+	if existingPageID != "" {
+		targetLogger.Info("updating existing diagnostic page", "pageID", existingPageID, "masterKey", masterKey)
+		updateReq := outline.UpdatePageRequest{
+			ID:    existingPageID,
+			Title: masterKey,
+			Text:  content,
+		}
+		updateResp, err := client.UpdatePage(ctx, updateReq)
+		if err != nil {
+			// Update failed - page might have been deleted, create a new one
+			targetLogger.V(1).Info("failed to update existing diagnostic page, will create new one", "pageID", existingPageID, "error", err)
+			existingPageID = "" // Clear so we create a new one
+		} else {
+			// Update successful
+			targetLogger.Info("diagnostic page updated successfully",
+				"pageID", updateResp.Data.ID,
+				"slug", updateResp.Data.Slug,
+				"uuid", diagUUID,
+				"masterKey", masterKey)
+			// Page ID should be the same, but update cache/annotations just in case
+			if target.Annotations == nil {
+				target.Annotations = make(map[string]string)
+			}
+			target.Annotations[annotationLastPageID] = updateResp.Data.ID
+			if err := r.Client.Update(ctx, target); err != nil {
+				targetLogger.Error(err, "failed to update target with page ID")
+			}
+			r.keysMu.Lock()
+			r.lastPageIDs[target.Name] = updateResp.Data.ID
+			r.keysMu.Unlock()
+			return // Success - we're done
+		}
+	}
+
+	// No existing page or update failed - create a new one
 	targetLogger.Info("creating new diagnostic page", "masterKey", masterKey)
 	createReq := outline.CreatePageRequest{
 		Title: masterKey,
 		Text:  content,
-		// Don't specify collection - will be created in drafts
+		// Don't specify collection - will be created in drafts automatically
 	}
 	createResp, err := client.CreatePage(ctx, createReq)
 	if err != nil {

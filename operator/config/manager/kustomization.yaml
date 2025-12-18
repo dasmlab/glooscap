@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: ghcr.io/dasmlab/glooscap-operator
-  newTag: released
+  newTag: local-arm64

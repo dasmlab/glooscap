@@ -397,7 +397,15 @@ func main() {
 		updateJobStatusFailed(ctx, k8sClient, &job, fmt.Sprintf("Failed to connect to translation service: %v", err))
 		os.Exit(1)
 	}
-	// Note: nanabush client manages its own connection lifecycle
+	// Ensure client is closed when job finishes (stops heartbeat goroutine)
+	defer func() {
+		if nanabushClient != nil {
+			fmt.Printf("Closing translation service client connection...\n")
+			if err := nanabushClient.Close(); err != nil {
+				fmt.Printf("warning: error closing translation service client: %v\n", err)
+			}
+		}
+	}()
 
 	fmt.Printf("Translating page (source: %s -> target: %s)...\n", sourceLang, targetLang)
 	fmt.Printf("Source content preview (first 200 chars):\n%s\n", truncateString(pageContent.Markdown, 200))
