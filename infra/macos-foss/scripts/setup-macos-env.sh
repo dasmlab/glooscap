@@ -126,22 +126,34 @@ if ! docker buildx version &> /dev/null; then
     brew install docker-buildx
     log_success "docker-buildx installed"
     
-    # Create buildx builder if it doesn't exist
-    if ! docker buildx ls | grep -q "default"; then
-        log_info "Creating default buildx builder..."
-        docker buildx create --name default --use || {
+    # Setup buildx builder if it doesn't exist
+    # Note: "default" is a reserved name, so we check for any builder or create one with a custom name
+    if ! docker buildx ls | grep -q "builder"; then
+        log_info "Creating buildx builder..."
+        # Use a non-reserved name (default is reserved)
+        docker buildx create --name glooscap-builder --use || {
             log_warn "Failed to create buildx builder, continuing anyway"
         }
+    else
+        log_info "Buildx builder already exists, using it..."
+        # Use the first available builder
+        docker buildx use $(docker buildx ls | grep -v "^NAME" | head -1 | awk '{print $1}') || true
     fi
 else
     log_success "docker-buildx already installed: $(docker buildx version 2>/dev/null | head -n1 || echo 'installed')"
     
     # Ensure buildx builder exists
-    if ! docker buildx ls | grep -q "default"; then
-        log_info "Creating default buildx builder..."
-        docker buildx create --name default --use || {
+    # Note: "default" is a reserved name, so we check for any builder or create one with a custom name
+    if ! docker buildx ls | grep -q "builder"; then
+        log_info "Creating buildx builder..."
+        # Use a non-reserved name (default is reserved)
+        docker buildx create --name glooscap-builder --use || {
             log_warn "Failed to create buildx builder, continuing anyway"
         }
+    else
+        log_info "Buildx builder already exists, using it..."
+        # Use the first available builder
+        docker buildx use $(docker buildx ls | grep -v "^NAME" | head -1 | awk '{print $1}') || true
     fi
 fi
 
