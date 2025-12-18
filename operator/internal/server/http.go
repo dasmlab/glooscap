@@ -205,16 +205,42 @@ func Start(ctx context.Context, opts Options) error {
 	// Status endpoint for translation service connection
 	// Supports both Nanabush and Iskoces (backward compatible with /status/nanabush)
 	router.Get("/api/v1/status/nanabush", func(w http.ResponseWriter, r *http.Request) {
-		// Try to read from TranslationService CR status first
+		// Get client status first (most up-to-date)
+		var nanabushClient *nanabush.Client
+		if opts.GetNanabushClient != nil {
+			nanabushClient = opts.GetNanabushClient()
+		} else if opts.Nanabush != nil {
+			nanabushClient = opts.Nanabush
+		}
+
+		var clientStatus nanabush.Status
+		if nanabushClient != nil {
+			clientStatus = nanabushClient.Status()
+		} else {
+			clientStatus = nanabush.Status{
+				Connected:  false,
+				Registered: false,
+				Status:     "error",
+			}
+		}
+
+		// Try to read from TranslationService CR status
+		// Prefer client status if it shows connected/registered but CR doesn't (handles startup race condition)
 		if opts.Client != nil {
 			tsName := "glooscap-translation-service"
 			var ts wikiv1alpha1.TranslationService
 			err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
 			if err == nil {
-				// Only use CR status if it's actually populated (has ClientID or status is set)
-				// This handles the case where CR exists but status hasn't been updated yet
+				// CR exists - check if status is populated
 				if ts.Status.ClientID != "" || ts.Status.Status != "" {
-					// Return status from CR
+					// CR status is populated - but prefer client status if it's more accurate
+					// This handles the case where client is connected but CR hasn't been updated yet
+					if clientStatus.Connected && clientStatus.Registered && (!ts.Status.Connected || !ts.Status.Registered) {
+						// Client is connected but CR shows disconnected - prefer client status (more recent)
+						writeJSON(w, clientStatus)
+						return
+					}
+					// CR status is populated and matches client, or client is not connected - use CR status
 					var lastHeartbeat time.Time
 					if ts.Status.LastHeartbeat != nil {
 						lastHeartbeat = ts.Status.LastHeartbeat.Time
@@ -233,24 +259,8 @@ func Start(ctx context.Context, opts Options) error {
 			}
 		}
 
-		// Fallback to client status if CR doesn't exist
-		var nanabushClient *nanabush.Client
-		if opts.GetNanabushClient != nil {
-			nanabushClient = opts.GetNanabushClient()
-		} else if opts.Nanabush != nil {
-			nanabushClient = opts.Nanabush
-		}
-
-		if nanabushClient == nil {
-			writeJSON(w, nanabush.Status{
-				Connected:  false,
-				Registered: false,
-				Status:     "error",
-			})
-			return
-		}
-		status := nanabushClient.Status()
-		writeJSON(w, status)
+		// No CR or CR status not populated - use client status
+		writeJSON(w, clientStatus)
 	})
 
 	// Generic translation service status endpoint (alias for backward compatibility)
@@ -1729,7 +1739,27 @@ func buildStateResponse(opts Options) map[string]any {
 		"wikitargets": []map[string]any{},
 	}
 
-	// Try to read status from TranslationService CR first (most authoritative)
+	// Get client status first (most up-to-date)
+	var nanabushClient *nanabush.Client
+	if opts.GetNanabushClient != nil {
+		nanabushClient = opts.GetNanabushClient()
+	} else if opts.Nanabush != nil {
+		nanabushClient = opts.Nanabush
+	}
+
+	var clientStatus nanabush.Status
+	if nanabushClient != nil {
+		clientStatus = nanabushClient.Status()
+	} else {
+		clientStatus = nanabush.Status{
+			Connected:  false,
+			Registered: false,
+			Status:     "error",
+		}
+	}
+
+	// Try to read status from TranslationService CR
+	// Prefer client status if it shows connected/registered but CR doesn't (handles startup race condition)
 	var nanabushStatus map[string]any
 	if opts.Client != nil {
 		tsName := "glooscap-translation-service"
@@ -1737,22 +1767,40 @@ func buildStateResponse(opts Options) map[string]any {
 		ctx := context.Background() // Use background context for SSE
 		err := opts.Client.Get(ctx, client.ObjectKey{Name: tsName}, &ts)
 		if err == nil {
-			// Only use CR status if it's actually populated (has ClientID or status is set)
-			// This handles the case where CR exists but status hasn't been updated yet
+			// CR exists - check if status is populated
 			if ts.Status.ClientID != "" || ts.Status.Status != "" {
-				// Use status from CR
-				var lastHeartbeatStr string
-				if ts.Status.LastHeartbeat != nil {
-					lastHeartbeatStr = ts.Status.LastHeartbeat.Format(time.RFC3339)
-				}
-				nanabushStatus = map[string]any{
-					"connected":                ts.Status.Connected,
-					"registered":               ts.Status.Registered,
-					"clientId":                 ts.Status.ClientID,
-					"lastHeartbeat":            lastHeartbeatStr,
-					"missedHeartbeats":         ts.Status.MissedHeartbeats,
-					"heartbeatIntervalSeconds": ts.Status.HeartbeatIntervalSeconds,
-					"status":                   ts.Status.Status,
+				// CR status is populated - but prefer client status if it's more accurate
+				// This handles the case where client is connected but CR hasn't been updated yet
+				if clientStatus.Connected && clientStatus.Registered && (!ts.Status.Connected || !ts.Status.Registered) {
+					// Client is connected but CR shows disconnected - prefer client status (more recent)
+					var lastHeartbeatStr string
+					if !clientStatus.LastHeartbeat.IsZero() {
+						lastHeartbeatStr = clientStatus.LastHeartbeat.Format(time.RFC3339)
+					}
+					nanabushStatus = map[string]any{
+						"connected":                clientStatus.Connected,
+						"registered":               clientStatus.Registered,
+						"clientId":                 clientStatus.ClientID,
+						"lastHeartbeat":            lastHeartbeatStr,
+						"missedHeartbeats":         clientStatus.MissedHeartbeats,
+						"heartbeatIntervalSeconds": clientStatus.HeartbeatInterval,
+						"status":                   clientStatus.Status,
+					}
+				} else {
+					// CR status is populated and matches client, or client is not connected - use CR status
+					var lastHeartbeatStr string
+					if ts.Status.LastHeartbeat != nil {
+						lastHeartbeatStr = ts.Status.LastHeartbeat.Format(time.RFC3339)
+					}
+					nanabushStatus = map[string]any{
+						"connected":                ts.Status.Connected,
+						"registered":               ts.Status.Registered,
+						"clientId":                 ts.Status.ClientID,
+						"lastHeartbeat":            lastHeartbeatStr,
+						"missedHeartbeats":         ts.Status.MissedHeartbeats,
+						"heartbeatIntervalSeconds": ts.Status.HeartbeatIntervalSeconds,
+						"status":                   ts.Status.Status,
+					}
 				}
 			}
 		}
@@ -1760,46 +1808,29 @@ func buildStateResponse(opts Options) map[string]any {
 
 	// Fallback to client status if CR doesn't exist or doesn't have status populated yet
 	if nanabushStatus == nil {
-		var nanabushClient *nanabush.Client
-		if opts.GetNanabushClient != nil {
-			nanabushClient = opts.GetNanabushClient()
-		} else if opts.Nanabush != nil {
-			nanabushClient = opts.Nanabush
-		}
-
-		if nanabushClient != nil {
-			status := nanabushClient.Status()
-			// Only return error status if we have a client but it's not registered after reasonable time
-			// If clientId is empty but we just created the client, return "connecting" status
-			if status.ClientID == "" && status.Status != "error" {
-				// Client is still registering - return connecting status
-				nanabushStatus = map[string]any{
-					"connected":  false,
-					"registered": false,
-					"clientId":   "",
-					"status":     "connecting",
-				}
-			} else {
-				var lastHeartbeatStr string
-				if !status.LastHeartbeat.IsZero() {
-					lastHeartbeatStr = status.LastHeartbeat.Format(time.RFC3339)
-				}
-				nanabushStatus = map[string]any{
-					"connected":                status.Connected,
-					"registered":               status.Registered,
-					"clientId":                 status.ClientID,
-					"lastHeartbeat":            lastHeartbeatStr,
-					"missedHeartbeats":         status.MissedHeartbeats,
-					"heartbeatIntervalSeconds": status.HeartbeatInterval, // Already int64 in seconds
-					"status":                   status.Status,
-				}
-			}
-		} else {
-			// No nanabush client configured
+		// Only return error status if we have a client but it's not registered after reasonable time
+		// If clientId is empty but we just created the client, return "connecting" status
+		if clientStatus.ClientID == "" && clientStatus.Status != "error" {
+			// Client is still registering - return connecting status
 			nanabushStatus = map[string]any{
 				"connected":  false,
 				"registered": false,
-				"status":     "error",
+				"clientId":   "",
+				"status":     "connecting",
+			}
+		} else {
+			var lastHeartbeatStr string
+			if !clientStatus.LastHeartbeat.IsZero() {
+				lastHeartbeatStr = clientStatus.LastHeartbeat.Format(time.RFC3339)
+			}
+			nanabushStatus = map[string]any{
+				"connected":                clientStatus.Connected,
+				"registered":               clientStatus.Registered,
+				"clientId":                 clientStatus.ClientID,
+				"lastHeartbeat":            lastHeartbeatStr,
+				"missedHeartbeats":         clientStatus.MissedHeartbeats,
+				"heartbeatIntervalSeconds": clientStatus.HeartbeatInterval, // Already int64 in seconds
+				"status":                   clientStatus.Status,
 			}
 		}
 	}
