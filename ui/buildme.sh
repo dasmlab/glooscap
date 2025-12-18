@@ -15,8 +15,8 @@ build=$(cat "$buildfile")
 next=$((build + 1))
 
 # Create version tag that will match pushme.sh
-# Version bumped to 0.3.x-alpha to match current release
-tag="0.3.${next}-alpha"
+# Version bumped to 0.4.x-alpha to match current release
+tag="0.4.${next}-alpha"
 
 # Get git SHA (first 6 characters) for build identification
 # Use HEAD commit if in git repo, otherwise use "unknown"

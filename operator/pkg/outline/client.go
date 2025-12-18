@@ -20,6 +20,7 @@ const (
 	documentsExportPath   = "/api/documents.export"
 	documentsCreatePath   = "/api/documents.create"
 	documentsUpdatePath   = "/api/documents.update"
+	documentsDeletePath   = "/api/documents.delete"
 	collectionsListPath   = "/api/collections.list"
 	collectionsCreatePath = "/api/collections.create"
 )
@@ -771,4 +772,51 @@ func (c *Client) UpdatePage(ctx context.Context, req UpdatePageRequest) (*Update
 		updateResp.Data.ID, updateResp.Data.Title, updateResp.Data.Slug)
 
 	return &updateResp, nil
+}
+
+// DeletePage deletes a page in Outline.
+func (c *Client) DeletePage(ctx context.Context, pageID string) error {
+	reqURL := c.baseURL.ResolveReference(&url.URL{Path: documentsDeletePath})
+
+	payload := map[string]any{
+		"id": pageID,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("outline: marshal request body: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("outline: new request: %w", err)
+	}
+
+	token := strings.TrimSpace(c.token)
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("outline: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return fmt.Errorf("outline: read response body: %w", readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		bodyStr := string(bodyBytes)
+		errorPreview := bodyStr
+		if len(errorPreview) > 500 {
+			errorPreview = errorPreview[:500] + "..."
+		}
+		fmt.Printf("[outline] DeletePage error response (status=%d): %q\n", resp.StatusCode, errorPreview)
+		return fmt.Errorf("outline: unexpected status code %d: %s", resp.StatusCode, errorPreview)
+	}
+
+	// Outline API returns success even if the page doesn't exist
+	return nil
 }

@@ -169,20 +169,60 @@ This page is automatically updated every 30 seconds to verify that Glooscap can 
 		return
 	}
 	
-	// Search for existing diagnostic page - prefer drafts, but accept any page with matching title
-	// If multiple exist, use the most recent one (they're sorted by updatedAt DESC)
+	// Find all pages with the diagnostic title
+	// Track the last link to draft (prefer draft pages, then most recent)
+	var allDiagnosticPages []outline.PageSummary
 	for _, page := range pages {
 		if page.Title == diagnosticPageTitle {
-			existingPageID = page.ID
-			existingPageIsDraft = page.IsDraft
-			targetLogger.Info("found existing diagnostic page", "pageID", existingPageID, "isDraft", existingPageIsDraft, "updatedAt", page.UpdatedAt)
-			// Use the first match (most recent due to sorting)
-			break
+			allDiagnosticPages = append(allDiagnosticPages, page)
 		}
 	}
 
-	if existingPageID != "" {
-		// Update existing page
+	// If we found diagnostic pages, keep the best one and delete the rest
+	if len(allDiagnosticPages) > 0 {
+		// Find the best page to keep: prefer drafts, then most recent
+		var bestPage *outline.PageSummary
+		var bestIndex int
+		for i := range allDiagnosticPages {
+			page := &allDiagnosticPages[i]
+			if bestPage == nil {
+				bestPage = page
+				bestIndex = i
+				continue
+			}
+			// Prefer draft pages
+			if page.IsDraft && !bestPage.IsDraft {
+				bestPage = page
+				bestIndex = i
+				continue
+			}
+			// If both are drafts or both are not drafts, prefer most recent
+			if page.IsDraft == bestPage.IsDraft {
+				if page.UpdatedAt.After(bestPage.UpdatedAt) {
+					bestPage = page
+					bestIndex = i
+				}
+			}
+		}
+
+		existingPageID = bestPage.ID
+		existingPageIsDraft = bestPage.IsDraft
+		targetLogger.Info("found diagnostic pages", "total", len(allDiagnosticPages), "keeping", existingPageID, "isDraft", existingPageIsDraft)
+
+		// Delete all other diagnostic pages (loop through and delete duplicates)
+		for i, page := range allDiagnosticPages {
+			if i != bestIndex {
+				targetLogger.Info("deleting duplicate diagnostic page", "pageID", page.ID, "isDraft", page.IsDraft)
+				if err := client.DeletePage(ctx, page.ID); err != nil {
+					targetLogger.Error(err, "failed to delete duplicate diagnostic page", "pageID", page.ID)
+					// Continue deleting others even if one fails
+				} else {
+					targetLogger.Info("deleted duplicate diagnostic page", "pageID", page.ID)
+				}
+			}
+		}
+
+		// Update the kept page
 		targetLogger.Info("updating existing diagnostic page", "pageID", existingPageID)
 		updateReq := outline.UpdatePageRequest{
 			ID:   existingPageID,

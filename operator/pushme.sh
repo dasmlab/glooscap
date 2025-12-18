@@ -23,8 +23,8 @@ next=$((build + 1))
 echo "$next" > "$buildfile"
 
 # create version tag
-# Version bumped to 0.3.x-alpha to match current release
-tag="0.3.${next}-alpha"
+# Version bumped to 0.4.x-alpha to match current release
+tag="0.4.${next}-alpha"
 
 # construct full names
 src="${app}:${scratch}"
