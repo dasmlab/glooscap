@@ -1019,14 +1019,14 @@ spec:
         - name: VLLM_JOB_NAMESPACE
           value: nanabush
         - name: VLLM_JOB_IMAGE
-          value: ghcr.io/dasmlab/glooscap-translation-runner:local-arm64
+          value: ghcr.io/dasmlab/glooscap-translation-runner:released
         - name: VLLM_API_URL
           value: http://vllm.nanabush.svc:8000
         - name: NANABUSH_GRPC_ADDR
           value: 209.15.95.244:50051
         - name: NANABUSH_SECURE
           value: "false"
-        image: ghcr.io/dasmlab/glooscap-operator:local-arm64
+        image: ghcr.io/dasmlab/glooscap-operator:released
         imagePullPolicy: Always
         livenessProbe:
           httpGet:

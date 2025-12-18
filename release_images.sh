@@ -94,8 +94,26 @@ echo ""
 # Check if buildx is available for multi-arch builds
 USE_BUILDX=false
 if docker buildx version >/dev/null 2>&1; then
-    # Check if buildx can build for multiple platforms
-    if docker buildx inspect --builder default >/dev/null 2>&1 || docker buildx create --name release-builder --use >/dev/null 2>&1; then
+    # Check if a builder exists, if not create one with a non-reserved name
+    BUILDER_NAME=""
+    if docker buildx ls | grep -q "builder"; then
+        # Use the first available builder
+        BUILDER_NAME=$(docker buildx ls | grep -v "^NAME" | head -1 | awk '{print $1}')
+        log_info "Using existing buildx builder: ${BUILDER_NAME}"
+        docker buildx use "${BUILDER_NAME}" >/dev/null 2>&1 || true
+    else
+        # Create a new builder with a non-reserved name
+        BUILDER_NAME="release-builder"
+        log_info "Creating buildx builder: ${BUILDER_NAME}"
+        if docker buildx create --name "${BUILDER_NAME}" --use >/dev/null 2>&1; then
+            log_info "Buildx builder created successfully"
+        else
+            log_warn "Failed to create buildx builder"
+            BUILDER_NAME=""
+        fi
+    fi
+    
+    if [ -n "${BUILDER_NAME}" ]; then
         USE_BUILDX=true
         log_info "Docker buildx detected - will build multi-arch images (linux/arm64,linux/amd64)"
     else
