@@ -232,25 +232,36 @@ if [ ${#SELECTED_PLUGINS[@]} -gt 0 ]; then
         
         # Deploy plugin using released images (skip build step)
         DEPLOY_SCRIPT=""
+        PLUGIN_VERSION_VAR=""
         if [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}-released.sh" ]; then
             DEPLOY_SCRIPT="scripts/deploy-${plugin}-released.sh"
+            # Set plugin-specific version variable (e.g., ISKOCES_VERSION for iskoces)
+            PLUGIN_VERSION_VAR=$(echo "${plugin}" | tr '[:lower:]' '[:upper:]')_VERSION
+            export "${PLUGIN_VERSION_VAR}=${GLOOSCAP_VERSION}"
+            log_info "Using released deployment script for ${plugin} (version: ${GLOOSCAP_VERSION})"
         elif [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh" ]; then
-            # Check if deploy script supports USE_RELEASED_IMAGES
-            if grep -q "USE_RELEASED_IMAGES\|GLOOSCAP_VERSION" "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh"; then
+            # Check if deploy script supports USE_RELEASED_IMAGES or version variables
+            if grep -q "USE_RELEASED_IMAGES\|GLOOSCAP_VERSION\|ISKOCES_VERSION\|NOKOMIS_VERSION" "${PLUGIN_INFRA_DIR}/scripts/deploy-${plugin}.sh"; then
                 DEPLOY_SCRIPT="scripts/deploy-${plugin}.sh"
                 export USE_RELEASED_IMAGES=true
                 export GLOOSCAP_VERSION="${GLOOSCAP_VERSION}"
+                # Also set plugin-specific version variable
+                PLUGIN_VERSION_VAR=$(echo "${plugin}" | tr '[:lower:]' '[:upper:]')_VERSION
+                export "${PLUGIN_VERSION_VAR}=${GLOOSCAP_VERSION}"
             else
                 log_warn "Plugin ${plugin} deploy script does not support released images"
                 log_info "Trying to deploy anyway (may fail if images not available)..."
                 DEPLOY_SCRIPT="scripts/deploy-${plugin}.sh"
             fi
         elif [ -f "${PLUGIN_INFRA_DIR}/scripts/deploy.sh" ]; then
-            # Check if deploy script supports USE_RELEASED_IMAGES
-            if grep -q "USE_RELEASED_IMAGES\|GLOOSCAP_VERSION" "${PLUGIN_INFRA_DIR}/scripts/deploy.sh"; then
+            # Check if deploy script supports USE_RELEASED_IMAGES or version variables
+            if grep -q "USE_RELEASED_IMAGES\|GLOOSCAP_VERSION\|ISKOCES_VERSION\|NOKOMIS_VERSION" "${PLUGIN_INFRA_DIR}/scripts/deploy.sh"; then
                 DEPLOY_SCRIPT="scripts/deploy.sh"
                 export USE_RELEASED_IMAGES=true
                 export GLOOSCAP_VERSION="${GLOOSCAP_VERSION}"
+                # Also set plugin-specific version variable
+                PLUGIN_VERSION_VAR=$(echo "${plugin}" | tr '[:lower:]' '[:upper:]')_VERSION
+                export "${PLUGIN_VERSION_VAR}=${GLOOSCAP_VERSION}"
             else
                 log_warn "Plugin ${plugin} deploy script does not support released images"
                 log_info "Trying to deploy anyway (may fail if images not available)..."
