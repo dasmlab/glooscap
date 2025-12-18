@@ -41,6 +41,7 @@ import (
 // to verify that we can always write to the target wiki.
 type WikiTargetDiagnosticRunnable struct {
 	Client        client.Client
+	APIReader     client.Reader // Uncached client for reading ConfigMaps (avoids cache watch requirements)
 	OutlineClient OutlineClientFactory
 	// Track master keys and last page IDs per target (in-memory cache)
 	masterKeys   map[string]string // target name -> master key (e.g., "GLOODIAG TEST abc123")
@@ -95,7 +96,13 @@ func (r *WikiTargetDiagnosticRunnable) isDiagnosticEnabled(ctx context.Context, 
 	namespace := "glooscap-system"
 
 	var cm corev1.ConfigMap
-	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
+	// Use APIReader (uncached client) to avoid requiring cluster-wide ConfigMap watch permissions
+	reader := r.APIReader
+	if reader == nil {
+		// Fallback to cached client if APIReader not set
+		reader = r.Client
+	}
+	err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// ConfigMap doesn't exist, default to enabled
@@ -349,6 +356,7 @@ This page is automatically updated every 30 seconds to verify that Glooscap can 
 func SetupWikiTargetDiagnosticRunnable(mgr manager.Manager, outlineClient OutlineClientFactory) error {
 	runnable := &WikiTargetDiagnosticRunnable{
 		Client:        mgr.GetClient(),
+		APIReader:     mgr.GetAPIReader(), // Use uncached client for ConfigMap reads
 		OutlineClient: outlineClient,
 	}
 	return mgr.Add(runnable)
