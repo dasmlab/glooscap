@@ -28,6 +28,7 @@ type Options struct {
 	Catalogue *catalog.Store
 	Jobs      *catalog.JobStore
 	Client    client.Client
+	APIReader client.Reader // Uncached client for reading ConfigMaps (avoids cache watch requirements)
 	Nanabush  *nanabush.Client
 	// NanabushStatusCh is a channel that receives nanabush status updates to trigger SSE broadcasts
 	NanabushStatusCh <-chan struct{}
@@ -1191,7 +1192,13 @@ func Start(ctx context.Context, opts Options) error {
 		namespace := "glooscap-system"
 
 		var cm corev1.ConfigMap
-		err := opts.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
+		// Use APIReader (uncached client) to avoid requiring cluster-wide ConfigMap watch permissions
+		reader := opts.APIReader
+		if reader == nil {
+			// Fallback to cached client if APIReader not set
+			reader = opts.Client
+		}
+		err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				// ConfigMap doesn't exist, return default (enabled)
@@ -1234,7 +1241,13 @@ func Start(ctx context.Context, opts Options) error {
 		namespace := "glooscap-system"
 
 		var cm corev1.ConfigMap
-		err := opts.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
+		// Use APIReader (uncached client) for reads to avoid requiring cluster-wide ConfigMap watch permissions
+		// But use cached client for writes (Create/Update) as those don't trigger cache watches
+		reader := opts.APIReader
+		if reader == nil {
+			reader = opts.Client
+		}
+		err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				// Create new ConfigMap

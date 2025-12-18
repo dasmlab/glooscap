@@ -518,6 +518,7 @@ func main() {
 			Catalogue:                     catalogStore,
 			Jobs:                          jobStore,
 			Client:                        mgr.GetClient(),
+			APIReader:                     mgr.GetAPIReader(), // Use uncached client for ConfigMap reads
 			Nanabush:                      nanabushClient,    // Keep for backward compatibility
 			GetNanabushClient:             getNanabushClient, // Use getter for runtime updates
 			NanabushStatusCh:              nanabushStatusCh,
