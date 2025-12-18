@@ -91,57 +91,113 @@ log_info "This will build and push all Glooscap images with the '${RELEASE_TAG}'
 log_info "These images will be used by the user install script (install_glooscap.sh)"
 echo ""
 
+# Check if buildx is available for multi-arch builds
+USE_BUILDX=false
+if docker buildx version >/dev/null 2>&1; then
+    # Check if buildx can build for multiple platforms
+    if docker buildx inspect --builder default >/dev/null 2>&1 || docker buildx create --name release-builder --use >/dev/null 2>&1; then
+        USE_BUILDX=true
+        log_info "Docker buildx detected - will build multi-arch images (linux/arm64,linux/amd64)"
+    else
+        log_warn "Docker buildx detected but builder setup failed - will build for current architecture only"
+    fi
+else
+    log_warn "Docker buildx not available - will build for current architecture only"
+    log_warn "For multi-arch releases, install buildx or run this script on both ARM64 and AMD64 machines"
+fi
+
 # Build operator image
 log_step "Building operator image"
 log_info "Building operator image..."
 cd "${PROJECT_ROOT}/operator"
 
-# Build with Makefile (uses docker-build target)
-log_info "Using make docker-build..."
-make docker-build IMG="${OPERATOR_IMG}" || {
-    log_error "Failed to build operator image"
-    exit 1
-}
-log_success "Operator image built: ${OPERATOR_IMG}"
-
-# Push operator image
-log_info "Pushing operator image to registry..."
-docker push "${OPERATOR_IMG}" || {
-    log_error "Failed to push operator image"
-    exit 1
-}
-log_success "Operator image pushed: ${OPERATOR_IMG}"
+if [ "$USE_BUILDX" = true ]; then
+    # Use buildx for multi-arch build
+    log_info "Using make docker-buildx for multi-arch build..."
+    make docker-buildx IMG="${OPERATOR_IMG}" PLATFORMS=linux/arm64,linux/amd64 || {
+        log_error "Failed to build operator image with buildx"
+        log_info "Falling back to single-arch build..."
+        make docker-build IMG="${OPERATOR_IMG}" || {
+            log_error "Failed to build operator image"
+            exit 1
+        }
+        docker push "${OPERATOR_IMG}" || {
+            log_error "Failed to push operator image"
+            exit 1
+        }
+    }
+    log_success "Operator image built and pushed (multi-arch): ${OPERATOR_IMG}"
+else
+    # Build with Makefile (uses docker-build target) - single arch
+    log_info "Using make docker-build (single architecture)..."
+    make docker-build IMG="${OPERATOR_IMG}" || {
+        log_error "Failed to build operator image"
+        exit 1
+    }
+    log_success "Operator image built: ${OPERATOR_IMG}"
+    
+    # Push operator image
+    log_info "Pushing operator image to registry..."
+    docker push "${OPERATOR_IMG}" || {
+        log_error "Failed to push operator image"
+        exit 1
+    }
+    log_success "Operator image pushed: ${OPERATOR_IMG}"
+fi
 
 # Build UI image
 log_step "Building UI image"
 log_info "Building UI image..."
 cd "${PROJECT_ROOT}/ui"
 
-# Use buildme.sh to build, then retag
-if [ -f "./buildme.sh" ]; then
-    log_info "Using buildme.sh to build UI..."
-    ./buildme.sh || {
-        log_error "Failed to build UI image"
-        exit 1
+if [ "$USE_BUILDX" = true ]; then
+    # Use buildx for multi-arch build
+    log_info "Using buildx for multi-arch UI build..."
+    # Create a temporary build script that uses buildx
+    docker buildx build \
+        --platform linux/arm64,linux/amd64 \
+        --push \
+        --tag "${UI_IMG}" \
+        --build-arg BUILD_VERSION="0.4.0" \
+        --build-arg BUILD_NUMBER="0" \
+        --build-arg BUILD_SHA="release" \
+        . || {
+        log_error "Failed to build UI image with buildx"
+        log_info "Falling back to single-arch build..."
+        USE_BUILDX=false
     }
-    # Retag from scratch to released
-    docker tag glooscap-ui:scratch "${UI_IMG}" || {
-        log_error "Failed to tag UI image"
-        exit 1
-    }
-else
-    log_error "buildme.sh not found in ui directory"
-    exit 1
+    if [ "$USE_BUILDX" = true ]; then
+        log_success "UI image built and pushed (multi-arch): ${UI_IMG}"
+    fi
 fi
-log_success "UI image built: ${UI_IMG}"
 
-# Push UI image
-log_info "Pushing UI image to registry..."
-docker push "${UI_IMG}" || {
-    log_error "Failed to push UI image"
-    exit 1
-}
-log_success "UI image pushed: ${UI_IMG}"
+if [ "$USE_BUILDX" = false ]; then
+    # Use buildme.sh to build, then retag
+    if [ -f "./buildme.sh" ]; then
+        log_info "Using buildme.sh to build UI..."
+        ./buildme.sh || {
+            log_error "Failed to build UI image"
+            exit 1
+        }
+        # Retag from scratch to released
+        docker tag glooscap-ui:scratch "${UI_IMG}" || {
+            log_error "Failed to tag UI image"
+            exit 1
+        }
+    else
+        log_error "buildme.sh not found in ui directory"
+        exit 1
+    fi
+    log_success "UI image built: ${UI_IMG}"
+    
+    # Push UI image
+    log_info "Pushing UI image to registry..."
+    docker push "${UI_IMG}" || {
+        log_error "Failed to push UI image"
+        exit 1
+    }
+    log_success "UI image pushed: ${UI_IMG}"
+fi
 
 # Build translation-runner image
 log_step "Building translation-runner image"
@@ -154,38 +210,63 @@ if [ ! -d "${PROJECT_ROOT}/translation-runner" ]; then
     exit 1
 fi
 
-BUILD_SCRIPT="${PROJECT_ROOT}/translation-runner/build.sh"
-if [ -f "${BUILD_SCRIPT}" ]; then
-    log_info "Using translation-runner build script..."
-    # Build with released tag
-    bash "${BUILD_SCRIPT}" "${RELEASE_TAG}" || {
-        log_error "Failed to build translation-runner image"
-        exit 1
+if [ "$USE_BUILDX" = true ]; then
+    # Use buildx for multi-arch build
+    log_info "Using buildx for multi-arch translation-runner build..."
+    docker buildx build \
+        --platform linux/arm64,linux/amd64 \
+        --push \
+        --tag "${RUNNER_IMG}" \
+        -f translation-runner/Dockerfile \
+        . || {
+        log_error "Failed to build translation-runner image with buildx"
+        log_info "Falling back to single-arch build..."
+        USE_BUILDX=false
     }
-    # Verify the image exists
-    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG}$"; then
-        log_error "Translation-runner image not found after build: ${RUNNER_IMG}"
-        log_info "Available translation-runner images:"
-        docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
-        exit 1
+    if [ "$USE_BUILDX" = true ]; then
+        log_success "Translation-runner image built and pushed (multi-arch): ${RUNNER_IMG}"
     fi
-    log_success "Translation-runner image built: ${RUNNER_IMG}"
-else
-    log_error "translation-runner/build.sh not found at: ${BUILD_SCRIPT}"
-    exit 1
 fi
 
-# Push translation-runner image
-log_info "Pushing translation-runner image to registry..."
-docker push "${RUNNER_IMG}" || {
-    log_error "Failed to push translation-runner image"
-    exit 1
-}
-log_success "Translation-runner image pushed: ${RUNNER_IMG}"
+if [ "$USE_BUILDX" = false ]; then
+    BUILD_SCRIPT="${PROJECT_ROOT}/translation-runner/build.sh"
+    if [ -f "${BUILD_SCRIPT}" ]; then
+        log_info "Using translation-runner build script..."
+        # Build with released tag
+        bash "${BUILD_SCRIPT}" "${RELEASE_TAG}" || {
+            log_error "Failed to build translation-runner image"
+            exit 1
+        }
+        # Verify the image exists
+        if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${RUNNER_IMG}$"; then
+            log_error "Translation-runner image not found after build: ${RUNNER_IMG}"
+            log_info "Available translation-runner images:"
+            docker images | grep "glooscap-translation-runner" || log_warn "No translation-runner images found"
+            exit 1
+        fi
+        log_success "Translation-runner image built: ${RUNNER_IMG}"
+    else
+        log_error "translation-runner/build.sh not found at: ${BUILD_SCRIPT}"
+        exit 1
+    fi
+    
+    # Push translation-runner image
+    log_info "Pushing translation-runner image to registry..."
+    docker push "${RUNNER_IMG}" || {
+        log_error "Failed to push translation-runner image"
+        exit 1
+    }
+    log_success "Translation-runner image pushed: ${RUNNER_IMG}"
+fi
 
 # Success summary
 log_step "Release images pushed successfully!"
-log_success "All Glooscap images have been built and pushed with the '${RELEASE_TAG}' tag"
+if [ "$USE_BUILDX" = true ]; then
+    log_success "All Glooscap images have been built and pushed with the '${RELEASE_TAG}' tag (multi-arch: arm64, amd64)"
+else
+    log_success "All Glooscap images have been built and pushed with the '${RELEASE_TAG}' tag (single architecture)"
+    log_warn "NOTE: Images were built for current architecture only. For multi-arch support, ensure buildx is available or run on both ARM64 and AMD64 machines."
+fi
 echo ""
 log_info "Released images:"
 echo "  - ${OPERATOR_IMG}"
@@ -201,4 +282,11 @@ echo "  docker pull ${OPERATOR_IMG}"
 echo "  docker pull ${UI_IMG}"
 echo "  docker pull ${RUNNER_IMG}"
 echo ""
+if [ "$USE_BUILDX" = true ]; then
+    log_info "To verify multi-arch support:"
+    echo "  docker buildx imagetools inspect ${OPERATOR_IMG}"
+    echo "  docker buildx imagetools inspect ${UI_IMG}"
+    echo "  docker buildx imagetools inspect ${RUNNER_IMG}"
+    echo ""
+fi
 
