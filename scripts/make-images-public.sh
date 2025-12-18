@@ -52,6 +52,7 @@ IMAGES=(
     "glooscap-operator"
     "glooscap-ui"
     "glooscap-translation-runner"
+    "iskoces-server"
 )
 
 OWNER="dasmlab"
@@ -60,18 +61,42 @@ for IMAGE in "${IMAGES[@]}"; do
     PACKAGE="${OWNER}/${IMAGE}"
     log_info "Making ${PACKAGE} public..."
     
-    # Use gh API to change package visibility
-    if gh api \
+    # Try organization-level API first
+    log_info "Attempting to change visibility via API..."
+    API_RESPONSE=$(gh api \
         -X PATCH \
         "orgs/${OWNER}/packages/container/${IMAGE}" \
         -f visibility=public \
-        &>/dev/null; then
-        log_success "✓ ${PACKAGE} is now public"
-    else
-        log_error "✗ Failed to make ${PACKAGE} public"
-        log_info "You may need to do this manually via GitHub web UI"
-        log_info "Or check that you have admin permissions for the ${OWNER} organization"
-    fi
+        2>&1) || {
+        API_ERROR=$?
+        log_warn "API call failed (exit code: ${API_ERROR})"
+        log_info "Response: ${API_RESPONSE}"
+        log_info ""
+        log_info "Trying alternative: user-level package..."
+        # Try user-level (if package was pushed by user, not org)
+        USER=$(gh api user --jq .login 2>/dev/null || echo "")
+        if [ -n "${USER}" ]; then
+            if gh api \
+                -X PATCH \
+                "users/${USER}/packages/container/${IMAGE}" \
+                -f visibility=public \
+                &>/dev/null 2>&1; then
+                log_success "✓ ${PACKAGE} is now public (user-level)"
+                continue
+            fi
+        fi
+        log_error "✗ Failed to make ${PACKAGE} public via API"
+        log_info ""
+        log_info "Manual steps required:"
+        log_info "  1. Go to: https://github.com/orgs/${OWNER}/packages/container/${IMAGE}"
+        log_info "  2. Click 'Package settings' (if visible)"
+        log_info "  3. Look for 'Change visibility' or 'Danger Zone'"
+        log_info "  4. Or check organization settings: https://github.com/orgs/${OWNER}/settings/packages"
+        log_info ""
+        continue
+    }
+    
+    log_success "✓ ${PACKAGE} is now public"
 done
 
 echo ""
