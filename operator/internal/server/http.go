@@ -210,21 +210,25 @@ func Start(ctx context.Context, opts Options) error {
 			var ts wikiv1alpha1.TranslationService
 			err := opts.Client.Get(r.Context(), client.ObjectKey{Name: tsName}, &ts)
 			if err == nil {
-				// Return status from CR
-				var lastHeartbeat time.Time
-				if ts.Status.LastHeartbeat != nil {
-					lastHeartbeat = ts.Status.LastHeartbeat.Time
+				// Only use CR status if it's actually populated (has ClientID or status is set)
+				// This handles the case where CR exists but status hasn't been updated yet
+				if ts.Status.ClientID != "" || ts.Status.Status != "" {
+					// Return status from CR
+					var lastHeartbeat time.Time
+					if ts.Status.LastHeartbeat != nil {
+						lastHeartbeat = ts.Status.LastHeartbeat.Time
+					}
+					writeJSON(w, nanabush.Status{
+						ClientID:          ts.Status.ClientID,
+						Connected:         ts.Status.Connected,
+						Registered:        ts.Status.Registered,
+						Status:            ts.Status.Status,
+						MissedHeartbeats:  ts.Status.MissedHeartbeats,
+						HeartbeatInterval: int64(ts.Status.HeartbeatIntervalSeconds), // Already in seconds
+						LastHeartbeat:     lastHeartbeat,
+					})
+					return
 				}
-				writeJSON(w, nanabush.Status{
-					ClientID:          ts.Status.ClientID,
-					Connected:         ts.Status.Connected,
-					Registered:        ts.Status.Registered,
-					Status:            ts.Status.Status,
-					MissedHeartbeats:  ts.Status.MissedHeartbeats,
-					HeartbeatInterval: int64(ts.Status.HeartbeatIntervalSeconds), // Already in seconds
-					LastHeartbeat:     lastHeartbeat,
-				})
-				return
 			}
 		}
 
@@ -1720,24 +1724,28 @@ func buildStateResponse(opts Options) map[string]any {
 		ctx := context.Background() // Use background context for SSE
 		err := opts.Client.Get(ctx, client.ObjectKey{Name: tsName}, &ts)
 		if err == nil {
-			// Use status from CR
-			var lastHeartbeatStr string
-			if ts.Status.LastHeartbeat != nil {
-				lastHeartbeatStr = ts.Status.LastHeartbeat.Format(time.RFC3339)
-			}
-			nanabushStatus = map[string]any{
-				"connected":                ts.Status.Connected,
-				"registered":               ts.Status.Registered,
-				"clientId":                 ts.Status.ClientID,
-				"lastHeartbeat":            lastHeartbeatStr,
-				"missedHeartbeats":         ts.Status.MissedHeartbeats,
-				"heartbeatIntervalSeconds": ts.Status.HeartbeatIntervalSeconds,
-				"status":                   ts.Status.Status,
+			// Only use CR status if it's actually populated (has ClientID or status is set)
+			// This handles the case where CR exists but status hasn't been updated yet
+			if ts.Status.ClientID != "" || ts.Status.Status != "" {
+				// Use status from CR
+				var lastHeartbeatStr string
+				if ts.Status.LastHeartbeat != nil {
+					lastHeartbeatStr = ts.Status.LastHeartbeat.Format(time.RFC3339)
+				}
+				nanabushStatus = map[string]any{
+					"connected":                ts.Status.Connected,
+					"registered":               ts.Status.Registered,
+					"clientId":                 ts.Status.ClientID,
+					"lastHeartbeat":            lastHeartbeatStr,
+					"missedHeartbeats":         ts.Status.MissedHeartbeats,
+					"heartbeatIntervalSeconds": ts.Status.HeartbeatIntervalSeconds,
+					"status":                   ts.Status.Status,
+				}
 			}
 		}
 	}
 
-	// Fallback to client status if CR doesn't exist or doesn't have status
+	// Fallback to client status if CR doesn't exist or doesn't have status populated yet
 	if nanabushStatus == nil {
 		var nanabushClient *nanabush.Client
 		if opts.GetNanabushClient != nil {
