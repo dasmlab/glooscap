@@ -400,16 +400,47 @@ log_step "Step 8: Deploying UI"
 
 log_info "Applying UI manifests..."
 if [ -f "${SCRIPT_DIR}/manifests/ui/deployment.yaml" ]; then
-    # Patch UI deployment to use Always pull policy
-    log_info "Patching UI deployment with Always pull policy..."
     kubectl apply -f "${SCRIPT_DIR}/manifests/ui/"
-    kubectl patch deployment glooscap-ui -n "${NAMESPACE}" -p '{"spec":{"template":{"spec":{"containers":[{"name":"glooscap-ui","imagePullPolicy":"Always"}]}}}}' 2>/dev/null || {
-        log_warn "Failed to patch UI deployment pull policy (may not exist yet)"
-    }
-    # Restart UI to pull latest image
-    kubectl rollout restart deployment/glooscap-ui -n "${NAMESPACE}" 2>/dev/null || {
-        log_warn "Failed to restart UI deployment (may not exist yet)"
-    }
+    
+    # Wait for UI deployment to exist before patching (with retries)
+    log_info "Waiting for UI deployment to be created before patching pull policy..."
+    max_retries=3
+    retry_delay=2
+    deployment_exists=false
+    
+    for i in $(seq 1 ${max_retries}); do
+        if kubectl get deployment glooscap-ui -n "${NAMESPACE}" &>/dev/null; then
+            deployment_exists=true
+            log_info "UI deployment found, proceeding with patch..."
+            break
+        else
+            if [ ${i} -lt ${max_retries} ]; then
+                log_warn "UI deployment not found yet, retrying in ${retry_delay}s (attempt ${i}/${max_retries})..."
+                sleep ${retry_delay}
+            else
+                log_warn "UI deployment not found after ${max_retries} attempts, skipping pull policy patch"
+            fi
+        fi
+    done
+    
+    if [ "${deployment_exists}" = "true" ]; then
+        # Patch UI deployment to use Always pull policy
+        log_info "Patching UI deployment with Always pull policy..."
+        if kubectl patch deployment glooscap-ui -n "${NAMESPACE}" -p '{"spec":{"template":{"spec":{"containers":[{"name":"glooscap-ui","imagePullPolicy":"Always"}]}}}}' 2>/dev/null; then
+            log_success "UI deployment pull policy patched"
+        else
+            log_warn "Failed to patch UI deployment pull policy"
+        fi
+        
+        # Restart UI to pull latest image
+        log_info "Restarting UI deployment to pull latest image..."
+        if kubectl rollout restart deployment/glooscap-ui -n "${NAMESPACE}" 2>/dev/null; then
+            log_success "UI deployment restart triggered"
+        else
+            log_warn "Failed to restart UI deployment"
+        fi
+    fi
+    
     log_success "UI deployed"
 else
     log_warn "UI manifests not found at ${SCRIPT_DIR}/manifests/ui/"
