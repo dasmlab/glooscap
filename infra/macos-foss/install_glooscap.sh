@@ -140,17 +140,39 @@ if ! bash "${SCRIPT_DIR}/scripts/start-k3d.sh"; then
     exit 1
 fi
 
-# Step 3: Create registry credentials (if token provided)
-if [ -n "${DASMLAB_GHCR_PAT:-}" ]; then
-    log_step "Step 3: Creating registry credentials"
-    if ! bash "${SCRIPT_DIR}/scripts/create-registry-secret.sh"; then
-        log_warn "Registry secret creation failed (images may not pull from registry)"
-        log_info "Continuing anyway..."
-    fi
+# Step 3: Create registry credentials (if needed)
+log_step "Step 3: Setting up registry credentials"
+log_info "Checking if images are public or private..."
+
+# Test if we can pull a released image without authentication
+# If images are public, we don't need ImagePullSecrets
+NEED_SECRET=true
+if docker pull ghcr.io/dasmlab/glooscap-operator:released >/dev/null 2>&1; then
+    log_success "Images appear to be public - ImagePullSecrets not required"
+    NEED_SECRET=false
+    # Clean up the test pull
+    docker rmi ghcr.io/dasmlab/glooscap-operator:released >/dev/null 2>&1 || true
 else
-    log_warn "DASMLAB_GHCR_PAT not set - skipping registry secret creation"
-    log_info "If you need to pull images from ghcr.io, set: export DASMLAB_GHCR_PAT=your_token"
-    log_info "Note: Public images may still be pullable without authentication"
+    log_info "Images appear to be private - ImagePullSecrets will be needed"
+    NEED_SECRET=true
+fi
+
+if [ "${NEED_SECRET}" = "true" ]; then
+    if [ -n "${DASMLAB_GHCR_PAT:-}" ]; then
+        log_info "Creating registry credentials..."
+        if ! bash "${SCRIPT_DIR}/scripts/create-registry-secret.sh"; then
+            log_warn "Registry secret creation failed (images may not pull from registry)"
+            log_info "Continuing anyway..."
+        fi
+    else
+        log_warn "DASMLAB_GHCR_PAT not set, but images appear to be private"
+        log_info "You may need to:"
+        log_info "  1. Set DASMLAB_GHCR_PAT environment variable with your GitHub token"
+        log_info "  2. Run: bash ${SCRIPT_DIR}/scripts/create-registry-secret.sh"
+        log_info "  3. Or make images public: ./scripts/make-images-public.sh"
+        log_info ""
+        log_info "Continuing installation (deployment may fail if images can't be pulled)..."
+    fi
 fi
 
 # Step 4: Deploy Glooscap (using released images)
