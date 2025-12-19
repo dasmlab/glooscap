@@ -170,16 +170,17 @@ jobs:
       
       - name: Build and push operator
         run: |
+          # Get token outside sg block
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
           # Run everything with docker group activated (login, build, push)
-          # Login inside sg block so credentials are available
-          # Use GHCR_TOKEN if available, fallback to GITHUB_TOKEN
-          sg docker -c "
+          # Pass TOKEN into sg block
+          TOKEN="$TOKEN" sg docker -c "
             # Login to registry (inside sg block so credentials persist)
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              TOKEN=\"${{ secrets.GHCR_TOKEN }}\"
-              if [ -z \"\$TOKEN\" ]; then
-                TOKEN=\"${{ secrets.GITHUB_TOKEN }}\"
-              fi
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
                 echo \"❌ Login failed\"
                 exit 1
@@ -410,16 +411,17 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
+          # Get token outside sg block
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
           # Run everything with docker group activated (login, build, push)
-          # Login inside sg block so credentials are available
-          # Use GHCR_TOKEN if available, fallback to GITHUB_TOKEN
-          sg docker -c "
+          # Pass TOKEN into sg block
+          TOKEN="$TOKEN" sg docker -c "
             # Login to registry (inside sg block so credentials persist)
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              TOKEN=\"${{ secrets.GHCR_TOKEN }}\"
-              if [ -z \"\$TOKEN\" ]; then
-                TOKEN=\"${{ secrets.GITHUB_TOKEN }}\"
-              fi
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
                 echo \"❌ Login failed\"
                 exit 1
@@ -581,16 +583,17 @@ jobs:
           
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
+          # Get token outside sg block
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
           # Run everything with docker group activated (login, build, push)
-          # Login inside sg block so credentials are available
-          # Use GHCR_TOKEN if available, fallback to GITHUB_TOKEN
-          sg docker -c "
+          # Pass TOKEN into sg block
+          TOKEN="$TOKEN" sg docker -c "
             # Login to registry (inside sg block so credentials persist)
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              TOKEN=\"${{ secrets.GHCR_TOKEN }}\"
-              if [ -z \"\$TOKEN\" ]; then
-                TOKEN=\"${{ secrets.GITHUB_TOKEN }}\"
-              fi
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
                 echo \"❌ Login failed\"
                 exit 1
