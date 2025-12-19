@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 24 - All three test
+# CI Test Bump 25 - All three test
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
