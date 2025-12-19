@@ -172,15 +172,6 @@ jobs:
         run: |
           set -e
           
-          # Debug: Check user and groups
-          echo "Current user: $(whoami)"
-          echo "Current groups: $(id -nG)"
-          echo "Docker socket: $(ls -l /var/run/docker.sock)"
-          echo "Testing docker access:"
-          docker version || echo "Docker access failed"
-          
-          cd ./operator
-          
           # Get token and export it so it's available in sg subshell
           export TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
@@ -197,7 +188,8 @@ jobs:
               }
             fi
             
-            # Build
+            # Build (cd inside sg block)
+            cd ./operator
             bash buildme.sh
             
             BRANCH_NAME=\"${{ github.ref_name }}\"
@@ -215,6 +207,7 @@ jobs:
                 echo \"❌ Push failed\"
                 exit 1
               }
+              echo \"✅ Image pushed: \$CI_TAG\"
             fi
           "
   
