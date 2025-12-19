@@ -1,5 +1,5 @@
 # Glooscap UI
-# CI Test Bump 37 - Use GHCR_TOKEN with fallback
+# CI Test Bump 38 - Read token outside sg block
 # CI Test Bump 18 - Login and build in same block
 
 Quasar/Vue 3 single-page console for browsing discovered Outline pages, staging translations, monitoring jobs, and managing defaults. Works alongside the Kubebuilder operator (`../operator`) and surfaces telemetry-friendly interactions only—no design frills.
