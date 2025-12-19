@@ -413,13 +413,11 @@ jobs:
           if [ -z "$TOKEN" ]; then
             export TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block
-          sg docker -c "
-            echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo \"❌ Login failed\"
-              exit 1
-            }
-          "
+          # Login - pass TOKEN as environment variable to sg
+          TOKEN="$TOKEN" sg docker -c "echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+            echo "❌ Login failed"
+            exit 1
+          }
       
       - name: Extract metadata
         id: meta
@@ -617,13 +615,11 @@ jobs:
           if [ -z "$TOKEN" ]; then
             export TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block
-          sg docker -c "
-            echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo \"❌ Login failed\"
-              exit 1
-            }
-          "
+          # Login - pass TOKEN as environment variable to sg
+          TOKEN="$TOKEN" sg docker -c "echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+            echo "❌ Login failed"
+            exit 1
+          }
       
       - name: Extract metadata
         id: meta
@@ -978,13 +974,11 @@ jobs:
           if [ -z "$TOKEN" ]; then
             export TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block
-          sg docker -c "
-            echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo \"❌ Login failed\"
-              exit 1
-            }
-          "
+          # Login - pass TOKEN as environment variable to sg
+          TOKEN="$TOKEN" sg docker -c "echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+            echo "❌ Login failed"
+            exit 1
+          }
       
       - name: Tag and push as dev-commitid
         run: |
