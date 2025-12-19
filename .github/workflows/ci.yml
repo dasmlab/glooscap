@@ -219,10 +219,11 @@ jobs:
           "
   
   # Create multi-arch manifest for operator
+  # Disabled for now - only have amd64 architecture
   manifest-operator:
     name: Create Multi-arch Manifest (Operator)
     needs: build-operator
-    if: needs.build-operator.result == 'success' && github.event_name != 'pull_request'
+    if: false && needs.build-operator.result == 'success' && github.event_name != 'pull_request'
     runs-on: [self-hosted, amd64]  # Use amd64 runner for manifest creation
     permissions:
       contents: read
