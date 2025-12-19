@@ -177,7 +177,8 @@ jobs:
           fi
           
           # Run everything with docker group activated (login and build/push)
-          sg docker -c "
+          # Pass TOKEN explicitly as environment variable
+          TOKEN="$TOKEN" sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
@@ -604,8 +605,8 @@ jobs:
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
           # Run everything with docker group activated (login and build/push)
-          # Match operator pattern exactly
-          sg docker -c "
+          # Pass TOKEN explicitly as environment variable
+          TOKEN="$TOKEN" sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
