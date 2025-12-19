@@ -1,5 +1,5 @@
 # Glooscap UI
-# CI Test Bump 29 - All three final test
+# CI Test Bump 30 - Add TOKEN env var
 # CI Test Bump 18 - Login and build in same block
 
 Quasar/Vue 3 single-page console for browsing discovered Outline pages, staging translations, monitoring jobs, and managing defaults. Works alongside the Kubebuilder operator (`../operator`) and surfaces telemetry-friendly interactions only—no design frills.
