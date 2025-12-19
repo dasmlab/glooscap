@@ -412,8 +412,8 @@ jobs:
           if [ -z "$TOKEN" ]; then
             TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block - expand TOKEN in outer shell before passing to sg
-          sg docker -c "echo '$TOKEN' | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+          # Login - expand TOKEN in outer shell, then pass to sg
+          echo "$TOKEN" | sg docker -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
             echo "❌ Login failed"
             exit 1
           }
@@ -613,8 +613,8 @@ jobs:
           if [ -z "$TOKEN" ]; then
             TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block - expand TOKEN in outer shell before passing to sg
-          sg docker -c "echo '$TOKEN' | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+          # Login - expand TOKEN in outer shell, then pass to sg
+          echo "$TOKEN" | sg docker -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
             echo "❌ Login failed"
             exit 1
           }
@@ -971,8 +971,8 @@ jobs:
           if [ -z "$TOKEN" ]; then
             TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block - expand TOKEN in outer shell before passing to sg
-          sg docker -c "echo '$TOKEN' | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+          # Login - expand TOKEN in outer shell, then pass to sg
+          echo "$TOKEN" | sg docker -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
             echo "❌ Login failed"
             exit 1
           }
