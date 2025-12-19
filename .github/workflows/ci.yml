@@ -177,8 +177,8 @@ jobs:
           fi
           
           # Run everything with docker group activated (login, build, push)
-          # Pass TOKEN into sg block
-          TOKEN="$TOKEN" sg docker -c "
+          # Pass TOKEN into sg block using env command
+          env TOKEN="$TOKEN" sg docker -c "
             # Login to registry (inside sg block so credentials persist)
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
@@ -418,8 +418,8 @@ jobs:
           fi
           
           # Run everything with docker group activated (login, build, push)
-          # Pass TOKEN into sg block
-          TOKEN="$TOKEN" sg docker -c "
+          # Pass TOKEN into sg block using env command
+          env TOKEN="$TOKEN" sg docker -c "
             # Login to registry (inside sg block so credentials persist)
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
@@ -590,8 +590,8 @@ jobs:
           fi
           
           # Run everything with docker group activated (login, build, push)
-          # Pass TOKEN into sg block
-          TOKEN="$TOKEN" sg docker -c "
+          # Pass TOKEN into sg block using env command
+          env TOKEN="$TOKEN" sg docker -c "
             # Login to registry (inside sg block so credentials persist)
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
