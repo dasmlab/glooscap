@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Build Status: ✅ WORKING! Operator building successfully!
+# CI Test Bump 26 - Remove DOCKER_BUILDKIT=0
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
