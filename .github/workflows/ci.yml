@@ -182,20 +182,19 @@ jobs:
           cd ./operator
           
           # Run everything with docker group activated (login and build/push)
-          sg docker -c "
-            # Login to registry
-            # Note: For self-hosted runners, use GHCR_TOKEN secret (PAT with write:packages)
-            # For GitHub-hosted runners, GITHUB_TOKEN works with packages: write permission
-            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              TOKEN=\"${{ secrets.GHCR_TOKEN }}\"
-              if [ -z \"\$TOKEN\" ]; then
-                TOKEN=\"${{ secrets.GITHUB_TOKEN }}\"
-              fi
-              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-                echo \"❌ Login failed\"
-                exit 1
-              }
+          # Login to registry first (outside sg block to ensure token expansion)
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            TOKEN="${{ secrets.GHCR_TOKEN }}"
+            if [ -z "$TOKEN" ]; then
+              TOKEN="${{ secrets.GITHUB_TOKEN }}"
             fi
+            echo "$TOKEN" | sg docker -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+              echo "❌ Login failed"
+              exit 1
+            }
+          fi
+          
+          sg docker -c "
             
             # Build
             bash buildme.sh
