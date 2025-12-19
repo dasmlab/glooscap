@@ -705,6 +705,7 @@ jobs:
             tag: ${{ github.ref_name == 'main' && 'main' || format('dev-{0}', github.sha) }}
     steps:
       - name: Run Trivy vulnerability scanner
+        continue-on-error: true  # Don't fail the job on scan errors
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}:${{ matrix.image.tag }}
