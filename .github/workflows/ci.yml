@@ -181,17 +181,17 @@ jobs:
           
           cd ./operator
           
-          # Get token (expand outside sg block)
-          TOKEN="${{ secrets.GHCR_TOKEN }}"
+          # Get token and export it so it's available in sg subshell
+          export TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
           
           # Run everything with docker group activated (login and build/push)
           sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              echo \"$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
                 echo \"❌ Login failed\"
                 exit 1
               }
