@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 8
+# CI Test Bump 17 - Trigger build
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
