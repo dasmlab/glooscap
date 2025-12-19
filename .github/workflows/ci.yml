@@ -57,8 +57,7 @@ jobs:
       matrix:
         arch: [amd64, arm64]
       fail-fast: false
-    runs-on: self-hosted
-    labels: ${{ matrix.arch }}
+    runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
       packages: write
@@ -347,8 +346,7 @@ jobs:
       matrix:
         arch: [amd64, arm64]
       fail-fast: false
-    runs-on: self-hosted
-    labels: ${{ matrix.arch }}
+    runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
       packages: write
@@ -550,8 +548,7 @@ jobs:
       matrix:
         arch: [amd64, arm64]
       fail-fast: false
-    runs-on: self-hosted
-    labels: ${{ matrix.arch }}
+    runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
       packages: write
