@@ -690,15 +690,18 @@ jobs:
           # Get socket group from env
           SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
           
-          # Generate image tag
+          # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
+          ARCH="${{ matrix.arch }}"
           if [ "$BRANCH_NAME" = "main" ]; then
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main"
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main-$ARCH"
+            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main"
           else
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:dev-${{ github.sha }}"
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:dev-${{ github.sha }}-$ARCH"
+            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:dev-${{ github.sha }}"
           fi
           
-          echo "Building translation-runner image: $IMAGE_TAG"
+          echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
           # Disable BuildKit to avoid permission issues
           export DOCKER_BUILDKIT=0
