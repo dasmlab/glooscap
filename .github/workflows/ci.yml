@@ -170,8 +170,6 @@ jobs:
       
       - name: Build and push operator
         run: |
-          set -e
-          
           # Get token and export it so it's available in sg subshell
           export TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
