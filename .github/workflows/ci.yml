@@ -408,17 +408,15 @@ jobs:
       
       - name: Log in to GHCR
         run: |
-          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block
-          sg docker -c "
-            echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo \"❌ Login failed\"
-              exit 1
-            }
-          "
+          # Login inside sg docker block - expand TOKEN in outer shell before passing to sg
+          sg docker -c "echo '$TOKEN' | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+            echo "❌ Login failed"
+            exit 1
+          }
       
       - name: Extract metadata
         id: meta
@@ -611,17 +609,15 @@ jobs:
       
       - name: Log in to GHCR
         run: |
-          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block
-          sg docker -c "
-            echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo \"❌ Login failed\"
-              exit 1
-            }
-          "
+          # Login inside sg docker block - expand TOKEN in outer shell before passing to sg
+          sg docker -c "echo '$TOKEN' | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+            echo "❌ Login failed"
+            exit 1
+          }
       
       - name: Extract metadata
         id: meta
@@ -971,17 +967,15 @@ jobs:
       
       - name: Log in to GHCR
         run: |
-          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
-          # Login inside sg docker block
-          sg docker -c "
-            echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo \"❌ Login failed\"
-              exit 1
-            }
-          "
+          # Login inside sg docker block - expand TOKEN in outer shell before passing to sg
+          sg docker -c "echo '$TOKEN' | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+            echo "❌ Login failed"
+            exit 1
+          }
       
       - name: Tag and push as dev-commitid
         run: |
