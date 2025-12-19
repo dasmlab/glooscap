@@ -212,22 +212,25 @@ jobs:
           
           echo "Building operator image: $IMAGE_TAG"
           
+          # Disable BuildKit to avoid permission issues
+          export DOCKER_BUILDKIT=0
+          
           # Check if we can use sg, otherwise use docker directly
-          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP"; then
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
             DOCKER_CMD="sg $SOCKET_GROUP -c"
           else
             echo "⚠️ Using docker directly (group $SOCKET_GROUP not available)"
             DOCKER_CMD=""
           fi
           
-          # Build with docker (native, fast)
+          # Build with docker (native, fast, no BuildKit)
           if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./operator && docker build -t $IMAGE_TAG -f Dockerfile ." || {
+            $DOCKER_CMD "cd ./operator && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile ." || {
               echo "❌ Build failed"
               exit 1
             }
           else
-            cd ./operator && docker build -t $IMAGE_TAG -f Dockerfile . || {
+            cd ./operator && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile . || {
               echo "❌ Build failed"
               exit 1
             }
