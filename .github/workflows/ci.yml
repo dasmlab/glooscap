@@ -135,17 +135,8 @@ jobs:
           mount | grep -E 'cgroup|fuse-overlayfs|overlay' || true
           ls -l /sys/fs/cgroup || true
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: false  # Don't install, just ensure buildx is available
-          driver-opts: |
-            image=moby/buildkit:latest
-          version: latest
-          endpoint: default  # Use default endpoint, we'll create our own builder
-      
-      # QEMU installation skipped - using native builds only for now
-      # Will add multi-arch when ARM64 runner is ready
+      # Skip docker/setup-buildx-action - it tries to create docker-container builder which fails
+      # We'll create our own builder with docker driver (simpler, native builds)
       
       - name: Create and use buildx builder
         run: |
@@ -201,17 +192,36 @@ jobs:
           test -f ./operator/Dockerfile && echo "✅ Dockerfile found" || echo "❌ Dockerfile missing"
       
       - name: Build and push operator
-        uses: docker/build-push-action@v5
-        with:
-          context: ./operator
-          file: ./operator/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          builder: ci-builder
+        run: |
+          # Get socket group from env
+          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          
+          # Build using docker directly (simpler than buildx for single arch)
+          # Get the image tag from metadata step
+          IMAGE_TAG="${{ steps.meta.outputs.tags }}"
+          if [ -z "$IMAGE_TAG" ]; then
+            IMAGE_TAG="ghcr.io/dasmlab/glooscap-operator:dev-${{ github.sha }}"
+          fi
+          
+          echo "Building operator image: $IMAGE_TAG"
+          
+          # Build with docker (native, fast)
+          sg $SOCKET_GROUP -c "cd ./operator && docker build -t $IMAGE_TAG -f Dockerfile ." || {
+            echo "❌ Build failed"
+            exit 1
+          }
+          
+          # Push if not a PR
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Pushing image..."
+            sg $SOCKET_GROUP -c "docker push $IMAGE_TAG" || {
+              echo "❌ Push failed"
+              exit 1
+            }
+            echo "✅ Image pushed: $IMAGE_TAG"
+          else
+            echo "Skipping push (PR build)"
+          fi
 
   # Build UI
   build-ui:
@@ -300,17 +310,8 @@ jobs:
           mount | grep -E 'cgroup|fuse-overlayfs|overlay' || true
           ls -l /sys/fs/cgroup || true
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: false  # Don't install, just ensure buildx is available
-          driver-opts: |
-            image=moby/buildkit:latest
-          version: latest
-          endpoint: default  # Use default endpoint, we'll create our own builder
-      
-      # QEMU installation skipped - using native builds only for now
-      # Will add multi-arch when ARM64 runner is ready
+      # Skip docker/setup-buildx-action - it tries to create docker-container builder which fails
+      # We'll create our own builder with docker driver (simpler, native builds)
       
       - name: Create and use buildx builder
         run: |
@@ -461,17 +462,8 @@ jobs:
           mount | grep -E 'cgroup|fuse-overlayfs|overlay' || true
           ls -l /sys/fs/cgroup || true
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: false  # Don't install, just ensure buildx is available
-          driver-opts: |
-            image=moby/buildkit:latest
-          version: latest
-          endpoint: default  # Use default endpoint, we'll create our own builder
-      
-      # QEMU installation skipped - using native builds only for now
-      # Will add multi-arch when ARM64 runner is ready
+      # Skip docker/setup-buildx-action - it tries to create docker-container builder which fails
+      # We'll create our own builder with docker driver (simpler, native builds)
       
       - name: Create and use buildx builder
         run: |
@@ -661,17 +653,8 @@ jobs:
           mount | grep -E 'cgroup|fuse-overlayfs|overlay' || true
           ls -l /sys/fs/cgroup || true
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: false  # Don't install, just ensure buildx is available
-          driver-opts: |
-            image=moby/buildkit:latest
-          version: latest
-          endpoint: default  # Use default endpoint, we'll create our own builder
-      
-      # QEMU installation skipped - using native builds only for now
-      # Will add multi-arch when ARM64 runner is ready
+      # Skip docker/setup-buildx-action - it tries to create docker-container builder which fails
+      # We'll create our own builder with docker driver (simpler, native builds)
       
       - name: Create and use buildx builder
         run: |
@@ -921,17 +904,8 @@ jobs:
           mount | grep -E 'cgroup|fuse-overlayfs|overlay' || true
           ls -l /sys/fs/cgroup || true
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: false  # Don't install, just ensure buildx is available
-          driver-opts: |
-            image=moby/buildkit:latest
-          version: latest
-          endpoint: default  # Use default endpoint, we'll create our own builder
-      
-      # QEMU installation skipped - using native builds only for now
-      # Will add multi-arch when ARM64 runner is ready
+      # Skip docker/setup-buildx-action - it tries to create docker-container builder which fails
+      # We'll create our own builder with docker driver (simpler, native builds)
       
       - name: Create and use buildx builder
         run: |
