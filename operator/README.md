@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 37 - Use github.token
+# CI Test Bump 38 - Back to secrets.GITHUB_TOKEN
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
