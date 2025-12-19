@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: BUILD PIPELINE
 
 on:
   push:
@@ -209,6 +209,9 @@ jobs:
           # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
+          echo "Building for architecture: $ARCH"
+          echo "Branch: $BRANCH_NAME"
+          echo "SHA: ${{ github.sha }}"
           if [ "$BRANCH_NAME" = "main" ]; then
             IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
             MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main"
@@ -689,6 +692,9 @@ jobs:
           # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
+          echo "Building for architecture: $ARCH"
+          echo "Branch: $BRANCH_NAME"
+          echo "SHA: ${{ github.sha }}"
           if [ "$BRANCH_NAME" = "main" ]; then
             IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main-$ARCH"
             MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main"
