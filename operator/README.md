@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 44 - Fix operator login token expansion
+# CI Test Bump 45 - Test all three with standardized login
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
