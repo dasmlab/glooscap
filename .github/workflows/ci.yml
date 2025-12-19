@@ -68,6 +68,36 @@ jobs:
           id || true
           uname -a || true
           
+          echo "== Fix Docker socket permissions =="
+          # Get Docker socket GID dynamically
+          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
+          echo "Docker socket GID: $DOCKER_GID"
+          
+          # Create docker group with the socket's GID if it doesn't exist
+          if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating docker group with GID $DOCKER_GID..."
+            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
+              # If group exists with different GID, try to use existing
+              EXISTING_GID=$(getent group docker | cut -d: -f3)
+              echo "Docker group exists with GID $EXISTING_GID, using that instead"
+              DOCKER_GID=$EXISTING_GID
+            }
+          else
+            EXISTING_GID=$(getent group docker | cut -d: -f3)
+            echo "Docker group exists with GID $EXISTING_GID"
+            DOCKER_GID=$EXISTING_GID
+          fi
+          
+          # Add runner user to docker group
+          if ! id -nG | grep -qw docker; then
+            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
+            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            # Verify it worked
+            id || true
+          else
+            echo "Runner user already in docker group"
+          fi
+          
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
           docker version || true
@@ -206,6 +236,36 @@ jobs:
           id || true
           uname -a || true
           
+          echo "== Fix Docker socket permissions =="
+          # Get Docker socket GID dynamically
+          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
+          echo "Docker socket GID: $DOCKER_GID"
+          
+          # Create docker group with the socket's GID if it doesn't exist
+          if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating docker group with GID $DOCKER_GID..."
+            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
+              # If group exists with different GID, try to use existing
+              EXISTING_GID=$(getent group docker | cut -d: -f3)
+              echo "Docker group exists with GID $EXISTING_GID, using that instead"
+              DOCKER_GID=$EXISTING_GID
+            }
+          else
+            EXISTING_GID=$(getent group docker | cut -d: -f3)
+            echo "Docker group exists with GID $EXISTING_GID"
+            DOCKER_GID=$EXISTING_GID
+          fi
+          
+          # Add runner user to docker group
+          if ! id -nG | grep -qw docker; then
+            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
+            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            # Verify it worked
+            id || true
+          else
+            echo "Runner user already in docker group"
+          fi
+          
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
           docker version || true
@@ -339,6 +399,36 @@ jobs:
           echo "== whoami / env =="
           id || true
           uname -a || true
+          
+          echo "== Fix Docker socket permissions =="
+          # Get Docker socket GID dynamically
+          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
+          echo "Docker socket GID: $DOCKER_GID"
+          
+          # Create docker group with the socket's GID if it doesn't exist
+          if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating docker group with GID $DOCKER_GID..."
+            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
+              # If group exists with different GID, try to use existing
+              EXISTING_GID=$(getent group docker | cut -d: -f3)
+              echo "Docker group exists with GID $EXISTING_GID, using that instead"
+              DOCKER_GID=$EXISTING_GID
+            }
+          else
+            EXISTING_GID=$(getent group docker | cut -d: -f3)
+            echo "Docker group exists with GID $EXISTING_GID"
+            DOCKER_GID=$EXISTING_GID
+          fi
+          
+          # Add runner user to docker group
+          if ! id -nG | grep -qw docker; then
+            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
+            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            # Verify it worked
+            id || true
+          else
+            echo "Runner user already in docker group"
+          fi
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
@@ -512,6 +602,36 @@ jobs:
           echo "== whoami / env =="
           id || true
           uname -a || true
+          
+          echo "== Fix Docker socket permissions =="
+          # Get Docker socket GID dynamically
+          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
+          echo "Docker socket GID: $DOCKER_GID"
+          
+          # Create docker group with the socket's GID if it doesn't exist
+          if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating docker group with GID $DOCKER_GID..."
+            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
+              # If group exists with different GID, try to use existing
+              EXISTING_GID=$(getent group docker | cut -d: -f3)
+              echo "Docker group exists with GID $EXISTING_GID, using that instead"
+              DOCKER_GID=$EXISTING_GID
+            }
+          else
+            EXISTING_GID=$(getent group docker | cut -d: -f3)
+            echo "Docker group exists with GID $EXISTING_GID"
+            DOCKER_GID=$EXISTING_GID
+          fi
+          
+          # Add runner user to docker group
+          if ! id -nG | grep -qw docker; then
+            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
+            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            # Verify it worked
+            id || true
+          else
+            echo "Runner user already in docker group"
+          fi
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
@@ -745,6 +865,36 @@ jobs:
           echo "== whoami / env =="
           id || true
           uname -a || true
+          
+          echo "== Fix Docker socket permissions =="
+          # Get Docker socket GID dynamically
+          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
+          echo "Docker socket GID: $DOCKER_GID"
+          
+          # Create docker group with the socket's GID if it doesn't exist
+          if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating docker group with GID $DOCKER_GID..."
+            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
+              # If group exists with different GID, try to use existing
+              EXISTING_GID=$(getent group docker | cut -d: -f3)
+              echo "Docker group exists with GID $EXISTING_GID, using that instead"
+              DOCKER_GID=$EXISTING_GID
+            }
+          else
+            EXISTING_GID=$(getent group docker | cut -d: -f3)
+            echo "Docker group exists with GID $EXISTING_GID"
+            DOCKER_GID=$EXISTING_GID
+          fi
+          
+          # Add runner user to docker group
+          if ! id -nG | grep -qw docker; then
+            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
+            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            # Verify it worked
+            id || true
+          else
+            echo "Runner user already in docker group"
+          fi
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
