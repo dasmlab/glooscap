@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 29 - Fully simplified docker commands
+# CI Test Bump 30 - Test simplified build
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
