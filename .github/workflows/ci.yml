@@ -144,60 +144,33 @@ jobs:
           version: latest
           endpoint: default  # Use default endpoint, we'll create our own builder
       
-      - name: Install QEMU for multi-arch support
-        run: |
-          # Install QEMU static binaries for ARM64 emulation
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || {
-            echo "⚠️ QEMU installation failed, but continuing..."
-          }
+      # QEMU installation skipped - using native builds only for now
+      # Will add multi-arch when ARM64 runner is ready
       
-      - name: Create and bootstrap buildx builder
+      - name: Create and use buildx builder
         run: |
           # Get socket group for sg commands
           SOCKET_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
-          SOCKET_GROUP=$(getent group $SOCKET_GID | cut -d: -f1 || echo "dockersock")
+          SOCKET_GROUP=$(getent group $SOCKET_GID 2>/dev/null | cut -d: -f1 || echo "dockersock")
           
-          # Remove existing builder if it exists (with group activation)
+          # For now, use simple docker driver (native amd64 only)
+          # This avoids BuildKit container permission issues
+          # We'll add multi-arch later when ARM64 runner is ready
+          echo "Setting up buildx for native amd64 builds..."
+          
+          # Remove existing builder if it exists
           sg $SOCKET_GROUP -c "docker buildx rm ci-builder" 2>/dev/null || true
           
-          # Create builder with docker-container driver (required for multi-arch)
-          # The docker driver only supports native platform (amd64)
-          # docker-container driver runs BuildKit in a container and supports QEMU emulation
-          echo "Creating multi-arch builder with group $SOCKET_GROUP..."
-          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-            --driver docker-container \
-            --driver-opt network=host \
-            --use \
-            --platform linux/amd64,linux/arm64" || {
-            echo "❌ Failed to create multi-arch builder, trying without network=host..."
-            sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-              --driver docker-container \
-              --use \
-              --platform linux/amd64,linux/arm64" || {
-              echo "❌ Failed again, listing available builders:"
-              sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-              exit 1
-            }
+          # Create builder with docker driver (simple, native platform only)
+          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder --driver docker --use" || {
+            echo "⚠️ Failed to create builder, trying default..."
+            sg $SOCKET_GROUP -c "docker buildx use default" || true
           }
           
-          # Bootstrap the builder (this starts the BuildKit container)
-          echo "Bootstrapping builder..."
-          sg $SOCKET_GROUP -c "docker buildx inspect --bootstrap ci-builder" || {
-            echo "❌ Bootstrap failed"
-            echo "Builder status:"
-            sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-            echo "Checking BuildKit container:"
-            sg $SOCKET_GROUP -c "docker ps -a | grep buildkit" || docker ps -a | grep buildkit || true
-            exit 1
-          }
-          
-          # Verify builder supports both platforms
-          echo "Verifying builder platforms:"
-          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder | grep -A 10 'Platforms:'" || sg $SOCKET_GROUP -c "docker buildx inspect ci-builder"
-          
-          # List all builders to confirm
-          echo "Available builders:"
-          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
+          # Verify builder
+          echo "Builder status:"
+          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
+          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -237,7 +210,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           builder: ci-builder
 
   # Build UI
@@ -336,60 +309,33 @@ jobs:
           version: latest
           endpoint: default  # Use default endpoint, we'll create our own builder
       
-      - name: Install QEMU for multi-arch support
-        run: |
-          # Install QEMU static binaries for ARM64 emulation
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || {
-            echo "⚠️ QEMU installation failed, but continuing..."
-          }
+      # QEMU installation skipped - using native builds only for now
+      # Will add multi-arch when ARM64 runner is ready
       
-      - name: Create and bootstrap buildx builder
+      - name: Create and use buildx builder
         run: |
           # Get socket group for sg commands
           SOCKET_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
-          SOCKET_GROUP=$(getent group $SOCKET_GID | cut -d: -f1 || echo "dockersock")
+          SOCKET_GROUP=$(getent group $SOCKET_GID 2>/dev/null | cut -d: -f1 || echo "dockersock")
           
-          # Remove existing builder if it exists (with group activation)
+          # For now, use simple docker driver (native amd64 only)
+          # This avoids BuildKit container permission issues
+          # We'll add multi-arch later when ARM64 runner is ready
+          echo "Setting up buildx for native amd64 builds..."
+          
+          # Remove existing builder if it exists
           sg $SOCKET_GROUP -c "docker buildx rm ci-builder" 2>/dev/null || true
           
-          # Create builder with docker-container driver (required for multi-arch)
-          # The docker driver only supports native platform (amd64)
-          # docker-container driver runs BuildKit in a container and supports QEMU emulation
-          echo "Creating multi-arch builder with group $SOCKET_GROUP..."
-          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-            --driver docker-container \
-            --driver-opt network=host \
-            --use \
-            --platform linux/amd64,linux/arm64" || {
-            echo "❌ Failed to create multi-arch builder, trying without network=host..."
-            sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-              --driver docker-container \
-              --use \
-              --platform linux/amd64,linux/arm64" || {
-              echo "❌ Failed again, listing available builders:"
-              sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-              exit 1
-            }
+          # Create builder with docker driver (simple, native platform only)
+          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder --driver docker --use" || {
+            echo "⚠️ Failed to create builder, trying default..."
+            sg $SOCKET_GROUP -c "docker buildx use default" || true
           }
           
-          # Bootstrap the builder (this starts the BuildKit container)
-          echo "Bootstrapping builder..."
-          sg $SOCKET_GROUP -c "docker buildx inspect --bootstrap ci-builder" || {
-            echo "❌ Bootstrap failed"
-            echo "Builder status:"
-            sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-            echo "Checking BuildKit container:"
-            sg $SOCKET_GROUP -c "docker ps -a | grep buildkit" || docker ps -a | grep buildkit || true
-            exit 1
-          }
-          
-          # Verify builder supports both platforms
-          echo "Verifying builder platforms:"
-          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder | grep -A 10 'Platforms:'" || sg $SOCKET_GROUP -c "docker buildx inspect ci-builder"
-          
-          # List all builders to confirm
-          echo "Available builders:"
-          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
+          # Verify builder
+          echo "Builder status:"
+          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
+          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -425,7 +371,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           builder: ci-builder
 
   # Build translation-runner
@@ -524,60 +470,33 @@ jobs:
           version: latest
           endpoint: default  # Use default endpoint, we'll create our own builder
       
-      - name: Install QEMU for multi-arch support
-        run: |
-          # Install QEMU static binaries for ARM64 emulation
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || {
-            echo "⚠️ QEMU installation failed, but continuing..."
-          }
+      # QEMU installation skipped - using native builds only for now
+      # Will add multi-arch when ARM64 runner is ready
       
-      - name: Create and bootstrap buildx builder
+      - name: Create and use buildx builder
         run: |
           # Get socket group for sg commands
           SOCKET_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
-          SOCKET_GROUP=$(getent group $SOCKET_GID | cut -d: -f1 || echo "dockersock")
+          SOCKET_GROUP=$(getent group $SOCKET_GID 2>/dev/null | cut -d: -f1 || echo "dockersock")
           
-          # Remove existing builder if it exists (with group activation)
+          # For now, use simple docker driver (native amd64 only)
+          # This avoids BuildKit container permission issues
+          # We'll add multi-arch later when ARM64 runner is ready
+          echo "Setting up buildx for native amd64 builds..."
+          
+          # Remove existing builder if it exists
           sg $SOCKET_GROUP -c "docker buildx rm ci-builder" 2>/dev/null || true
           
-          # Create builder with docker-container driver (required for multi-arch)
-          # The docker driver only supports native platform (amd64)
-          # docker-container driver runs BuildKit in a container and supports QEMU emulation
-          echo "Creating multi-arch builder with group $SOCKET_GROUP..."
-          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-            --driver docker-container \
-            --driver-opt network=host \
-            --use \
-            --platform linux/amd64,linux/arm64" || {
-            echo "❌ Failed to create multi-arch builder, trying without network=host..."
-            sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-              --driver docker-container \
-              --use \
-              --platform linux/amd64,linux/arm64" || {
-              echo "❌ Failed again, listing available builders:"
-              sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-              exit 1
-            }
+          # Create builder with docker driver (simple, native platform only)
+          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder --driver docker --use" || {
+            echo "⚠️ Failed to create builder, trying default..."
+            sg $SOCKET_GROUP -c "docker buildx use default" || true
           }
           
-          # Bootstrap the builder (this starts the BuildKit container)
-          echo "Bootstrapping builder..."
-          sg $SOCKET_GROUP -c "docker buildx inspect --bootstrap ci-builder" || {
-            echo "❌ Bootstrap failed"
-            echo "Builder status:"
-            sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-            echo "Checking BuildKit container:"
-            sg $SOCKET_GROUP -c "docker ps -a | grep buildkit" || docker ps -a | grep buildkit || true
-            exit 1
-          }
-          
-          # Verify builder supports both platforms
-          echo "Verifying builder platforms:"
-          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder | grep -A 10 'Platforms:'" || sg $SOCKET_GROUP -c "docker buildx inspect ci-builder"
-          
-          # List all builders to confirm
-          echo "Available builders:"
-          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
+          # Verify builder
+          echo "Builder status:"
+          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
+          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -613,7 +532,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           builder: ci-builder
 
   # Container scanning (DAST)
@@ -751,60 +670,33 @@ jobs:
           version: latest
           endpoint: default  # Use default endpoint, we'll create our own builder
       
-      - name: Install QEMU for multi-arch support
-        run: |
-          # Install QEMU static binaries for ARM64 emulation
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || {
-            echo "⚠️ QEMU installation failed, but continuing..."
-          }
+      # QEMU installation skipped - using native builds only for now
+      # Will add multi-arch when ARM64 runner is ready
       
-      - name: Create and bootstrap buildx builder
+      - name: Create and use buildx builder
         run: |
           # Get socket group for sg commands
           SOCKET_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
-          SOCKET_GROUP=$(getent group $SOCKET_GID | cut -d: -f1 || echo "dockersock")
+          SOCKET_GROUP=$(getent group $SOCKET_GID 2>/dev/null | cut -d: -f1 || echo "dockersock")
           
-          # Remove existing builder if it exists (with group activation)
+          # For now, use simple docker driver (native amd64 only)
+          # This avoids BuildKit container permission issues
+          # We'll add multi-arch later when ARM64 runner is ready
+          echo "Setting up buildx for native amd64 builds..."
+          
+          # Remove existing builder if it exists
           sg $SOCKET_GROUP -c "docker buildx rm ci-builder" 2>/dev/null || true
           
-          # Create builder with docker-container driver (required for multi-arch)
-          # The docker driver only supports native platform (amd64)
-          # docker-container driver runs BuildKit in a container and supports QEMU emulation
-          echo "Creating multi-arch builder with group $SOCKET_GROUP..."
-          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-            --driver docker-container \
-            --driver-opt network=host \
-            --use \
-            --platform linux/amd64,linux/arm64" || {
-            echo "❌ Failed to create multi-arch builder, trying without network=host..."
-            sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-              --driver docker-container \
-              --use \
-              --platform linux/amd64,linux/arm64" || {
-              echo "❌ Failed again, listing available builders:"
-              sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-              exit 1
-            }
+          # Create builder with docker driver (simple, native platform only)
+          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder --driver docker --use" || {
+            echo "⚠️ Failed to create builder, trying default..."
+            sg $SOCKET_GROUP -c "docker buildx use default" || true
           }
           
-          # Bootstrap the builder (this starts the BuildKit container)
-          echo "Bootstrapping builder..."
-          sg $SOCKET_GROUP -c "docker buildx inspect --bootstrap ci-builder" || {
-            echo "❌ Bootstrap failed"
-            echo "Builder status:"
-            sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-            echo "Checking BuildKit container:"
-            sg $SOCKET_GROUP -c "docker ps -a | grep buildkit" || docker ps -a | grep buildkit || true
-            exit 1
-          }
-          
-          # Verify builder supports both platforms
-          echo "Verifying builder platforms:"
-          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder | grep -A 10 'Platforms:'" || sg $SOCKET_GROUP -c "docker buildx inspect ci-builder"
-          
-          # List all builders to confirm
-          echo "Available builders:"
-          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
+          # Verify builder
+          echo "Builder status:"
+          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
+          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -1038,60 +930,33 @@ jobs:
           version: latest
           endpoint: default  # Use default endpoint, we'll create our own builder
       
-      - name: Install QEMU for multi-arch support
-        run: |
-          # Install QEMU static binaries for ARM64 emulation
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || {
-            echo "⚠️ QEMU installation failed, but continuing..."
-          }
+      # QEMU installation skipped - using native builds only for now
+      # Will add multi-arch when ARM64 runner is ready
       
-      - name: Create and bootstrap buildx builder
+      - name: Create and use buildx builder
         run: |
           # Get socket group for sg commands
           SOCKET_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
-          SOCKET_GROUP=$(getent group $SOCKET_GID | cut -d: -f1 || echo "dockersock")
+          SOCKET_GROUP=$(getent group $SOCKET_GID 2>/dev/null | cut -d: -f1 || echo "dockersock")
           
-          # Remove existing builder if it exists (with group activation)
+          # For now, use simple docker driver (native amd64 only)
+          # This avoids BuildKit container permission issues
+          # We'll add multi-arch later when ARM64 runner is ready
+          echo "Setting up buildx for native amd64 builds..."
+          
+          # Remove existing builder if it exists
           sg $SOCKET_GROUP -c "docker buildx rm ci-builder" 2>/dev/null || true
           
-          # Create builder with docker-container driver (required for multi-arch)
-          # The docker driver only supports native platform (amd64)
-          # docker-container driver runs BuildKit in a container and supports QEMU emulation
-          echo "Creating multi-arch builder with group $SOCKET_GROUP..."
-          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-            --driver docker-container \
-            --driver-opt network=host \
-            --use \
-            --platform linux/amd64,linux/arm64" || {
-            echo "❌ Failed to create multi-arch builder, trying without network=host..."
-            sg $SOCKET_GROUP -c "docker buildx create --name ci-builder \
-              --driver docker-container \
-              --use \
-              --platform linux/amd64,linux/arm64" || {
-              echo "❌ Failed again, listing available builders:"
-              sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-              exit 1
-            }
+          # Create builder with docker driver (simple, native platform only)
+          sg $SOCKET_GROUP -c "docker buildx create --name ci-builder --driver docker --use" || {
+            echo "⚠️ Failed to create builder, trying default..."
+            sg $SOCKET_GROUP -c "docker buildx use default" || true
           }
           
-          # Bootstrap the builder (this starts the BuildKit container)
-          echo "Bootstrapping builder..."
-          sg $SOCKET_GROUP -c "docker buildx inspect --bootstrap ci-builder" || {
-            echo "❌ Bootstrap failed"
-            echo "Builder status:"
-            sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
-            echo "Checking BuildKit container:"
-            sg $SOCKET_GROUP -c "docker ps -a | grep buildkit" || docker ps -a | grep buildkit || true
-            exit 1
-          }
-          
-          # Verify builder supports both platforms
-          echo "Verifying builder platforms:"
-          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder | grep -A 10 'Platforms:'" || sg $SOCKET_GROUP -c "docker buildx inspect ci-builder"
-          
-          # List all builders to confirm
-          echo "Available builders:"
-          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls
+          # Verify builder
+          echo "Builder status:"
+          sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
+          sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
       - name: Log in to GHCR
         uses: docker/login-action@v3
