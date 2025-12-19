@@ -171,6 +171,14 @@ jobs:
       - name: Build and push operator
         run: |
           set -e
+          
+          # Debug: Check user and groups
+          echo "Current user: $(whoami)"
+          echo "Current groups: $(id -nG)"
+          echo "Docker socket: $(ls -l /var/run/docker.sock)"
+          echo "Testing docker access:"
+          docker version || echo "Docker access failed"
+          
           cd ./operator
           
           # Run everything with docker group activated
@@ -188,8 +196,14 @@ jobs:
             docker tag glooscap:scratch \$CI_TAG
             
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-              docker push \$CI_TAG
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+              docker push \$CI_TAG || {
+                echo \"❌ Push failed\"
+                exit 1
+              }
             fi
           "
   
