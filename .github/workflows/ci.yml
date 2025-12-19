@@ -450,9 +450,10 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
-          # Build and push with docker group activated (build from repo root with ui context)
+          # Build and push with docker group activated (build from ui directory)
           sg docker -c "
-            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./ui/Dockerfile . || {
+            cd ./ui
+            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo \"❌ Build failed\"
               exit 1
             }
