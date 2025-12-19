@@ -168,25 +168,18 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Build and push operator
         run: |
-          # Read token fresh from secrets for this step
-          TOKEN="${{ secrets.GHCR_TOKEN }}"
-          if [ -z "$TOKEN" ]; then
-            TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          fi
-          
-          # Run everything with docker group activated (login and build/push)
-          # Pass TOKEN directly from secrets to env command
-          env TOKEN="$TOKEN" sg docker -c "
-            # Login to registry
-            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-                echo \"❌ Login failed\"
-                exit 1
-              }
-            fi
-            
+          # Run everything with docker group activated (build/push)
+          sg docker -c "
             # Build (cd inside sg block)
             cd ./operator
             bash buildme.sh
@@ -567,14 +560,16 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Build and push translation-runner
         run: |
-          # Read token fresh from secrets for this step
-          TOKEN="${{ secrets.GHCR_TOKEN }}"
-          if [ -z "$TOKEN" ]; then
-            TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          fi
-          
           # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
@@ -589,17 +584,8 @@ jobs:
           
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
-          # Run everything with docker group activated (login and build/push)
-          # Pass TOKEN directly from secrets to env command
-          env TOKEN="$TOKEN" sg docker -c "
-            # Login to registry
-            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-                echo \"❌ Login failed\"
-                exit 1
-              }
-            fi
-            
+          # Run everything with docker group activated (build/push)
+          sg docker -c "
             # Build (from repo root with translation-runner Dockerfile)
             docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./translation-runner/Dockerfile . || {
               echo \"❌ Build failed\"
