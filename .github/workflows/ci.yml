@@ -56,7 +56,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64]  # Start with just amd64 to test, add arm64 back once working
+        arch:
+          - amd64  # Start with just amd64 to test, add arm64 back once working
     runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
@@ -347,7 +348,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64]  # Start with just amd64 to test, add arm64 back once working
+        arch:
+          - amd64  # Start with just amd64 to test, add arm64 back once working
     runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
@@ -549,7 +551,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64]  # Start with just amd64 to test, add arm64 back once working
+        arch:
+          - amd64  # Start with just amd64 to test, add arm64 back once working
     runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
