@@ -101,4 +101,4 @@ View coverage on [Codecov](https://codecov.io) (if configured) or download artif
 - Connect the forthcoming Quasar UI (`../ui/`) to the controller APIs.
 
 Run `make help` for the full list of helper targets.
-# CI Test Bump 12 - Fix login
+# CI Test Bump 13 - Better group handling

@@ -200,20 +200,42 @@ jobs:
           
           echo "Building operator image: $IMAGE_TAG"
           
+          # Check if we can use sg, otherwise use docker directly
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP"; then
+            DOCKER_CMD="sg $SOCKET_GROUP -c"
+          else
+            echo "⚠️ Using docker directly (group $SOCKET_GROUP not available)"
+            DOCKER_CMD=""
+          fi
+          
           # Build with docker (native, fast)
-          sg $SOCKET_GROUP -c "cd ./operator && docker build -t $IMAGE_TAG -f Dockerfile ." || {
-            echo "❌ Build failed"
-            exit 1
-          }
+          if [ -n "$DOCKER_CMD" ]; then
+            $DOCKER_CMD "cd ./operator && docker build -t $IMAGE_TAG -f Dockerfile ." || {
+              echo "❌ Build failed"
+              exit 1
+            }
+          else
+            cd ./operator && docker build -t $IMAGE_TAG -f Dockerfile . || {
+              echo "❌ Build failed"
+              exit 1
+            }
+          fi
           echo "✅ Build successful"
           
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "Pushing image..."
-            sg $SOCKET_GROUP -c "docker push $IMAGE_TAG" || {
-              echo "❌ Push failed"
-              exit 1
-            }
+            if [ -n "$DOCKER_CMD" ]; then
+              $DOCKER_CMD "docker push $IMAGE_TAG" || {
+                echo "❌ Push failed"
+                exit 1
+              }
+            else
+              docker push $IMAGE_TAG || {
+                echo "❌ Push failed"
+                exit 1
+              }
+            fi
             echo "✅ Image pushed: $IMAGE_TAG"
           else
             echo "Skipping push (PR build)"
