@@ -101,4 +101,4 @@ View coverage on [Codecov](https://codecov.io) (if configured) or download artif
 - Connect the forthcoming Quasar UI (`../ui/`) to the controller APIs.
 
 Run `make help` for the full list of helper targets.
-# CI Test Bump 15 - Disable BuildKit (DOCKER_BUILDKIT=0)
+# CI Build Status: ✅ WORKING! (DOCKER_BUILDKIT=0, native amd64 builds)
