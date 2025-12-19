@@ -181,7 +181,15 @@ jobs:
           
           cd ./operator
           
-          # Run everything with docker group activated
+          # Login to registry first (outside sg block)
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+              echo "❌ Login failed"
+              exit 1
+            }
+          fi
+          
+          # Run build and push with docker group activated
           sg docker -c "
             bash buildme.sh
             
@@ -196,10 +204,6 @@ jobs:
             docker tag glooscap:scratch \$CI_TAG
             
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-                echo \"❌ Login failed\"
-                exit 1
-              }
               docker push \$CI_TAG || {
                 echo \"❌ Push failed\"
                 exit 1
