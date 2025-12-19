@@ -1,5 +1,5 @@
 # Glooscap UI
-# CI Test Bump 4 - Fix token expansion
+# CI Test Bump 6 - Trigger build with matching pattern
 
 Quasar/Vue 3 single-page console for browsing discovered Outline pages, staging translations, monitoring jobs, and managing defaults. Works alongside the Kubebuilder operator (`../operator`) and surfaces telemetry-friendly interactions only—no design frills.
 
