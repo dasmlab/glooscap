@@ -185,7 +185,7 @@ jobs:
           sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
-              echo \"${{ github.token }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
                 echo \"❌ Login failed\"
                 exit 1
               }
