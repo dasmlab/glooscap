@@ -1,0 +1,469 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: ['**']  # All branches
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      publish:
+        description: 'Publish to GHCR'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: dasmlab
+
+jobs:
+  # Detect what changed to conditionally build components
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      operator: ${{ steps.filter.outputs.operator }}
+      ui: ${{ steps.filter.outputs.ui }}
+      translation-runner: ${{ steps.filter.outputs.translation-runner }}
+      infra: ${{ steps.filter.outputs.infra }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need history for change detection
+      
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            operator:
+              - 'operator/**'
+              - 'go.mod'
+              - 'go.sum'
+            ui:
+              - 'ui/**'
+            translation-runner:
+              - 'translation-runner/**'
+            infra:
+              - 'infra/**'
+              - '.github/workflows/**'
+
+  # Build operator
+  build-operator:
+    name: Build Operator
+    needs: detect-changes
+    if: needs.detect-changes.outputs.operator == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=dev-${{ github.sha }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./operator
+          file: ./operator/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # Build UI
+  build-ui:
+    name: Build UI
+    needs: detect-changes
+    if: needs.detect-changes.outputs.ui == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-ui
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=dev-${{ github.sha }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ui
+          file: ./ui/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # Build translation-runner
+  build-translation-runner:
+    name: Build Translation Runner
+    needs: detect-changes
+    if: needs.detect-changes.outputs.translation-runner == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=dev-${{ github.sha }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./translation-runner
+          file: ./translation-runner/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # Container scanning (DAST)
+  scan-containers:
+    name: Scan Containers
+    needs: [build-operator, build-ui, build-translation-runner]
+    if: always() && (needs.build-operator.result == 'success' || needs.build-ui.result == 'success' || needs.build-translation-runner.result == 'success')
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: glooscap-operator
+            tag: ${{ github.ref_name == 'main' && 'main' || format('dev-{0}', github.sha) }}
+          - name: glooscap-ui
+            tag: ${{ github.ref_name == 'main' && 'main' || format('dev-{0}', github.sha) }}
+          - name: glooscap-translation-runner
+            tag: ${{ github.ref_name == 'main' && 'main' || format('dev-{0}', github.sha) }}
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}:${{ matrix.image.tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'  # Don't fail, just log (permissive mode)
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Log scan results
+        if: always()
+        run: |
+          echo "## Security Scan Results for ${{ matrix.image.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}:${{ matrix.image.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Scan completed (permissive mode - failures logged but not blocking)" >> $GITHUB_STEP_SUMMARY
+
+  # Smoke test - full install and health checks
+  smoke-test:
+    name: Smoke Test
+    needs: [build-operator, build-ui, build-translation-runner, scan-containers]
+    if: always() && (needs.build-operator.result == 'success' || needs.build-ui.result == 'success' || needs.build-translation-runner.result == 'success')
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Prepare test environment
+        run: |
+          # Ensure Docker is running (Docker-in-Docker)
+          sudo systemctl start docker || true
+          docker info
+      
+      - name: Run smoke test
+        env:
+          GLOOSCAP_VERSION: ${{ github.ref_name == 'main' && 'main' || format('dev-{0}', github.sha) }}
+          ISKOCES_VERSION: ${{ github.ref_name == 'main' && 'main' || format('dev-{0}', github.sha) }}
+        run: |
+          cd infra/macos-foss
+          chmod +x install_glooscap.sh
+          
+          # Run install with iskoces plugin
+          ./install_glooscap.sh --plugins iskoces || {
+            echo "❌ Smoke test failed"
+            # Collect logs for debugging
+            kubectl get pods -A || true
+            kubectl logs -n glooscap-system deployment/operator-controller-manager --tail=100 || true
+            kubectl logs -n iskoces deployment/iskoces-server --tail=100 || true
+            exit 1
+          }
+      
+      - name: Verify cluster health
+        run: |
+          # Wait for pods to be ready
+          kubectl wait --for=condition=ready pod -l control-plane=controller-manager -n glooscap-system --timeout=300s || true
+          kubectl wait --for=condition=ready pod -l app=iskoces-server -n iskoces --timeout=300s || true
+          
+          # Check pod status
+          kubectl get pods -A
+          
+          # Health checks
+          kubectl get pods -n glooscap-system -o jsonpath='{.items[*].status.phase}' | grep -q Running || {
+            echo "❌ Operator pods not running"
+            kubectl describe pods -n glooscap-system
+            exit 1
+          }
+          
+          # Check UI is accessible (if exposed)
+          # curl -f http://localhost:3000/healthz || echo "UI health check skipped"
+      
+      - name: Cleanup test cluster
+        if: always()
+        run: |
+          cd infra/macos-foss
+          # Uninstall with auto-confirm (non-interactive)
+          echo "y" | ./uninstall_glooscap.sh || true
+          # Also try direct k3d/kubectl cleanup
+          k3d cluster delete k3s-default || true
+          docker stop $(docker ps -q) || true
+          docker system prune -af || true
+
+  # Code coverage (must not fail on syntax)
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.operator == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+      
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('operator/go.sum') }}
+      
+      - name: Install dependencies
+        working-directory: operator
+        run: |
+          go mod download
+          go mod verify
+      
+      - name: Setup envtest
+        working-directory: operator
+        run: |
+          make setup-envtest || echo "⚠️ envtest setup failed, continuing..."
+      
+      - name: Generate manifests
+        working-directory: operator
+        run: |
+          make manifests generate || echo "⚠️ Manifest generation failed, continuing..."
+      
+      - name: Run tests with coverage
+        working-directory: operator
+        continue-on-error: true  # Don't fail on test failures
+        run: |
+          set +e  # Don't exit on error
+          KUBEBUILDER_ASSETS="$(make -s setup-envtest 2>/dev/null | grep KUBEBUILDER_ASSETS | cut -d'=' -f2 | tr -d '"' || echo '')"
+          if [ -n "$KUBEBUILDER_ASSETS" ]; then
+            export KUBEBUILDER_ASSETS
+            go test $(go list ./... 2>/dev/null | grep -v /e2e) \
+              -coverprofile=coverage.out \
+              -covermode=atomic \
+              -v 2>&1 | tee test-output.txt || true
+          else
+            echo "⚠️ KUBEBUILDER_ASSETS not available, skipping tests"
+            touch coverage.out
+          fi
+      
+      - name: Generate coverage report
+        if: always()
+        working-directory: operator
+        run: |
+          if [ -f coverage.out ] && [ -s coverage.out ]; then
+            go tool cover -html=coverage.out -o coverage.html || true
+            go tool cover -func=coverage.out > coverage.txt || true
+            echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 1 coverage.txt >> $GITHUB_STEP_SUMMARY || echo "No coverage data" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No coverage data generated" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Upload coverage
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./operator/coverage.out
+          fail_ci_if_error: false  # Don't fail on coverage upload errors
+          flags: unittests
+
+  # Manual publish to GHCR (workflow_dispatch with input)
+  publish-to-ghcr:
+    name: Publish to GHCR
+    needs: [build-operator, build-ui, build-translation-runner, smoke-test]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+      
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Tag and push as dev-commitid
+        run: |
+          BRANCH_TAG="${{ github.ref_name }}"
+          COMMIT_TAG="dev-${{ github.sha }}"
+          
+          # Retag and push all built images
+          for image in glooscap-operator glooscap-ui glooscap-translation-runner; do
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:$BRANCH_TAG || true
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:$BRANCH_TAG \
+                       ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:$COMMIT_TAG || true
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:$COMMIT_TAG || true
+          done
+      
+      - name: Cleanup old dev packages
+        run: |
+          # Keep only the 3 most recent dev-* packages per image
+          for image in glooscap-operator glooscap-ui glooscap-translation-runner; do
+            gh api \
+              repos/${{ github.repository }}/packages/container/$image/versions \
+              --jq '.[] | select(.metadata.container.tags[] | startswith("dev-")) | .id' \
+              | tail -n +4 \
+              | xargs -I {} gh api \
+                repos/${{ github.repository }}/packages/container/$image/versions/{} \
+                -X DELETE || true
+          done
+
+  # Main branch - system tests and publish as 'latest'
+  system-tests:
+    name: System Tests
+    needs: [build-operator, build-ui, build-translation-runner, smoke-test]
+    if: github.ref == 'refs/heads/main' && needs.smoke-test.result == 'success'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run system test suite
+        env:
+          GLOOSCAP_VERSION: main
+          ISKOCES_VERSION: main
+        run: |
+          # TODO: Add comprehensive system tests
+          # - API endpoint tests
+          # - Diagnostic job tests
+          # - Translation job tests
+          # - Wiki target connection tests
+          echo "System tests placeholder - to be implemented"
+      
+      - name: Tag as latest
+        if: success()
+        run: |
+          for image in glooscap-operator glooscap-ui glooscap-translation-runner; do
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:main || true
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:main \
+                       ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:latest || true
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$image:latest || true
+          done
+
