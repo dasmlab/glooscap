@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 36 - Use GHCR_TOKEN with fallback
+# CI Test Bump 37 - Use GHCR_TOKEN with fallback
 # CI Test Bump 47 - All three match operator pattern
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
