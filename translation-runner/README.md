@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 3 - Test with exported TOKEN
+# CI Test Bump 4 - Fix token pipe to sg
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
