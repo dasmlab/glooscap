@@ -61,8 +61,10 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Docker Diagnostics
+        continue-on-error: true  # Don't fail the job if diagnostics have issues
         run: |
-          set -uxo pipefail  # Remove -e to allow error handling
+          set +e  # Disable exit on error
+          set -uxo pipefail
           
           echo "== whoami / env =="
           id || true
@@ -76,14 +78,26 @@ jobs:
           # The socket GID might not match the docker group GID
           # We need to add runner to the group that matches the socket GID (988)
           # First, try to find/create a group with the socket's GID
-          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          SOCKET_GROUP=$(getent group $DOCKER_GID 2>/dev/null | cut -d: -f1 || echo "")
           if [ -z "$SOCKET_GROUP" ]; then
-            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
-            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
-            SOCKET_GROUP="dockersock"
+            echo "No group found with GID $DOCKER_GID, creating 'dockersock'..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || {
+              echo "⚠️ Failed to create group, trying to use existing docker group"
+              SOCKET_GROUP="docker"
+            }
+            if [ -z "$SOCKET_GROUP" ] || [ "$SOCKET_GROUP" = "docker" ]; then
+              SOCKET_GROUP="dockersock"
+            fi
           else
             echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
+          
+          # Ensure SOCKET_GROUP is set
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "⚠️ Could not determine socket group, defaulting to 'docker'"
+            SOCKET_GROUP="docker"
+          fi
+          echo "Using group: $SOCKET_GROUP"
           
           # Add runner user to the socket's group
           if ! id -nG | grep -qw "$SOCKET_GROUP"; then
@@ -239,8 +253,10 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Docker Diagnostics
+        continue-on-error: true  # Don't fail the job if diagnostics have issues
         run: |
-          set -uxo pipefail  # Remove -e to allow error handling
+          set +e  # Disable exit on error
+          set -uxo pipefail
           
           echo "== whoami / env =="
           id || true
@@ -254,14 +270,26 @@ jobs:
           # The socket GID might not match the docker group GID
           # We need to add runner to the group that matches the socket GID (988)
           # First, try to find/create a group with the socket's GID
-          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          SOCKET_GROUP=$(getent group $DOCKER_GID 2>/dev/null | cut -d: -f1 || echo "")
           if [ -z "$SOCKET_GROUP" ]; then
-            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
-            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
-            SOCKET_GROUP="dockersock"
+            echo "No group found with GID $DOCKER_GID, creating 'dockersock'..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || {
+              echo "⚠️ Failed to create group, trying to use existing docker group"
+              SOCKET_GROUP="docker"
+            }
+            if [ -z "$SOCKET_GROUP" ] || [ "$SOCKET_GROUP" = "docker" ]; then
+              SOCKET_GROUP="dockersock"
+            fi
           else
             echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
+          
+          # Ensure SOCKET_GROUP is set
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "⚠️ Could not determine socket group, defaulting to 'docker'"
+            SOCKET_GROUP="docker"
+          fi
+          echo "Using group: $SOCKET_GROUP"
           
           # Add runner user to the socket's group
           if ! id -nG | grep -qw "$SOCKET_GROUP"; then
@@ -413,8 +441,10 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Docker Diagnostics
+        continue-on-error: true  # Don't fail the job if diagnostics have issues
         run: |
-          set -uxo pipefail  # Remove -e to allow error handling
+          set +e  # Disable exit on error
+          set -uxo pipefail
           
           echo "== whoami / env =="
           id || true
@@ -428,14 +458,26 @@ jobs:
           # The socket GID might not match the docker group GID
           # We need to add runner to the group that matches the socket GID (988)
           # First, try to find/create a group with the socket's GID
-          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          SOCKET_GROUP=$(getent group $DOCKER_GID 2>/dev/null | cut -d: -f1 || echo "")
           if [ -z "$SOCKET_GROUP" ]; then
-            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
-            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
-            SOCKET_GROUP="dockersock"
+            echo "No group found with GID $DOCKER_GID, creating 'dockersock'..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || {
+              echo "⚠️ Failed to create group, trying to use existing docker group"
+              SOCKET_GROUP="docker"
+            }
+            if [ -z "$SOCKET_GROUP" ] || [ "$SOCKET_GROUP" = "docker" ]; then
+              SOCKET_GROUP="dockersock"
+            fi
           else
             echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
+          
+          # Ensure SOCKET_GROUP is set
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "⚠️ Could not determine socket group, defaulting to 'docker'"
+            SOCKET_GROUP="docker"
+          fi
+          echo "Using group: $SOCKET_GROUP"
           
           # Add runner user to the socket's group
           if ! id -nG | grep -qw "$SOCKET_GROUP"; then
@@ -626,8 +668,10 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Docker Diagnostics
+        continue-on-error: true  # Don't fail the job if diagnostics have issues
         run: |
-          set -uxo pipefail  # Remove -e to allow error handling
+          set +e  # Disable exit on error
+          set -uxo pipefail
           
           echo "== whoami / env =="
           id || true
@@ -641,14 +685,26 @@ jobs:
           # The socket GID might not match the docker group GID
           # We need to add runner to the group that matches the socket GID (988)
           # First, try to find/create a group with the socket's GID
-          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          SOCKET_GROUP=$(getent group $DOCKER_GID 2>/dev/null | cut -d: -f1 || echo "")
           if [ -z "$SOCKET_GROUP" ]; then
-            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
-            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
-            SOCKET_GROUP="dockersock"
+            echo "No group found with GID $DOCKER_GID, creating 'dockersock'..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || {
+              echo "⚠️ Failed to create group, trying to use existing docker group"
+              SOCKET_GROUP="docker"
+            }
+            if [ -z "$SOCKET_GROUP" ] || [ "$SOCKET_GROUP" = "docker" ]; then
+              SOCKET_GROUP="dockersock"
+            fi
           else
             echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
+          
+          # Ensure SOCKET_GROUP is set
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "⚠️ Could not determine socket group, defaulting to 'docker'"
+            SOCKET_GROUP="docker"
+          fi
+          echo "Using group: $SOCKET_GROUP"
           
           # Add runner user to the socket's group
           if ! id -nG | grep -qw "$SOCKET_GROUP"; then
@@ -899,8 +955,10 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Docker Diagnostics
+        continue-on-error: true  # Don't fail the job if diagnostics have issues
         run: |
-          set -uxo pipefail  # Remove -e to allow error handling
+          set +e  # Disable exit on error
+          set -uxo pipefail
           
           echo "== whoami / env =="
           id || true
@@ -914,14 +972,26 @@ jobs:
           # The socket GID might not match the docker group GID
           # We need to add runner to the group that matches the socket GID (988)
           # First, try to find/create a group with the socket's GID
-          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          SOCKET_GROUP=$(getent group $DOCKER_GID 2>/dev/null | cut -d: -f1 || echo "")
           if [ -z "$SOCKET_GROUP" ]; then
-            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
-            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
-            SOCKET_GROUP="dockersock"
+            echo "No group found with GID $DOCKER_GID, creating 'dockersock'..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || {
+              echo "⚠️ Failed to create group, trying to use existing docker group"
+              SOCKET_GROUP="docker"
+            }
+            if [ -z "$SOCKET_GROUP" ] || [ "$SOCKET_GROUP" = "docker" ]; then
+              SOCKET_GROUP="dockersock"
+            fi
           else
             echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
+          
+          # Ensure SOCKET_GROUP is set
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "⚠️ Could not determine socket group, defaulting to 'docker'"
+            SOCKET_GROUP="docker"
+          fi
+          echo "Using group: $SOCKET_GROUP"
           
           # Add runner user to the socket's group
           if ! id -nG | grep -qw "$SOCKET_GROUP"; then
