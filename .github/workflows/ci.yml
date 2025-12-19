@@ -439,11 +439,9 @@ jobs:
       
       - name: Build and push UI
         run: |
-          # Get socket group from env
-          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
-          
           # Generate image tag
           BRANCH_NAME="${{ github.ref_name }}"
+          ARCH="${{ matrix.arch }}"
           if [ "$BRANCH_NAME" = "main" ]; then
             IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-ui:main"
           else
@@ -452,39 +450,24 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
-          # Check if we can use sg, otherwise use docker directly
-          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
-            DOCKER_CMD="sg $SOCKET_GROUP -c"
-          else
-            echo "⚠️ Using docker directly (group $SOCKET_GROUP not available)"
-            DOCKER_CMD=""
-          fi
-          
-          # Build with docker
-          if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./ui && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
-              echo "❌ Build failed"
+          # Build and push with docker group activated
+          sg docker -c "
+            cd ./ui
+            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
+              echo \"❌ Build failed\"
               exit 1
             }
-          else
-            cd ./ui && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
-              echo "❌ Build failed"
-              exit 1
-            }
-          fi
-          echo "✅ Build successful for $ARCH"
-          
-          # Push if not a PR
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "Pushing image..."
-            docker push $IMAGE_TAG || {
-              echo "❌ Push failed"
-              exit 1
-            }
-            echo "✅ Image pushed: $IMAGE_TAG"
-          else
-            echo "Skipping push (PR build)"
-          fi
+            echo \"✅ Build successful for $ARCH\"
+            
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"Pushing image...\"
+              docker push $IMAGE_TAG || {
+                echo \"❌ Push failed\"
+                exit 1
+              }
+              echo \"✅ Image pushed: $IMAGE_TAG\"
+            fi
+          "
 
   # Build translation-runner
   build-translation-runner:
