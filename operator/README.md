@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 32 - Test build
+# CI Test Bump 33 - Test with sg docker
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
