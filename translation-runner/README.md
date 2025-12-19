@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 26 - All three final test
+# CI Test Bump 27 - Remove set -e
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
