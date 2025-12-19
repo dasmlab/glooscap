@@ -168,18 +168,19 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
       - name: Build and push operator
         run: |
-          # Run everything with docker group activated (build/push)
+          # Run everything with docker group activated (login, build, push)
+          # Login inside sg block so credentials are available
           sg docker -c "
+            # Login to registry (inside sg block so credentials persist)
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+            fi
+            
             # Build (cd inside sg block)
             cd ./operator
             bash buildme.sh
@@ -391,14 +392,6 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
       - name: Build and push UI
         run: |
           # Generate image tag
@@ -412,8 +405,17 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
-          # Run everything with docker group activated (build/push)
+          # Run everything with docker group activated (login, build, push)
+          # Login inside sg block so credentials are available
           sg docker -c "
+            # Login to registry (inside sg block so credentials persist)
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+            fi
+            
             # Build
             cd ./ui
             docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
@@ -553,14 +555,6 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
       - name: Build and push translation-runner
         run: |
           # Generate image tag with architecture suffix
@@ -577,8 +571,17 @@ jobs:
           
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
-          # Run everything with docker group activated (build/push)
+          # Run everything with docker group activated (login, build, push)
+          # Login inside sg block so credentials are available
           sg docker -c "
+            # Login to registry (inside sg block so credentials persist)
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+            fi
+            
             # Build (from repo root with translation-runner Dockerfile)
             docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./translation-runner/Dockerfile . || {
               echo \"❌ Build failed\"
