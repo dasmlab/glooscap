@@ -171,49 +171,27 @@ jobs:
       - name: Build and push operator
         run: |
           set -e
+          cd ./operator
           
-          # Activate docker group for this session
-          if id -nG | grep -qw docker; then
-            # User is in docker group, use newgrp to activate it
-            cd ./operator
-            newgrp docker <<EOF
+          # Run everything with docker group activated
+          sg docker -c "
             bash buildme.sh
             
-            BRANCH_NAME="${{ github.ref_name }}"
-            ARCH="${{ matrix.arch }}"
-            if [ "\$BRANCH_NAME" = "main" ]; then
-              CI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-\$ARCH"
+            BRANCH_NAME=\"${{ github.ref_name }}\"
+            ARCH=\"${{ matrix.arch }}\"
+            if [ \"\$BRANCH_NAME\" = \"main\" ]; then
+              CI_TAG=\"${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-\$ARCH\"
             else
-              CI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-\$ARCH"
+              CI_TAG=\"${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-\$ARCH\"
             fi
             
             docker tag glooscap:scratch \$CI_TAG
             
-            if [ "${{ github.event_name }}" != "pull_request" ]; then
-              echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
               docker push \$CI_TAG
             fi
-EOF
-          else
-            # Fallback: try direct docker (might work if permissions are set differently)
-            cd ./operator
-            bash buildme.sh
-            
-            BRANCH_NAME="${{ github.ref_name }}"
-            ARCH="${{ matrix.arch }}"
-            if [ "$BRANCH_NAME" = "main" ]; then
-              CI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
-            else
-              CI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-$ARCH"
-            fi
-            
-            docker tag glooscap:scratch $CI_TAG
-            
-            if [ "${{ github.event_name }}" != "pull_request" ]; then
-              echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-              docker push $CI_TAG
-            fi
-          fi
+          "
   
   # Create multi-arch manifest for operator
   manifest-operator:
