@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 23 - Simplify runs-on to get it working
+# CI Build Status: ✅ WORKING! Operator building successfully!
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
