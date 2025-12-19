@@ -181,16 +181,17 @@ jobs:
           
           cd ./operator
           
-          # Login to registry first (outside sg block)
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo "❌ Login failed"
-              exit 1
-            }
-          fi
-          
-          # Run build and push with docker group activated
+          # Run everything with docker group activated (login and build/push)
           sg docker -c "
+            # Login to registry
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+            fi
+            
+            # Build
             bash buildme.sh
             
             BRANCH_NAME=\"${{ github.ref_name }}\"
