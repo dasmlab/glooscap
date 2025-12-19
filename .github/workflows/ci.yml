@@ -607,34 +607,33 @@ jobs:
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
           # Run everything with docker group activated (login and build/push)
-          # Use a here-document to pass TOKEN into sg subshell
-          sg docker -c "bash -s" <<EOF
+          # Match operator pattern exactly
+          sg docker -c "
             # Login to registry
-            if [ "${{ github.event_name }}" != "pull_request" ]; then
-              echo "$TOKEN" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-                echo "❌ Login failed"
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
                 exit 1
               }
-              echo "✅ Login successful"
             fi
             
             # Build (from repo root with translation-runner Dockerfile)
             docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./translation-runner/Dockerfile . || {
-              echo "❌ Build failed"
+              echo \"❌ Build failed\"
               exit 1
             }
-            echo "✅ Build successful for $ARCH"
+            echo \"✅ Build successful for $ARCH\"
             
             # Push
-            if [ "${{ github.event_name }}" != "pull_request" ]; then
-              echo "Pushing image..."
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"Pushing image...\"
               docker push $IMAGE_TAG || {
-                echo "❌ Push failed"
+                echo \"❌ Push failed\"
                 exit 1
               }
-              echo "✅ Image pushed: $IMAGE_TAG"
+              echo \"✅ Image pushed: $IMAGE_TAG\"
             fi
-EOF
+          "
 
   # Container scanning (DAST)
   scan-containers:
