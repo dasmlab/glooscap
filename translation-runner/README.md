@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 35 - Login inside sg block
+# CI Test Bump 36 - Use GHCR_TOKEN with fallback
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
