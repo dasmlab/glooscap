@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 14 - sg docker for build/push
+# CI Test Bump 15 - Fixed translation-runner sg docker
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
