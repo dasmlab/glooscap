@@ -87,9 +87,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
+          install: false  # Don't install, just ensure buildx is available
           driver-opts: |
             image=moby/buildkit:latest
           version: latest
+          endpoint: default  # Use default endpoint, we'll create our own builder
       
       - name: Install QEMU for multi-arch support
         run: |
@@ -104,12 +106,24 @@ jobs:
           docker buildx rm ci-builder || true
           
           # Create builder with docker-container driver (required for multi-arch)
-          # The --platform flag ensures it supports both architectures
-          docker buildx create --name ci-builder --driver docker-container --use --platform linux/amd64,linux/arm64 || {
+          # The docker driver only supports native platform (amd64)
+          # docker-container driver runs BuildKit in a container and supports QEMU emulation
+          # --allow network.host is needed for BuildKit to access host network (for registry access, etc.)
+          docker buildx create --name ci-builder \
+            --driver docker-container \
+            --driver-opt network=host \
+            --use \
+            --platform linux/amd64,linux/arm64 || {
             echo "❌ Failed to create multi-arch builder"
-            echo "Available drivers:"
-            docker buildx ls
-            exit 1
+            echo "Trying without network=host..."
+            docker buildx create --name ci-builder \
+              --driver docker-container \
+              --use \
+              --platform linux/amd64,linux/arm64 || {
+              echo "❌ Failed again, listing available builders:"
+              docker buildx ls
+              exit 1
+            }
           }
           
           # Bootstrap the builder (this starts the BuildKit container)
@@ -211,9 +225,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
+          install: false  # Don't install, just ensure buildx is available
           driver-opts: |
             image=moby/buildkit:latest
           version: latest
+          endpoint: default  # Use default endpoint, we'll create our own builder
       
       - name: Install QEMU for multi-arch support
         run: |
@@ -228,12 +244,24 @@ jobs:
           docker buildx rm ci-builder || true
           
           # Create builder with docker-container driver (required for multi-arch)
-          # The --platform flag ensures it supports both architectures
-          docker buildx create --name ci-builder --driver docker-container --use --platform linux/amd64,linux/arm64 || {
+          # The docker driver only supports native platform (amd64)
+          # docker-container driver runs BuildKit in a container and supports QEMU emulation
+          # --allow network.host is needed for BuildKit to access host network (for registry access, etc.)
+          docker buildx create --name ci-builder \
+            --driver docker-container \
+            --driver-opt network=host \
+            --use \
+            --platform linux/amd64,linux/arm64 || {
             echo "❌ Failed to create multi-arch builder"
-            echo "Available drivers:"
-            docker buildx ls
-            exit 1
+            echo "Trying without network=host..."
+            docker buildx create --name ci-builder \
+              --driver docker-container \
+              --use \
+              --platform linux/amd64,linux/arm64 || {
+              echo "❌ Failed again, listing available builders:"
+              docker buildx ls
+              exit 1
+            }
           }
           
           # Bootstrap the builder (this starts the BuildKit container)
@@ -331,9 +359,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
+          install: false  # Don't install, just ensure buildx is available
           driver-opts: |
             image=moby/buildkit:latest
           version: latest
+          endpoint: default  # Use default endpoint, we'll create our own builder
       
       - name: Install QEMU for multi-arch support
         run: |
@@ -348,12 +378,24 @@ jobs:
           docker buildx rm ci-builder || true
           
           # Create builder with docker-container driver (required for multi-arch)
-          # The --platform flag ensures it supports both architectures
-          docker buildx create --name ci-builder --driver docker-container --use --platform linux/amd64,linux/arm64 || {
+          # The docker driver only supports native platform (amd64)
+          # docker-container driver runs BuildKit in a container and supports QEMU emulation
+          # --allow network.host is needed for BuildKit to access host network (for registry access, etc.)
+          docker buildx create --name ci-builder \
+            --driver docker-container \
+            --driver-opt network=host \
+            --use \
+            --platform linux/amd64,linux/arm64 || {
             echo "❌ Failed to create multi-arch builder"
-            echo "Available drivers:"
-            docker buildx ls
-            exit 1
+            echo "Trying without network=host..."
+            docker buildx create --name ci-builder \
+              --driver docker-container \
+              --use \
+              --platform linux/amd64,linux/arm64 || {
+              echo "❌ Failed again, listing available builders:"
+              docker buildx ls
+              exit 1
+            }
           }
           
           # Bootstrap the builder (this starts the BuildKit container)
@@ -490,9 +532,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
+          install: false  # Don't install, just ensure buildx is available
           driver-opts: |
             image=moby/buildkit:latest
           version: latest
+          endpoint: default  # Use default endpoint, we'll create our own builder
       
       - name: Install QEMU for multi-arch support
         run: |
@@ -507,12 +551,24 @@ jobs:
           docker buildx rm ci-builder || true
           
           # Create builder with docker-container driver (required for multi-arch)
-          # The --platform flag ensures it supports both architectures
-          docker buildx create --name ci-builder --driver docker-container --use --platform linux/amd64,linux/arm64 || {
+          # The docker driver only supports native platform (amd64)
+          # docker-container driver runs BuildKit in a container and supports QEMU emulation
+          # --allow network.host is needed for BuildKit to access host network (for registry access, etc.)
+          docker buildx create --name ci-builder \
+            --driver docker-container \
+            --driver-opt network=host \
+            --use \
+            --platform linux/amd64,linux/arm64 || {
             echo "❌ Failed to create multi-arch builder"
-            echo "Available drivers:"
-            docker buildx ls
-            exit 1
+            echo "Trying without network=host..."
+            docker buildx create --name ci-builder \
+              --driver docker-container \
+              --use \
+              --platform linux/amd64,linux/arm64 || {
+              echo "❌ Failed again, listing available builders:"
+              docker buildx ls
+              exit 1
+            }
           }
           
           # Bootstrap the builder (this starts the BuildKit container)
@@ -709,9 +765,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
+          install: false  # Don't install, just ensure buildx is available
           driver-opts: |
             image=moby/buildkit:latest
           version: latest
+          endpoint: default  # Use default endpoint, we'll create our own builder
       
       - name: Install QEMU for multi-arch support
         run: |
@@ -726,12 +784,24 @@ jobs:
           docker buildx rm ci-builder || true
           
           # Create builder with docker-container driver (required for multi-arch)
-          # The --platform flag ensures it supports both architectures
-          docker buildx create --name ci-builder --driver docker-container --use --platform linux/amd64,linux/arm64 || {
+          # The docker driver only supports native platform (amd64)
+          # docker-container driver runs BuildKit in a container and supports QEMU emulation
+          # --allow network.host is needed for BuildKit to access host network (for registry access, etc.)
+          docker buildx create --name ci-builder \
+            --driver docker-container \
+            --driver-opt network=host \
+            --use \
+            --platform linux/amd64,linux/arm64 || {
             echo "❌ Failed to create multi-arch builder"
-            echo "Available drivers:"
-            docker buildx ls
-            exit 1
+            echo "Trying without network=host..."
+            docker buildx create --name ci-builder \
+              --driver docker-container \
+              --use \
+              --platform linux/amd64,linux/arm64 || {
+              echo "❌ Failed again, listing available builders:"
+              docker buildx ls
+              exit 1
+            }
           }
           
           # Bootstrap the builder (this starts the BuildKit container)
