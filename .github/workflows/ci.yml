@@ -173,24 +173,26 @@ jobs:
           set -e
           cd ./operator
           
-          # Set image tag based on branch
-          BRANCH_NAME="${{ github.ref_name }}"
-          ARCH="${{ matrix.arch }}"
-          if [ "$BRANCH_NAME" = "main" ]; then
-            export IMG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
-          else
-            export IMG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-$ARCH"
-          fi
-          
           # Login to GHCR
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
           
-          # Use the existing build script
+          # Build using the existing script
           bash buildme.sh
+          
+          # Tag with CI tags
+          BRANCH_NAME="${{ github.ref_name }}"
+          ARCH="${{ matrix.arch }}"
+          if [ "$BRANCH_NAME" = "main" ]; then
+            CI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
+          else
+            CI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-$ARCH"
+          fi
+          
+          docker tag glooscap:scratch $CI_TAG
           
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            bash pushme.sh
+            docker push $CI_TAG
           fi
   
   # Create multi-arch manifest for operator
