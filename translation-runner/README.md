@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 7 - Pass TOKEN as env to sg
+# CI Test Bump 8 - Exact operator pattern match
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes

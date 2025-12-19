@@ -1,5 +1,5 @@
 # Glooscap UI
-# CI Test Bump 7 - Pass TOKEN as env to sg
+# CI Test Bump 8 - Exact operator pattern match
 
 Quasar/Vue 3 single-page console for browsing discovered Outline pages, staging translations, monitoring jobs, and managing defaults. Works alongside the Kubebuilder operator (`../operator`) and surfaces telemetry-friendly interactions only—no design frills.
 
