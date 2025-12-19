@@ -170,14 +170,14 @@ jobs:
       
       - name: Build and push operator
         run: |
-          # Get token and export it so it's available in sg subshell
-          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          # Read token fresh from secrets for this step
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
           
           # Run everything with docker group activated (login and build/push)
-          # Pass TOKEN explicitly as environment variable using env command
+          # Pass TOKEN directly from secrets to env command
           env TOKEN="$TOKEN" sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
@@ -400,18 +400,10 @@ jobs:
       
       - name: Build and push UI
         run: |
-          # Get token and export it so it's available in sg subshell
-          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          # Read token fresh from secrets for this step
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          fi
-          
-          # Debug: Verify token is set
-          if [ -z "$TOKEN" ]; then
-            echo "❌ ERROR: TOKEN is empty!"
-            exit 1
-          else
-            echo "✅ TOKEN is set (length: ${#TOKEN})"
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
           
           # Generate image tag
@@ -426,7 +418,7 @@ jobs:
           echo "Building UI image: $IMAGE_TAG"
           
           # Run everything with docker group activated (login and build/push)
-          # Pass TOKEN explicitly as environment variable using env command
+          # Pass TOKEN directly from secrets to env command
           env TOKEN="$TOKEN" sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
@@ -577,18 +569,10 @@ jobs:
       
       - name: Build and push translation-runner
         run: |
-          # Get token and export it so it's available in sg subshell
-          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          # Read token fresh from secrets for this step
+          TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
-            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          fi
-          
-          # Debug: Verify token is set
-          if [ -z "$TOKEN" ]; then
-            echo "❌ ERROR: TOKEN is empty!"
-            exit 1
-          else
-            echo "✅ TOKEN is set (length: ${#TOKEN})"
+            TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
           
           # Generate image tag with architecture suffix
@@ -606,7 +590,7 @@ jobs:
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
           # Run everything with docker group activated (login and build/push)
-          # Pass TOKEN explicitly as environment variable using env command
+          # Pass TOKEN directly from secrets to env command
           env TOKEN="$TOKEN" sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
