@@ -576,10 +576,20 @@ jobs:
       
       - name: Build and push translation-runner
         run: |
+          set -e
+          
           # Get token and export it so it's available in sg subshell
           export TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
             export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
+          # Debug: Verify token is set (but don't print it)
+          if [ -z "$TOKEN" ]; then
+            echo "❌ ERROR: TOKEN is empty!"
+            exit 1
+          else
+            echo "✅ TOKEN is set (length: ${#TOKEN})"
           fi
           
           # Generate image tag with architecture suffix
@@ -597,13 +607,15 @@ jobs:
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
           # Run everything with docker group activated (login and build/push)
-          sg docker -c "
+          # Pass TOKEN as environment variable to sg subshell
+          TOKEN="$TOKEN" sg docker -c "
             # Login to registry
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
                 echo \"❌ Login failed\"
                 exit 1
               }
+              echo \"✅ Login successful\"
             fi
             
             # Build (from repo root with translation-runner Dockerfile)
