@@ -1,5 +1,5 @@
 # Glooscap UI
-# CI Test Bump 3 - Test with exported TOKEN
+# CI Test Bump 4 - Fix token expansion
 
 Quasar/Vue 3 single-page console for browsing discovered Outline pages, staging translations, monitoring jobs, and managing defaults. Works alongside the Kubebuilder operator (`../operator`) and surfaces telemetry-friendly interactions only—no design frills.
 
