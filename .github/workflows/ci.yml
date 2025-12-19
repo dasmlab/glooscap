@@ -73,35 +73,42 @@ jobs:
           DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
           echo "Docker socket GID: $DOCKER_GID"
           
-          # Create docker group with the socket's GID if it doesn't exist
-          if ! getent group docker >/dev/null 2>&1; then
-            echo "Creating docker group with GID $DOCKER_GID..."
-            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
-              # If group exists with different GID, try to use existing
-              EXISTING_GID=$(getent group docker | cut -d: -f3)
-              echo "Docker group exists with GID $EXISTING_GID, using that instead"
-              DOCKER_GID=$EXISTING_GID
-            }
+          # The socket GID might not match the docker group GID
+          # We need to add runner to the group that matches the socket GID (988)
+          # First, try to find/create a group with the socket's GID
+          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
+            SOCKET_GROUP="dockersock"
           else
-            EXISTING_GID=$(getent group docker | cut -d: -f3)
-            echo "Docker group exists with GID $EXISTING_GID"
-            DOCKER_GID=$EXISTING_GID
+            echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
           
-          # Add runner user to docker group
-          if ! id -nG | grep -qw docker; then
-            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
-            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
-            # Verify it worked
-            id || true
-          else
-            echo "Runner user already in docker group"
+          # Add runner user to the socket's group
+          if ! id -nG | grep -qw "$SOCKET_GROUP"; then
+            echo "Adding runner user to group $SOCKET_GROUP (GID: $DOCKER_GID)..."
+            sudo usermod -aG $SOCKET_GROUP $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) $SOCKET_GROUP 2>/dev/null || true
           fi
+          
+          # Also add to docker group if it exists
+          if getent group docker >/dev/null 2>&1; then
+            if ! id -nG | grep -qw docker; then
+              echo "Adding runner user to docker group..."
+              sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            fi
+          fi
+          
+          # Use sg to activate group membership for this session
+          echo "Current groups: $(id -nG)"
+          echo "Activating group $SOCKET_GROUP..."
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
-          docker version || true
-          docker info || true
+          
+          # Try docker commands with group activation using sg
+          sg $SOCKET_GROUP -c "docker version" 2>&1 || docker version || true
+          sg $SOCKET_GROUP -c "docker info" 2>&1 || docker info || true
           
           echo "== buildx =="
           docker buildx version || true
@@ -241,35 +248,42 @@ jobs:
           DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
           echo "Docker socket GID: $DOCKER_GID"
           
-          # Create docker group with the socket's GID if it doesn't exist
-          if ! getent group docker >/dev/null 2>&1; then
-            echo "Creating docker group with GID $DOCKER_GID..."
-            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
-              # If group exists with different GID, try to use existing
-              EXISTING_GID=$(getent group docker | cut -d: -f3)
-              echo "Docker group exists with GID $EXISTING_GID, using that instead"
-              DOCKER_GID=$EXISTING_GID
-            }
+          # The socket GID might not match the docker group GID
+          # We need to add runner to the group that matches the socket GID (988)
+          # First, try to find/create a group with the socket's GID
+          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
+            SOCKET_GROUP="dockersock"
           else
-            EXISTING_GID=$(getent group docker | cut -d: -f3)
-            echo "Docker group exists with GID $EXISTING_GID"
-            DOCKER_GID=$EXISTING_GID
+            echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
           
-          # Add runner user to docker group
-          if ! id -nG | grep -qw docker; then
-            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
-            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
-            # Verify it worked
-            id || true
-          else
-            echo "Runner user already in docker group"
+          # Add runner user to the socket's group
+          if ! id -nG | grep -qw "$SOCKET_GROUP"; then
+            echo "Adding runner user to group $SOCKET_GROUP (GID: $DOCKER_GID)..."
+            sudo usermod -aG $SOCKET_GROUP $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) $SOCKET_GROUP 2>/dev/null || true
           fi
+          
+          # Also add to docker group if it exists
+          if getent group docker >/dev/null 2>&1; then
+            if ! id -nG | grep -qw docker; then
+              echo "Adding runner user to docker group..."
+              sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            fi
+          fi
+          
+          # Use sg to activate group membership for this session
+          echo "Current groups: $(id -nG)"
+          echo "Activating group $SOCKET_GROUP..."
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
-          docker version || true
-          docker info || true
+          
+          # Try docker commands with group activation using sg
+          sg $SOCKET_GROUP -c "docker version" 2>&1 || docker version || true
+          sg $SOCKET_GROUP -c "docker info" 2>&1 || docker info || true
           
           echo "== buildx =="
           docker buildx version || true
@@ -405,35 +419,42 @@ jobs:
           DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
           echo "Docker socket GID: $DOCKER_GID"
           
-          # Create docker group with the socket's GID if it doesn't exist
-          if ! getent group docker >/dev/null 2>&1; then
-            echo "Creating docker group with GID $DOCKER_GID..."
-            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
-              # If group exists with different GID, try to use existing
-              EXISTING_GID=$(getent group docker | cut -d: -f3)
-              echo "Docker group exists with GID $EXISTING_GID, using that instead"
-              DOCKER_GID=$EXISTING_GID
-            }
+          # The socket GID might not match the docker group GID
+          # We need to add runner to the group that matches the socket GID (988)
+          # First, try to find/create a group with the socket's GID
+          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
+            SOCKET_GROUP="dockersock"
           else
-            EXISTING_GID=$(getent group docker | cut -d: -f3)
-            echo "Docker group exists with GID $EXISTING_GID"
-            DOCKER_GID=$EXISTING_GID
+            echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
           
-          # Add runner user to docker group
-          if ! id -nG | grep -qw docker; then
-            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
-            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
-            # Verify it worked
-            id || true
-          else
-            echo "Runner user already in docker group"
+          # Add runner user to the socket's group
+          if ! id -nG | grep -qw "$SOCKET_GROUP"; then
+            echo "Adding runner user to group $SOCKET_GROUP (GID: $DOCKER_GID)..."
+            sudo usermod -aG $SOCKET_GROUP $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) $SOCKET_GROUP 2>/dev/null || true
           fi
+          
+          # Also add to docker group if it exists
+          if getent group docker >/dev/null 2>&1; then
+            if ! id -nG | grep -qw docker; then
+              echo "Adding runner user to docker group..."
+              sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            fi
+          fi
+          
+          # Use sg to activate group membership for this session
+          echo "Current groups: $(id -nG)"
+          echo "Activating group $SOCKET_GROUP..."
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
-          docker version || true
-          docker info || true
+          
+          # Try docker commands with group activation using sg
+          sg $SOCKET_GROUP -c "docker version" 2>&1 || docker version || true
+          sg $SOCKET_GROUP -c "docker info" 2>&1 || docker info || true
           
           echo "== buildx =="
           docker buildx version || true
@@ -608,35 +629,42 @@ jobs:
           DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
           echo "Docker socket GID: $DOCKER_GID"
           
-          # Create docker group with the socket's GID if it doesn't exist
-          if ! getent group docker >/dev/null 2>&1; then
-            echo "Creating docker group with GID $DOCKER_GID..."
-            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
-              # If group exists with different GID, try to use existing
-              EXISTING_GID=$(getent group docker | cut -d: -f3)
-              echo "Docker group exists with GID $EXISTING_GID, using that instead"
-              DOCKER_GID=$EXISTING_GID
-            }
+          # The socket GID might not match the docker group GID
+          # We need to add runner to the group that matches the socket GID (988)
+          # First, try to find/create a group with the socket's GID
+          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
+            SOCKET_GROUP="dockersock"
           else
-            EXISTING_GID=$(getent group docker | cut -d: -f3)
-            echo "Docker group exists with GID $EXISTING_GID"
-            DOCKER_GID=$EXISTING_GID
+            echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
           
-          # Add runner user to docker group
-          if ! id -nG | grep -qw docker; then
-            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
-            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
-            # Verify it worked
-            id || true
-          else
-            echo "Runner user already in docker group"
+          # Add runner user to the socket's group
+          if ! id -nG | grep -qw "$SOCKET_GROUP"; then
+            echo "Adding runner user to group $SOCKET_GROUP (GID: $DOCKER_GID)..."
+            sudo usermod -aG $SOCKET_GROUP $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) $SOCKET_GROUP 2>/dev/null || true
           fi
+          
+          # Also add to docker group if it exists
+          if getent group docker >/dev/null 2>&1; then
+            if ! id -nG | grep -qw docker; then
+              echo "Adding runner user to docker group..."
+              sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            fi
+          fi
+          
+          # Use sg to activate group membership for this session
+          echo "Current groups: $(id -nG)"
+          echo "Activating group $SOCKET_GROUP..."
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
-          docker version || true
-          docker info || true
+          
+          # Try docker commands with group activation using sg
+          sg $SOCKET_GROUP -c "docker version" 2>&1 || docker version || true
+          sg $SOCKET_GROUP -c "docker info" 2>&1 || docker info || true
           
           echo "== buildx =="
           docker buildx version || true
@@ -871,35 +899,42 @@ jobs:
           DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "988")
           echo "Docker socket GID: $DOCKER_GID"
           
-          # Create docker group with the socket's GID if it doesn't exist
-          if ! getent group docker >/dev/null 2>&1; then
-            echo "Creating docker group with GID $DOCKER_GID..."
-            sudo groupadd -g $DOCKER_GID docker 2>/dev/null || {
-              # If group exists with different GID, try to use existing
-              EXISTING_GID=$(getent group docker | cut -d: -f3)
-              echo "Docker group exists with GID $EXISTING_GID, using that instead"
-              DOCKER_GID=$EXISTING_GID
-            }
+          # The socket GID might not match the docker group GID
+          # We need to add runner to the group that matches the socket GID (988)
+          # First, try to find/create a group with the socket's GID
+          SOCKET_GROUP=$(getent group $DOCKER_GID | cut -d: -f1)
+          if [ -z "$SOCKET_GROUP" ]; then
+            echo "Creating group 'dockersock' with GID $DOCKER_GID to match socket..."
+            sudo groupadd -g $DOCKER_GID dockersock 2>/dev/null || true
+            SOCKET_GROUP="dockersock"
           else
-            EXISTING_GID=$(getent group docker | cut -d: -f3)
-            echo "Docker group exists with GID $EXISTING_GID"
-            DOCKER_GID=$EXISTING_GID
+            echo "Found group '$SOCKET_GROUP' with GID $DOCKER_GID"
           fi
           
-          # Add runner user to docker group
-          if ! id -nG | grep -qw docker; then
-            echo "Adding runner user to docker group (GID: $DOCKER_GID)..."
-            sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
-            # Verify it worked
-            id || true
-          else
-            echo "Runner user already in docker group"
+          # Add runner user to the socket's group
+          if ! id -nG | grep -qw "$SOCKET_GROUP"; then
+            echo "Adding runner user to group $SOCKET_GROUP (GID: $DOCKER_GID)..."
+            sudo usermod -aG $SOCKET_GROUP $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) $SOCKET_GROUP 2>/dev/null || true
           fi
+          
+          # Also add to docker group if it exists
+          if getent group docker >/dev/null 2>&1; then
+            if ! id -nG | grep -qw docker; then
+              echo "Adding runner user to docker group..."
+              sudo usermod -aG docker $(whoami) 2>/dev/null || sudo gpasswd -a $(whoami) docker 2>/dev/null || true
+            fi
+          fi
+          
+          # Use sg to activate group membership for this session
+          echo "Current groups: $(id -nG)"
+          echo "Activating group $SOCKET_GROUP..."
           
           echo "== docker daemon reachability =="
           ls -l /var/run/docker.sock || true
-          docker version || true
-          docker info || true
+          
+          # Try docker commands with group activation using sg
+          sg $SOCKET_GROUP -c "docker version" 2>&1 || docker version || true
+          sg $SOCKET_GROUP -c "docker info" 2>&1 || docker info || true
           
           echo "== buildx =="
           docker buildx version || true

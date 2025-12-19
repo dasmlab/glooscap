@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 3
+# CI Test Bump 4
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
