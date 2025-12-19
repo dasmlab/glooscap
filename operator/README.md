@@ -101,3 +101,4 @@ View coverage on [Codecov](https://codecov.io) (if configured) or download artif
 
 Run `make help` for the full list of helper targets.
 
+bump
