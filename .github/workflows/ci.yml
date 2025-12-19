@@ -173,13 +173,10 @@ jobs:
           set -e
           cd ./operator
           
-          # Login to GHCR
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-          
           # Build using the existing script
           bash buildme.sh
           
-          # Tag with CI tags
+          # Tag with CI tags and push
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
           if [ "$BRANCH_NAME" = "main" ]; then
@@ -190,8 +187,8 @@ jobs:
           
           docker tag glooscap:scratch $CI_TAG
           
-          # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
             docker push $CI_TAG
           fi
   

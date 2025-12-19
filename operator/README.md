@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 31 - Use buildme.sh script
+# CI Test Bump 32 - Test build
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
