@@ -53,7 +53,12 @@ jobs:
     name: Build Operator
     needs: detect-changes
     if: needs.detect-changes.outputs.operator == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
     runs-on: self-hosted
+    labels: ${{ matrix.arch }}
     permissions:
       contents: read
       packages: write
@@ -202,15 +207,18 @@ jobs:
           # Get socket group from env
           SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
           
-          # Generate image tag
+          # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
+          ARCH="${{ matrix.arch }}"
           if [ "$BRANCH_NAME" = "main" ]; then
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main"
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
+            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main"
           else
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}"
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-$ARCH"
+            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}"
           fi
           
-          echo "Building operator image: $IMAGE_TAG"
+          echo "Building operator image for $ARCH: $IMAGE_TAG"
           
           # Disable BuildKit to avoid permission issues
           export DOCKER_BUILDKIT=0
@@ -224,18 +232,24 @@ jobs:
           fi
           
           # Build with docker (native, fast, no BuildKit)
+          # Set build args for target architecture
           if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./operator && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile ." || {
+            $DOCKER_CMD "cd ./operator && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
               echo "❌ Build failed"
               exit 1
             }
           else
-            cd ./operator && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile . || {
+            cd ./operator && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo "❌ Build failed"
               exit 1
             }
           fi
-          echo "✅ Build successful"
+          echo "✅ Build successful for $ARCH"
+          
+          # Export tags for manifest creation job
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "MANIFEST_TAG=$MANIFEST_TAG" >> $GITHUB_ENV
+          echo "ARCH=$ARCH" >> $GITHUB_ENV
           
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
@@ -255,13 +269,86 @@ jobs:
           else
             echo "Skipping push (PR build)"
           fi
+  
+  # Create multi-arch manifest for operator
+  manifest-operator:
+    name: Create Multi-arch Manifest (Operator)
+    needs: build-operator
+    if: needs.build-operator.result == 'success' && github.event_name != 'pull_request'
+    runs-on: self-hosted
+    labels: amd64  # Use amd64 runner for manifest creation
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Log in to GHCR
+        run: |
+          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
+            echo "${{ secrets.GITHUB_TOKEN }}" | sg $SOCKET_GROUP -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+              echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || exit 1
+            }
+          else
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || exit 1
+          fi
+      
+      - name: Create and push multi-arch manifest
+        run: |
+          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          BRANCH_NAME="${{ github.ref_name }}"
+          
+          if [ "$BRANCH_NAME" = "main" ]; then
+            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main"
+            AMD64_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-amd64"
+            ARM64_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-arm64"
+          else
+            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}"
+            AMD64_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-amd64"
+            ARM64_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-arm64"
+          fi
+          
+          echo "Creating multi-arch manifest: $MANIFEST_TAG"
+          echo "  - amd64: $AMD64_TAG"
+          echo "  - arm64: $ARM64_TAG"
+          
+          # Use docker manifest to create multi-arch manifest
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
+            DOCKER_CMD="sg $SOCKET_GROUP -c"
+          else
+            DOCKER_CMD=""
+          fi
+          
+          if [ -n "$DOCKER_CMD" ]; then
+            $DOCKER_CMD "docker manifest create $MANIFEST_TAG $AMD64_TAG $ARM64_TAG" || {
+              echo "⚠️ Manifest exists, removing and recreating..."
+              $DOCKER_CMD "docker manifest rm $MANIFEST_TAG" || true
+              $DOCKER_CMD "docker manifest create $MANIFEST_TAG $AMD64_TAG $ARM64_TAG" || exit 1
+            }
+            $DOCKER_CMD "docker manifest push $MANIFEST_TAG" || exit 1
+          else
+            docker manifest create $MANIFEST_TAG $AMD64_TAG $ARM64_TAG || {
+              echo "⚠️ Manifest exists, removing and recreating..."
+              docker manifest rm $MANIFEST_TAG || true
+              docker manifest create $MANIFEST_TAG $AMD64_TAG $ARM64_TAG || exit 1
+            }
+            docker manifest push $MANIFEST_TAG || exit 1
+          fi
+          
+          echo "✅ Multi-arch manifest created and pushed: $MANIFEST_TAG"
 
   # Build UI
   build-ui:
     name: Build UI
     needs: detect-changes
     if: needs.detect-changes.outputs.ui == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
     runs-on: self-hosted
+    labels: ${{ matrix.arch }}
     permissions:
       contents: read
       packages: write
@@ -423,17 +510,17 @@ jobs:
           
           # Build with docker (native, fast, no BuildKit)
           if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./ui && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile ." || {
+            $DOCKER_CMD "cd ./ui && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
               echo "❌ Build failed"
               exit 1
             }
           else
-            cd ./ui && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile . || {
+            cd ./ui && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo "❌ Build failed"
               exit 1
             }
           fi
-          echo "✅ Build successful"
+          echo "✅ Build successful for $ARCH"
           
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
@@ -459,7 +546,12 @@ jobs:
     name: Build Translation Runner
     needs: detect-changes
     if: needs.detect-changes.outputs.translation-runner == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
     runs-on: self-hosted
+    labels: ${{ matrix.arch }}
     permissions:
       contents: read
       packages: write
@@ -621,17 +713,17 @@ jobs:
           
           # Build with docker (native, fast, no BuildKit)
           if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./translation-runner && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile ." || {
+            $DOCKER_CMD "cd ./translation-runner && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
               echo "❌ Build failed"
               exit 1
             }
           else
-            cd ./translation-runner && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile . || {
+            cd ./translation-runner && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo "❌ Build failed"
               exit 1
             }
           fi
-          echo "✅ Build successful"
+          echo "✅ Build successful for $ARCH"
           
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
