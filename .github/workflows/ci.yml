@@ -54,9 +54,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.operator == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64]  # Start with just amd64 to test, add arm64 back once working
-      fail-fast: false
     runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
@@ -342,9 +342,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.ui == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64]  # Start with just amd64 to test, add arm64 back once working
-      fail-fast: false
     runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read
@@ -544,9 +544,9 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.translation-runner == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64]  # Start with just amd64 to test, add arm64 back once working
-      fail-fast: false
     runs-on: [self-hosted, ${{ matrix.arch }}]
     permissions:
       contents: read

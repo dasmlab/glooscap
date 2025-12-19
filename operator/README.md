@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 18 - Test single arch first
+# CI Test Bump 19 - Fix fail-fast indentation
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
