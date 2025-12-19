@@ -169,28 +169,11 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
       - name: Log in to GHCR
-        run: |
-          # Get socket group from env (set in previous step)
-          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
-          
-          # Check if group exists and user is in it, otherwise use docker directly
-          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
-            echo "Using sg with group $SOCKET_GROUP for docker commands"
-            echo "${{ secrets.GITHUB_TOKEN }}" | sg $SOCKET_GROUP -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
-              echo "⚠️ Login with sg failed, trying regular docker login..."
-              echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || exit 1
-            }
-          else
-            echo "⚠️ Group $SOCKET_GROUP not available, using docker directly"
-            echo "⚠️ NOTE: Runner user needs docker group access - check runner container setup"
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
-              echo "❌ Login failed - runner user needs docker group access"
-              echo "Current groups: $(id -nG)"
-              echo "Docker socket: $(ls -l /var/run/docker.sock)"
-              exit 1
-            }
-          fi
-          echo "✅ Logged in to ${{ env.REGISTRY }}"
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Verify build context
         run: |
@@ -204,15 +187,11 @@ jobs:
       
       - name: Build and push operator
         run: |
-          # Get socket group from env
-          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          set -e
           
           # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
-          echo "Building for architecture: $ARCH"
-          echo "Branch: $BRANCH_NAME"
-          echo "SHA: ${{ github.sha }}"
           if [ "$BRANCH_NAME" = "main" ]; then
             IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
             MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main"
@@ -223,25 +202,15 @@ jobs:
           
           echo "Building operator image for $ARCH: $IMAGE_TAG"
           
-          # Build with docker directly (runner user now has docker group access)
-          cd ./operator && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
-            echo "❌ Build failed"
-            exit 1
-          }
+          # Build with docker
+          cd ./operator
+          docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile .
           echo "✅ Build successful for $ARCH"
-          
-          # Export tags for manifest creation job
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          echo "MANIFEST_TAG=$MANIFEST_TAG" >> $GITHUB_ENV
-          echo "ARCH=$ARCH" >> $GITHUB_ENV
           
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "Pushing image..."
-            docker push $IMAGE_TAG || {
-              echo "❌ Push failed"
-              exit 1
-            }
+            docker push $IMAGE_TAG
             echo "✅ Image pushed: $IMAGE_TAG"
           else
             echo "Skipping push (PR build)"
