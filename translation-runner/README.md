@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 38 - Read token outside sg block
+# CI Test Bump 39 - Use env TOKEN
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
