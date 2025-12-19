@@ -450,10 +450,9 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
-          # Build and push with docker group activated
+          # Build and push with docker group activated (build from repo root with ui context)
           sg docker -c "
-            cd ./ui
-            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
+            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./ui/Dockerfile . || {
               echo \"❌ Build failed\"
               exit 1
             }
@@ -641,10 +640,9 @@ jobs:
           
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
-          # Build and push with docker group activated
+          # Build and push with docker group activated (build from repo root with translation-runner context)
           sg docker -c "
-            cd ./translation-runner
-            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
+            docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./translation-runner/Dockerfile . || {
               echo \"❌ Build failed\"
               exit 1
             }
