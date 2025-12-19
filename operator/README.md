@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 32 - Read token fresh per step
+# CI Test Bump 33 - Use docker/login-action@v3
 # CI Test Bump 47 - All three match operator pattern
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
