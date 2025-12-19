@@ -575,14 +575,6 @@ jobs:
             export TOKEN="${{ secrets.GITHUB_TOKEN }}"
           fi
           
-          # Debug: Verify token is set (but don't print it)
-          if [ -z "$TOKEN" ]; then
-            echo "❌ ERROR: TOKEN is empty!"
-            exit 1
-          else
-            echo "✅ TOKEN is set (length: ${#TOKEN})"
-          fi
-          
           # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
