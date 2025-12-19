@@ -58,7 +58,7 @@ jobs:
       matrix:
         arch:
           - amd64
-    runs-on: [self-hosted, ${{ matrix.arch }}]
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
@@ -350,7 +350,7 @@ jobs:
       matrix:
         arch:
           - amd64
-    runs-on: [self-hosted, ${{ matrix.arch }}]
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
@@ -553,7 +553,7 @@ jobs:
       matrix:
         arch:
           - amd64
-    runs-on: [self-hosted, ${{ matrix.arch }}]
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: write
