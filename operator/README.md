@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 40 - Verify GHCR push success
+# CI Test Bump 41 - Fix token expansion
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
