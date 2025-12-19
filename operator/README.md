@@ -1,4 +1,5 @@
 # Glooscap Operator
+# CI Test Bump - All three components
 # CI Test Bump 47 - All three match operator pattern
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
