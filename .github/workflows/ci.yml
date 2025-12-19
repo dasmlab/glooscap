@@ -575,12 +575,18 @@ jobs:
       
       - name: Build and push translation-runner
         run: |
-          set -e
-          
           # Get token and export it so it's available in sg subshell
           export TOKEN="${{ secrets.GHCR_TOKEN }}"
           if [ -z "$TOKEN" ]; then
             export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
+          # Debug: Verify token is set
+          if [ -z "$TOKEN" ]; then
+            echo "❌ ERROR: TOKEN is empty!"
+            exit 1
+          else
+            echo "✅ TOKEN is set (length: ${#TOKEN})"
           fi
           
           # Generate image tag with architecture suffix
