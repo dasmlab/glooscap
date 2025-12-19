@@ -171,26 +171,26 @@ jobs:
       - name: Build and push operator
         run: |
           set -e
+          cd ./operator
+          
+          # Set image tag based on branch
+          BRANCH_NAME="${{ github.ref_name }}"
+          ARCH="${{ matrix.arch }}"
+          if [ "$BRANCH_NAME" = "main" ]; then
+            export IMG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
+          else
+            export IMG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-$ARCH"
+          fi
           
           # Login to GHCR
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
           
-          # Generate image tag
-          BRANCH_NAME="${{ github.ref_name }}"
-          ARCH="${{ matrix.arch }}"
-          if [ "$BRANCH_NAME" = "main" ]; then
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:main-$ARCH"
-          else
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-operator:dev-${{ github.sha }}-$ARCH"
-          fi
+          # Use the existing build script
+          bash buildme.sh
           
-          # Build the Docker image
-          cd ./operator
-          docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile .
-          
-          # Push the image
+          # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            docker push $IMAGE_TAG
+            bash pushme.sh
           fi
   
   # Create multi-arch manifest for operator
