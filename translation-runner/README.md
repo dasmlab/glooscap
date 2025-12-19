@@ -1,5 +1,5 @@
 # Glooscap Translation Runner
-# CI Test Bump 34 - Use docker/login-action@v3
+# CI Test Bump 35 - Login inside sg block
 
 A Kubernetes Job container that processes TranslationJob CRs by:
 1. Reading the TranslationJob CR from Kubernetes
