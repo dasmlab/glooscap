@@ -165,14 +165,26 @@ jobs:
       
       - name: Log in to GHCR
         run: |
-          # Get socket group from env
+          # Get socket group from env (set in previous step)
           SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
           
-          # Login to GHCR using sg to ensure permissions
-          echo "${{ secrets.GITHUB_TOKEN }}" | sg $SOCKET_GROUP -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
-            echo "❌ Login failed"
-            exit 1
-          }
+          # Check if group exists and user is in it, otherwise use docker directly
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
+            echo "Using sg with group $SOCKET_GROUP for docker commands"
+            echo "${{ secrets.GITHUB_TOKEN }}" | sg $SOCKET_GROUP -c "docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
+              echo "⚠️ Login with sg failed, trying regular docker login..."
+              echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || exit 1
+            }
+          else
+            echo "⚠️ Group $SOCKET_GROUP not available, using docker directly"
+            echo "⚠️ NOTE: Runner user needs docker group access - check runner container setup"
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+              echo "❌ Login failed - runner user needs docker group access"
+              echo "Current groups: $(id -nG)"
+              echo "Docker socket: $(ls -l /var/run/docker.sock)"
+              exit 1
+            }
+          fi
           echo "✅ Logged in to ${{ env.REGISTRY }}"
       
       - name: Verify build context
@@ -381,17 +393,63 @@ jobs:
           test -f ./ui/Dockerfile && echo "✅ Dockerfile found" || echo "❌ Dockerfile missing"
       
       - name: Build and push UI
-        uses: docker/build-push-action@v5
-        with:
-          context: ./ui
-          file: ./ui/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          builder: ci-builder
+        run: |
+          # Get socket group from env
+          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          
+          # Generate image tag
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [ "$BRANCH_NAME" = "main" ]; then
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-ui:main"
+          else
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-ui:dev-${{ github.sha }}"
+          fi
+          
+          echo "Building UI image: $IMAGE_TAG"
+          
+          # Disable BuildKit to avoid permission issues
+          export DOCKER_BUILDKIT=0
+          
+          # Check if we can use sg, otherwise use docker directly
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
+            DOCKER_CMD="sg $SOCKET_GROUP -c"
+          else
+            echo "⚠️ Using docker directly (group $SOCKET_GROUP not available)"
+            DOCKER_CMD=""
+          fi
+          
+          # Build with docker (native, fast, no BuildKit)
+          if [ -n "$DOCKER_CMD" ]; then
+            $DOCKER_CMD "cd ./ui && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile ." || {
+              echo "❌ Build failed"
+              exit 1
+            }
+          else
+            cd ./ui && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile . || {
+              echo "❌ Build failed"
+              exit 1
+            }
+          fi
+          echo "✅ Build successful"
+          
+          # Push if not a PR
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Pushing image..."
+            if [ -n "$DOCKER_CMD" ]; then
+              $DOCKER_CMD "docker push $IMAGE_TAG" || {
+                echo "❌ Push failed"
+                exit 1
+              }
+            else
+              docker push $IMAGE_TAG || {
+                echo "❌ Push failed"
+                exit 1
+              }
+            fi
+            echo "✅ Image pushed: $IMAGE_TAG"
+          else
+            echo "Skipping push (PR build)"
+          fi
 
   # Build translation-runner
   build-translation-runner:
@@ -533,17 +591,63 @@ jobs:
           test -f ./translation-runner/Dockerfile && echo "✅ Dockerfile found" || echo "❌ Dockerfile missing"
       
       - name: Build and push translation-runner
-        uses: docker/build-push-action@v5
-        with:
-          context: ./translation-runner
-          file: ./translation-runner/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          builder: ci-builder
+        run: |
+          # Get socket group from env
+          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          
+          # Generate image tag
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [ "$BRANCH_NAME" = "main" ]; then
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main"
+          else
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:dev-${{ github.sha }}"
+          fi
+          
+          echo "Building translation-runner image: $IMAGE_TAG"
+          
+          # Disable BuildKit to avoid permission issues
+          export DOCKER_BUILDKIT=0
+          
+          # Check if we can use sg, otherwise use docker directly
+          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
+            DOCKER_CMD="sg $SOCKET_GROUP -c"
+          else
+            echo "⚠️ Using docker directly (group $SOCKET_GROUP not available)"
+            DOCKER_CMD=""
+          fi
+          
+          # Build with docker (native, fast, no BuildKit)
+          if [ -n "$DOCKER_CMD" ]; then
+            $DOCKER_CMD "cd ./translation-runner && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile ." || {
+              echo "❌ Build failed"
+              exit 1
+            }
+          else
+            cd ./translation-runner && DOCKER_BUILDKIT=0 docker build -t $IMAGE_TAG -f Dockerfile . || {
+              echo "❌ Build failed"
+              exit 1
+            }
+          fi
+          echo "✅ Build successful"
+          
+          # Push if not a PR
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Pushing image..."
+            if [ -n "$DOCKER_CMD" ]; then
+              $DOCKER_CMD "docker push $IMAGE_TAG" || {
+                echo "❌ Push failed"
+                exit 1
+              }
+            else
+              docker push $IMAGE_TAG || {
+                echo "❌ Push failed"
+                exit 1
+              }
+            fi
+            echo "✅ Image pushed: $IMAGE_TAG"
+          else
+            echo "Skipping push (PR build)"
+          fi
 
   # Container scanning (DAST)
   scan-containers:
