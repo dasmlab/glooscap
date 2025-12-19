@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 38 - Back to secrets.GITHUB_TOKEN
+# CI Test Bump 39 - Test with GHCR_TOKEN PAT
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
