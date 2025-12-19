@@ -223,27 +223,11 @@ jobs:
           
           echo "Building operator image for $ARCH: $IMAGE_TAG"
           
-          # Check if we can use sg, otherwise use docker directly
-          if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
-            DOCKER_CMD="sg $SOCKET_GROUP -c"
-          else
-            echo "⚠️ Using docker directly (group $SOCKET_GROUP not available)"
-            DOCKER_CMD=""
-          fi
-          
-          # Build with docker
-          # Set build args for target architecture
-          if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./operator && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
-              echo "❌ Build failed"
-              exit 1
-            }
-          else
-            cd ./operator && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
-              echo "❌ Build failed"
-              exit 1
-            }
-          fi
+          # Build with docker directly (runner user now has docker group access)
+          cd ./operator && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
+            echo "❌ Build failed"
+            exit 1
+          }
           echo "✅ Build successful for $ARCH"
           
           # Export tags for manifest creation job
@@ -254,17 +238,10 @@ jobs:
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "Pushing image..."
-            if [ -n "$DOCKER_CMD" ]; then
-              $DOCKER_CMD "docker push $IMAGE_TAG" || {
-                echo "❌ Push failed"
-                exit 1
-              }
-            else
-              docker push $IMAGE_TAG || {
-                echo "❌ Push failed"
-                exit 1
-              }
-            fi
+            docker push $IMAGE_TAG || {
+              echo "❌ Push failed"
+              exit 1
+            }
             echo "✅ Image pushed: $IMAGE_TAG"
           else
             echo "Skipping push (PR build)"
@@ -524,17 +501,10 @@ jobs:
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "Pushing image..."
-            if [ -n "$DOCKER_CMD" ]; then
-              $DOCKER_CMD "docker push $IMAGE_TAG" || {
-                echo "❌ Push failed"
-                exit 1
-              }
-            else
-              docker push $IMAGE_TAG || {
-                echo "❌ Push failed"
-                exit 1
-              }
-            fi
+            docker push $IMAGE_TAG || {
+              echo "❌ Push failed"
+              exit 1
+            }
             echo "✅ Image pushed: $IMAGE_TAG"
           else
             echo "Skipping push (PR build)"
@@ -733,17 +703,10 @@ jobs:
           # Push if not a PR
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "Pushing image..."
-            if [ -n "$DOCKER_CMD" ]; then
-              $DOCKER_CMD "docker push $IMAGE_TAG" || {
-                echo "❌ Push failed"
-                exit 1
-              }
-            else
-              docker push $IMAGE_TAG || {
-                echo "❌ Push failed"
-                exit 1
-              }
-            fi
+            docker push $IMAGE_TAG || {
+              echo "❌ Push failed"
+              exit 1
+            }
             echo "✅ Image pushed: $IMAGE_TAG"
           else
             echo "Skipping push (PR build)"

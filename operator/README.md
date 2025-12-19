@@ -1,5 +1,5 @@
 # Glooscap Operator
-# CI Test Bump 27 - Test after runner Docker permissions fix
+# CI Test Bump 28 - Simplify docker commands (no sg workaround)
 
 Kubebuilder-based controller that discovers Outline wiki content, stages it for user selection, and orchestrates vLLM-backed translation jobs. It manages:
 
