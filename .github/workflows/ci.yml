@@ -406,39 +406,14 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
-      - name: Log in to GHCR
-        run: |
-          # Get token
-          TOKEN="${{ secrets.GHCR_TOKEN }}"
-          if [ -z "$TOKEN" ]; then
-            TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          fi
-          
-          # Pass TOKEN explicitly to sg as environment variable
-          env TOKEN="$TOKEN" sg docker -c "echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
-            echo "❌ Login failed"
-            exit 1
-          }
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-ui
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=dev-${{ github.sha }}
-      
-      - name: Verify build context
-        run: |
-          echo "== UI directory =="
-          ls -la ./ui/ || true
-          test -f ./ui/Dockerfile && echo "✅ Dockerfile found" || echo "❌ Dockerfile missing"
-      
       - name: Build and push UI
         run: |
+          # Get token and export it so it's available in sg subshell
+          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          if [ -z "$TOKEN" ]; then
+            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
           # Generate image tag
           BRANCH_NAME="${{ github.ref_name }}"
           ARCH="${{ matrix.arch }}"
@@ -450,8 +425,17 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
-          # Build and push with docker group activated (build from ui directory)
+          # Run everything with docker group activated (login and build/push)
           sg docker -c "
+            # Login to registry
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+            fi
+            
+            # Build
             cd ./ui
             docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo \"❌ Build failed\"
@@ -459,6 +443,7 @@ jobs:
             }
             echo \"✅ Build successful for $ARCH\"
             
+            # Push
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"Pushing image...\"
               docker push $IMAGE_TAG || {
@@ -589,41 +574,13 @@ jobs:
           sg $SOCKET_GROUP -c "docker buildx ls" || docker buildx ls || true
           sg $SOCKET_GROUP -c "docker buildx inspect ci-builder" || sg $SOCKET_GROUP -c "docker buildx inspect default" || true
       
-      - name: Log in to GHCR
-        run: |
-          # Get token
-          TOKEN="${{ secrets.GHCR_TOKEN }}"
-          if [ -z "$TOKEN" ]; then
-            TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          fi
-          
-          # Pass TOKEN explicitly to sg as environment variable
-          env TOKEN="$TOKEN" sg docker -c "echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin" || {
-            echo "❌ Login failed"
-            exit 1
-          }
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=dev-${{ github.sha }}
-      
-      - name: Verify build context
-        run: |
-          echo "== Translation-runner directory =="
-          ls -la ./translation-runner/ || true
-          test -f ./translation-runner/Dockerfile && echo "✅ Dockerfile found" || echo "❌ Dockerfile missing"
-      
       - name: Build and push translation-runner
         run: |
-          # Get socket group from env
-          SOCKET_GROUP=${SOCKET_GROUP:-dockersock}
+          # Get token and export it so it's available in sg subshell
+          export TOKEN="${{ secrets.GHCR_TOKEN }}"
+          if [ -z "$TOKEN" ]; then
+            export TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
           
           # Generate image tag with architecture suffix
           BRANCH_NAME="${{ github.ref_name }}"
@@ -633,22 +590,30 @@ jobs:
           echo "SHA: ${{ github.sha }}"
           if [ "$BRANCH_NAME" = "main" ]; then
             IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main-$ARCH"
-            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:main"
           else
             IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:dev-${{ github.sha }}-$ARCH"
-            MANIFEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/glooscap-translation-runner:dev-${{ github.sha }}"
           fi
           
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
-          # Build and push with docker group activated (build from repo root with translation-runner context)
+          # Run everything with docker group activated (login and build/push)
           sg docker -c "
+            # Login to registry
+            if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
+              echo \"\$TOKEN\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin || {
+                echo \"❌ Login failed\"
+                exit 1
+              }
+            fi
+            
+            # Build (from repo root with translation-runner Dockerfile)
             docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f ./translation-runner/Dockerfile . || {
               echo \"❌ Build failed\"
               exit 1
             }
             echo \"✅ Build successful for $ARCH\"
             
+            # Push
             if [ \"${{ github.event_name }}\" != \"pull_request\" ]; then
               echo \"Pushing image...\"
               docker push $IMAGE_TAG || {
