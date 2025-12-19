@@ -452,9 +452,6 @@ jobs:
           
           echo "Building UI image: $IMAGE_TAG"
           
-          # Disable BuildKit to avoid permission issues
-          export DOCKER_BUILDKIT=0
-          
           # Check if we can use sg, otherwise use docker directly
           if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
             DOCKER_CMD="sg $SOCKET_GROUP -c"
@@ -463,14 +460,14 @@ jobs:
             DOCKER_CMD=""
           fi
           
-          # Build with docker (native, fast, no BuildKit)
+          # Build with docker
           if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./ui && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
+            $DOCKER_CMD "cd ./ui && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
               echo "❌ Build failed"
               exit 1
             }
           else
-            cd ./ui && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
+            cd ./ui && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo "❌ Build failed"
               exit 1
             }
@@ -661,9 +658,6 @@ jobs:
           
           echo "Building translation-runner image for $ARCH: $IMAGE_TAG"
           
-          # Disable BuildKit to avoid permission issues
-          export DOCKER_BUILDKIT=0
-          
           # Check if we can use sg, otherwise use docker directly
           if getent group $SOCKET_GROUP >/dev/null 2>&1 && id -nG | grep -qw "$SOCKET_GROUP" 2>/dev/null; then
             DOCKER_CMD="sg $SOCKET_GROUP -c"
@@ -672,14 +666,14 @@ jobs:
             DOCKER_CMD=""
           fi
           
-          # Build with docker (native, fast, no BuildKit)
+          # Build with docker
           if [ -n "$DOCKER_CMD" ]; then
-            $DOCKER_CMD "cd ./translation-runner && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
+            $DOCKER_CMD "cd ./translation-runner && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile ." || {
               echo "❌ Build failed"
               exit 1
             }
           else
-            cd ./translation-runner && DOCKER_BUILDKIT=0 docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
+            cd ./translation-runner && docker build --build-arg TARGETARCH=$ARCH --build-arg TARGETOS=linux -t $IMAGE_TAG -f Dockerfile . || {
               echo "❌ Build failed"
               exit 1
             }
