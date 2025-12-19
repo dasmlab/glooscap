@@ -1,4 +1,4 @@
-name: BUILD PIPELINE
+name: Build Pipeline
 
 on:
   push:
